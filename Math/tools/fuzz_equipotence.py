@@ -1,22 +1,33 @@
-"""Differential fuzz of the statements that suppose two sets equipotent.
+"""Differential fuzz of the statements that speak of two sets being equipotent.
 
 usage: VAMPIRE=/path/to/vampire [VAMPIRE_ARGS="-t 3"] python3 -I fuzz_equipotence.py SEED COUNT WORK_DIRECTORY
 
-Generates COUNT statements of the form
+Generates COUNT statements about two sets S and T, made of "S and T are
+equipotent" and of conditions on how many elements they have ("at most k",
+"at least k", "exactly k", written |S| <= k, |S| >= k, |S| = k), with the
+equipotence in every place a statement can have it:
 
-    (S ~ T  and  hypotheses on how many elements S and T have)  implies  claim on how many elements they have
+    (S ~ T and H) implies C          a hypothesis to use
+    (not (S ~ T) and H) implies C    a hypothesis denied
+    H implies (S ~ T or C)           something to prove
+    H implies (not (S ~ T) or C)
+    H implies (S ~ T iff C)
 
-with "has at most k", "has at least k" and "has exactly k elements" written
-as |S| <= k, |S| >= k, |S| = k. The mathematical engine goes first on such a
-statement; where it has no answer Vampire is asked, with the supposed
-bijection given as two maps inverse to each other (Math/LogicStatement.cpp).
+The mathematical engine goes first on such a statement. Where it has no
+answer Vampire is asked: with the supposed bijection as two maps inverse to
+each other when the equipotence is a hypothesis (Math/LogicStatement.cpp),
+and on the clauses of the independent checker, where an equipotence can be
+used and not proved (11m-e in Math/quaerens/checker.c). A proof accepted by
+the checker for a statement that is false would show that rule wrong: this
+script is its adversary.
 
-THE ORACLE knows one thing: equipotent sets have the same number of
-elements, finite or not. So the statement holds exactly when, for every
-number of elements n (0, 1, 2, ... and "infinitely many"), the hypotheses
-with |S| = |T| = n give the claim. The numbers written are small, so trying
-n up to one more than the largest of them, and infinity, tries every case.
-It shares nothing with the engine, the translation or Vampire.
+THE ORACLE knows one thing: two sets are equipotent exactly when they have
+the same number of elements, finite or not. So the statement holds exactly
+when it holds for every pair of numbers of elements (m of S, n of T), with
+"S ~ T" read as m = n. The numbers written are small, so it is enough to
+try m and n up to one more than the largest of them and two different
+infinite numbers (two infinite sets need not be equipotent). It shares
+nothing with the engine, the translation, the checker or Vampire.
 
 What is compared: for each statement the line "% Result N: Code (who)" of
 the program. A code that says the statement holds on a statement the oracle
@@ -32,31 +43,46 @@ import re
 import subprocess
 import sys
 
-INFINITE = float("inf")
 LARGEST = 5
+INFINITE = [LARGEST + 100, LARGEST + 200]   # two infinite numbers of elements: larger than every number written, and different
+NUMBERS = list(range(0, LARGEST + 2)) + INFINITE
 
 
 def atom(rng):
-    """A condition on the number of elements of S or of T: its LaTeX and its truth for that number."""
-    name = rng.choice(["S", "T"])
+    """A condition on the number of elements of S or of T: its LaTeX and its truth for the two numbers (of S, of T)."""
+    of_s = rng.randrange(2) == 0
     bound = rng.randrange(0, LARGEST + 1)
     symbol, holds = rng.choice([("\\le", lambda n, k: n <= k), ("\\ge", lambda n, k: n >= k), ("=", lambda n, k: n == k)])
-    return "|%s| %s %d" % (name, symbol, bound), (lambda n: holds(n, bound))
+    return "|%s| %s %d" % ("S" if of_s else "T", symbol, bound), (lambda m, n: holds(m if of_s else n, bound))
 
 
 def statement(rng):
     hypotheses = [atom(rng) for _ in range(rng.randrange(1, 3))]
     claims = [atom(rng) for _ in range(rng.randrange(1, 3))]
     disjunction = rng.randrange(2) == 0
-    latex = "(S \\sim T \\land %s) \\implies (%s)" % (
-        " \\land ".join(text for text, _ in hypotheses),
-        (" \\lor " if disjunction else " \\land ").join(text for text, _ in claims))
-    truth = True
-    for n in list(range(0, LARGEST + 2)) + [INFINITE]:
-        supposed = all(holds(n) for _, holds in hypotheses)
-        claimed = (any if disjunction else all)(holds(n) for _, holds in claims)
-        truth = truth and (not supposed or claimed)
-    return latex, truth
+    supposed_text = " \\land ".join(text for text, _ in hypotheses)
+    claimed_text = (" \\lor " if disjunction else " \\land ").join(text for text, _ in claims)
+    supposed = lambda m, n: all(holds(m, n) for _, holds in hypotheses)
+    claimed = lambda m, n: (any if disjunction else all)(holds(m, n) for _, holds in claims)
+
+    # Where the equipotence stands. The first shape twice as often: it is the one Vampire can do most with.
+    shape = rng.choice(["hypothesis", "hypothesis", "denied", "to prove", "to refute", "iff"])
+    if shape == "hypothesis":
+        latex = "(S \\sim T \\land %s) \\implies (%s)" % (supposed_text, claimed_text)
+        holds = lambda m, n: not (m == n and supposed(m, n)) or claimed(m, n)
+    elif shape == "denied":
+        latex = "(\\lnot (S \\sim T) \\land %s) \\implies (%s)" % (supposed_text, claimed_text)
+        holds = lambda m, n: not (m != n and supposed(m, n)) or claimed(m, n)
+    elif shape == "to prove":
+        latex = "(%s) \\implies (S \\sim T \\lor %s)" % (supposed_text, claimed_text)
+        holds = lambda m, n: not supposed(m, n) or m == n or claimed(m, n)
+    elif shape == "to refute":
+        latex = "(%s) \\implies (\\lnot (S \\sim T) \\lor %s)" % (supposed_text, claimed_text)
+        holds = lambda m, n: not supposed(m, n) or m != n or claimed(m, n)
+    else:
+        latex = "(%s) \\implies (S \\sim T \\iff (%s))" % (supposed_text, claimed_text)
+        holds = lambda m, n: not supposed(m, n) or ((m == n) == claimed(m, n))
+    return latex, all(holds(m, n) for m in NUMBERS for n in NUMBERS)
 
 
 def main():

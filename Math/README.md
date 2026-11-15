@@ -124,9 +124,13 @@ what the statement is, by measurement (see "Measures").
   that undo each other; `Math/LogicStatement.cpp` shows that the statement
   means the same. This holds only for an equipotence that is a hypothesis:
   to *prove* that two sets are equipotent is to build a bijection, which
-  the engine's search for witnesses does and a first-order prover cannot,
-  and those statements are the engine's alone. A proof found this way is
-  not rechecked: the checker's clauses have no rule for equipotence.
+  the engine's search for witnesses does and a first-order prover cannot.
+  The proof is then rechecked like any other, on the checker's clauses:
+  there an equipotence is a proposition that implies that two maps undo
+  each other, so that a refutation can use it and cannot prove it (11m-e
+  in `Math/quaerens/checker.c`, with the argument that no model is lost).
+  The same clauses are given to Vampire when the equipotence stands
+  anywhere else in a statement the engine could not decide.
 - **Mathematics proper.** The statement goes to its algorithm in the engine:
   induction on sums and products, sign tables for equations and inequalities
   (also solving them), limits, derivatives, integrals, matrices and linear
@@ -248,7 +252,9 @@ prints a statement as TPTP.
 | `Math/Driver` | the run over the statements of an input; the searches of Vampire in child processes; models and proofs back to the engine |
 | `Math/Verification.hpp` | the statuses |
 | `Math/Names.hpp` | names of symbols back into LaTeX |
-| `Proof/IndependentChecker` | the checker of certificates as its own translation unit; also the program `certificate-checker` |
+| `Proof/IndependentChecker` | the checker of certificates, a module compiled once: the engine uses it for its own proofs and the driver for what Vampire finds, both through its two functions; also the program `certificate-checker` |
+| `Math/Plot` | the plots, a module compiled apart from the engine: the interface of `plot.c` |
+| `Math/EngineModules.h` | what the engine sees of the checker: its entry point and its three answers |
 | `Proof/Replay` | a refutation by Vampire, inference by inference, into the explicit steps the checker follows |
 | `Humanizer/ProofNarrator` | the account of a refutation, in English and Italian |
 | `Math/tools/as_quaerens.py` | presents this executable to the fuzz scripts of the Quaerens repository |
@@ -308,9 +314,13 @@ it writes a certifiable proof of a statement Vampire proved; or it decides,
 as it always did. A second, smaller place is at the end of the file, where
 statements are sent to their chapters: a statement with quantifiers over
 numbers can be handed over instead of decided (`numbers_handed_over()`).
-The other four files, the checker among them, are byte for byte those of
-Quaerens: nothing was added to the checker for Vampire's proofs, which are
-written in the steps it already had.
+A third is two lines of `engine_foundations.c`: the engine includes
+`checker.c` and `plot.c` only when it is built alone; here it is given
+their interfaces instead. The other four files, the checker among them, are
+byte for byte those of Quaerens. Vampire's proofs are written in the steps
+the checker already had; one rule was added to it, in Quaerens too, with
+its justification and its tests: an equipotence among the clauses of a
+proof by saturation (11m-e in `checker.c`).
 
 ## Migration: what is where, and what is not done
 
@@ -322,7 +332,7 @@ written in the steps it already had.
 | Logic over plain sets: making the answer checkable | checker, engine | the checker follows Vampire's inferences one by one (`Proof/Replay`); the engine's structure for models judges Vampire's models; its certifying provers rebuild a proof only where the inferences cannot be followed |
 | Logic with sets of *all* parts or *all* maps, written numbers | engine first, then **Vampire** | the engine leads (measured); Vampire proves from the engine's laws what the engine cannot |
 | Logic with a quantifier over the parts of a set | engine first, then **Vampire** | Vampire refutes the checker's clauses, with the parts the engine proposes |
-| Two sets supposed equipotent | engine first, then **Vampire** | the engine leads; Vampire proves what the engine cannot, with the bijection as two maps inverse to each other (not rechecked) |
+| Two sets supposed equipotent | engine first, then **Vampire** | the engine leads; Vampire proves what the engine cannot, with the bijection as two maps inverse to each other, and the checker follows the proof |
 | A bijection between two sets, to be proved | engine | proving one means building it: the engine's search for witnesses is the only procedure |
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |
@@ -339,15 +349,19 @@ written in the steps it already had.
 
 Not done, and not claimed:
 
-- **The engine is in volumes by domain, not in modules.** Its parts
-  (numbers and polynomials, sign tables, limits, integrals, linear algebra,
-  logic, indices) are files of their own, but they are still read in order
-  into one translation unit behind one C interface: a volume uses whatever
-  the volumes before it define, and none has an interface of its own or is
-  compiled apart. Making them modules means deciding, volume by volume,
-  what each exports, and giving up the shared static state (the arena, the
-  table of atoms, the proof being written); that was not done. `Proof/`
-  (the checker) is the one part that is a module in the build.
+- **Two parts of the engine are modules; the rest is volumes.** The
+  checker (`Proof/IndependentChecker`) and the plots (`Math/Plot`) are
+  compiled apart and used through interfaces: the engine no longer holds
+  their sources, and the checker is in the executable once instead of
+  twice. The other parts (numbers and polynomials, sign tables, limits,
+  integrals, linear algebra, logic, indices) are files of their own, by
+  domain, but are still read in order into one translation unit behind one
+  C interface: a volume uses whatever the volumes before it define, and
+  none has an interface of its own. Making those modules means deciding,
+  volume by volume, what each exports, and giving up the shared static
+  state (the arena, the table of atoms, the proof being written): the
+  checker and the plots could be separated because Quaerens already keeps
+  them independent, and nothing else in the engine is.
 - **The typed C++ form exists for statements of logic only.** Mathematical
   expressions are typed trees inside the engine and are not visible to C++.
 - **Not every inference of Vampire can be followed.** The run whose
@@ -369,12 +383,12 @@ Not done, and not claimed:
   rationals, or has a declared map, an exponent that is a letter, a
   function or a root, stays with the engine; and what Vampire proves about
   numbers is not rechecked by anything.
-- **A bijection that has to be proved is not given to Vampire**; those
-  statements are the engine's alone, and so are an equipotence under a
-  negation or in a branch of an "or", and one with a product of sets. A
-  supposed bijection is given as two maps, but what Vampire proves from it
-  is not rechecked: the checker's translation into clauses has no rule for
-  equipotence, and it was not added.
+- **A bijection can be used by Vampire, not proved.** To prove that two
+  sets are equipotent is to build a bijection: the engine's search for
+  witnesses does that, and it stays the only way. Among the clauses an
+  equipotence is used wherever it stands, but two writings of the same
+  equipotence are not recognised as one, and an equipotence with a product
+  of sets is not handed over.
 - **On the parts of a set Vampire only proves.** It works with the parts
   the engine proposes; that it finds no refutation says nothing.
 - **The engine's worked solutions are in English only**, and the engine's
@@ -402,6 +416,12 @@ Not done, and not claimed:
   kinds, an exponent that is a letter, a division by an expression or among
   integers, functions, roots, declared maps, requests for solutions); a
   text that is not what the engine hands over is refused.
+- `UnitTests/tProofReplay.cpp` also: an equipotence handed over as a
+  proposition and two maps; a refutation that uses one accepted by the
+  checker, and not accepted for the statement without the hypothesis, with
+  the hypothesis denied or with a false claim; an equipotence never proved
+  by the rule alone. (The rule itself is tested in the Quaerens repository,
+  `tests/checker/test_equipotence_clauses.c`, against a finite oracle.)
 - `UnitTests/tMathLogic.cpp` also: an equipotence that is a hypothesis read
   as two maps inverse to each other, and refused anywhere else (to be
   proved, under a negation, in an "or", under a quantifier, with a product
@@ -465,6 +485,9 @@ they are. No statement is answered one way by one and the other way by the
 other. The run writes 3454 certificates, and `certificate-checker`, the
 checker as a program of its own, accepts all of them.
 
+**Size.** With the checker compiled once, and not also inside the engine,
+the executable is 14.6 MB (15.0 MB before; Vampire alone is 12.0 MB).
+
 **Vampire's proofs, followed by the checker.** Vampire finds a refutation for
 134 of those statements: 127 theorems and 7 requests for an example that
 cannot exist. All 134 are rechecked inference by inference: 15431 steps of
@@ -502,10 +525,11 @@ The 29 answers that are new were looked at one by one, and all are right:
   x = k^2 + 7 and y = j^2 + 7 then x = y" on integers, "x^2 + a^2 + b^2 > 0
   for all reals").
 
-No statement of the corpus supposes two sets equipotent and is left without
-an answer by the engine, so the proofs from a supposed bijection add nothing
-there; they do on other statements ("if S and T are equipotent and S has at
-most three elements, so has T"), and on the fuzz below.
+No statement of the corpus speaks of two equipotent sets and is left without
+an answer by the engine, so what Vampire proves with an equipotence adds
+nothing there; it does on other statements ("if S and T are equipotent and
+S has at most three elements, so has T": certified, 183 steps), and on the
+fuzz below.
 
 **Cost** (one document after the other, `-t 3`; the machine was busy with
 other programs, so the figures of one run are comparable with each other
@@ -544,20 +568,23 @@ options, the untouched and the integrated executable print the same output
 **Fuzz and sanitizers**, on the last version. The scripts of the Quaerens
 repository, each with an oracle of its own: 22 scripts, 1220 statements, no
 `BUG` (one `SUSPECT`, looked at: a correct proof of the engine about x = 4/5,
-outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 400
-statements on integers with four seeds, no `BUG`; Vampire's arithmetic
-decides 333 of them, 202 true ones proved and 131 false ones refuted, all as
-the counting oracle says. `Math/tools/fuzz_equipotence.py`: 200 statements
-that suppose two sets equipotent, with two seeds, no `BUG`; the engine
-decides 161, Vampire proves 23 (15 from the supposed bijection, where the
-engine had no answer, and 8 that the unfolding of the notation had reduced
-to plain logic), all true for an oracle that only knows that equipotent
-sets have as many elements, and 16 stay without an answer.
+outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 500
+statements on integers with five seeds, no `BUG`; Vampire's arithmetic
+decides 413 of them, 245 true ones proved and 168 false ones refuted, all as
+the counting oracle says. `Math/tools/fuzz_equipotence.py`: 500 statements
+with five seeds, the equipotence in every place a statement can have it (a
+hypothesis, a hypothesis denied, something to prove or to refute, one side
+of an "if and only if"), no `BUG`; the engine decides 433, Vampire proves 41
+where the engine had no answer, all 41 certified by the checker and all
+true for an oracle that only knows that equipotent sets have as many
+elements, and 26 stay without an answer (16 of them false: none was
+proved). This run is the adversary of the checker's rule for equipotence.
 AddressSanitizer and UndefinedBehaviorSanitizer:
 no report on 386 statements of 15 documents that use every path (161
 refutations rechecked, 97 answers of the arithmetic theories), with the
-document and the certificates written, and none on 67 statements of 6
-documents run again after the reading of a supposed bijection was added.
+document and the certificates written, and none on 145 statements of 6
+documents run again with the checker and the plots as modules and the rule
+for equipotence.
 
 ## Licences
 

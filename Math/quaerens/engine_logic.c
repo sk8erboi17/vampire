@@ -7453,6 +7453,30 @@ static SpLiteral sp_formula(SpState *s, const Sentence *n, int positive) {
         return sp_connect(s, a, b, !every);
     }
     case S_FORALL_PART: case S_EXISTS_PART: return sp_schema(s, n, positive);
+    case S_EQUIPOTENT: {
+        /* 11m-e di checker.c, che spiega perché è lecito: una proposizione
+         * nuova e, due funzioni nuove, e le quattro clausole "e implica che
+         * le due funzioni si disfano a vicenda tra A e B"; al posto
+         * dell'equipotenza, e. Stessi simboli e stesse clausole del
+         * verificatore, nello stesso ordine: i numeri devono coincidere.
+         * Così un'equipotenza si può usare in una refutazione, non
+         * dimostrare. La saturazione di questo capitolo non arriva qui
+         * (sp_supported_formula() rifiuta l'equipotenza, che ha le sue
+         * strategie): ci arriva la consegna delle clausole a Vampire. */
+        if (n->sides[0] != 1 || n->sides[1] != 1) { s->unsupported = 1; return constant; }
+        int from = s->inputs + slot_data[n->side_slot[0][0]].sort, to = s->inputs + slot_data[n->side_slot[1][0]].sort;
+        int name = sp_symbol(s, 0, 1), there = sp_symbol(s, 1, 0), back = sp_symbol(s, 1, 0);
+        if (s->limited) return constant;
+        int proposition = sp_term(s, name, NULL), x = -1;
+        int image = sp_term(s, there, &x), returned = sp_term(s, back, &image);
+        int preimage = sp_term(s, back, &x), again = sp_term(s, there, &preimage);
+        SpLiteral unless = {proposition, 0, 1};
+        sp_emit(s, unless, (SpLiteral){sp_term(s, from, &x), 0, 1}, (SpLiteral){sp_term(s, to, &image), 0, 0}, 3);
+        sp_emit(s, unless, (SpLiteral){sp_term(s, from, &x), 0, 1}, (SpLiteral){returned, x, 0}, 3);
+        sp_emit(s, unless, (SpLiteral){sp_term(s, to, &x), 0, 1}, (SpLiteral){sp_term(s, from, &preimage), 0, 0}, 3);
+        sp_emit(s, unless, (SpLiteral){sp_term(s, to, &x), 0, 1}, (SpLiteral){again, x, 0}, 3);
+        return (SpLiteral){proposition, 0, !positive};
+    }
     default: s->unsupported = 1; return constant;
     }
 }
@@ -8918,6 +8942,23 @@ static int sp_supported_formula(const Sentence *root) {
     }
 }
 
+/* Dentro Vampire (LOGIC_CLAUSES). Nodi che la traduzione in clausole sa
+ * scrivere per chi cerca la refutazione altrove: quelli di
+ * sp_supported_formula() e in più l'equipotenza tra due insiemi (non tra
+ * prodotti), che tra le clausole si può usare e non dimostrare (11m-e di
+ * checker.c). La saturazione di questo capitolo continua a non
+ * incontrarla: per l'equipotenza ha i testimoni di 28q, che la sanno anche
+ * dimostrare, e vengono prima. */
+static int sp_handed_formula(const Sentence *root) {
+    switch (root->kind) {
+    case S_TRUE: case S_EQUAL: case S_HOLDS: return 1;
+    case S_EQUIPOTENT: return root->sides[0] == 1 && root->sides[1] == 1;
+    case S_NOT: case S_FORALL: case S_EXISTS: case S_FORALL_PART: case S_EXISTS_PART: return sp_handed_formula(root->a);
+    case S_AND: case S_OR: case S_IMPLIES: case S_IFF: return sp_handed_formula(root->a) && sp_handed_formula(root->b);
+    default: return 0;
+    }
+}
+
 /* Cerca una refutazione e la consegna soltanto attraverso ck_check.
  * Ritorna uno se e arrivata al controllo di un certificato, compreso un
  * eventuale rifiuto che deve restare visibile come errore del motore.
@@ -9218,7 +9259,7 @@ static Verdict prove_abstract(const char *formula) {
      * garantisce sp_prepare(), su cui poggiano già i certificati di 28u. */
     if (logic_task == LOGIC_CLAUSES) {
         verdict.outcome = NOT_PROVED;
-        if (!sp_supported_formula(root)) {
+        if (!sp_handed_formula(root)) {
             verdict.reason = "l'enunciato non ha una traduzione in clausole";
             return verdict;
         }

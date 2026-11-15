@@ -326,10 +326,72 @@ TEST_FUN(a_statement_on_the_parts_of_a_set_comes_with_the_parts_to_try)
   ASS(proof_check_certificate(replay.certificate().c_str(), &why) != PROOF_CHECK_ACCEPTED);
 }
 
-TEST_FUN(a_statement_about_a_bijection_has_no_clauses_to_hand_over)
+TEST_FUN(an_equipotence_is_handed_over_as_a_proposition_and_two_maps)
 {
   qr_init();
-  std::string item = "$\\displaystyle S \\sim S$";
+
+  /* "If S and T are equipotent and a is in S, T has an element." Among the
+   * clauses there are the four of the rule for equipotence (11m-e of the
+   * checker): the proposition of the equipotence, 3, implies that the maps
+   * 4 and 5 undo each other between S and T (1 and 2 are "is in S", "is in T"). */
+  std::string item = "$\\displaystyle (S \\sim T \\land a \\in S) \\implies \\exists y \\in T\\ (y = y)$";
+  QrVerdict handedOver = qr_clauses_item(item.c_str(), item.c_str() + item.size());
+  ASS(handedOver.logic != nullptr);
+  std::string text = handedOver.logic;
+  ASS(contains(text, "(equipotent S T)"));
+  ASS(contains(text, "\n(clause (neg (f 3)) (neg (f 1 (v 0))) (pos (f 2 (f 4 (v 0)))))\n"));
+  ASS(contains(text, "\n(clause (neg (f 3)) (neg (f 1 (v 0))) (eq (f 5 (f 4 (v 0))) (v 0)))\n"));
+  ASS(contains(text, "\n(clause (neg (f 3)) (neg (f 2 (v 0))) (pos (f 1 (f 5 (v 0)))))\n"));
+  ASS(contains(text, "\n(clause (neg (f 3)) (neg (f 2 (v 0))) (eq (f 4 (f 5 (v 0))) (v 0)))\n"));
+
+  /* The checker builds the same clauses from the beginning alone, and
+   * without a refutation accepts nothing. */
+  Replay replay;
+  ASS(replay.start(text));
+  const char* why = "";
+  ASS(proof_check_certificate(replay.certificate().c_str(), &why) != PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(the_checker_follows_a_refutation_that_uses_an_equipotence_and_no_other)
+{
+  /* The refutation Vampire found for the statement above, as Replay wrote it. */
+  const std::string head = "certificate saturation\nsort S\nsort T\nsymbol a S\n";
+  const std::string statement = "statement (implies (and (equipotent S T) true) (exists y T (= y y)))\n";
+  const std::string steps =
+    "clausify\n"
+    "step reflex 7 2 (subst) (clause (neg (f 6 (v 0))) (neg (f 2 (v 0))))\n"
+    "step resolve 11 0 9 0 (subst (0 (v 64))) (clause (pos (f 6 (v 0))))\n"
+    "step resolve 11 0 8 0 (subst (0 (v 64))) (clause (pos (f 3)))\n"
+    "component (clause (pos (f 3)))\n"
+    "complement 0\n"
+    "step resolve 15 0 1 0 (subst) (clause (neg (f 8)) (neg (f 1 (v 0))) (pos (f 2 (f 4 (v 0)))))\n"
+    "component (clause (neg (f 1 (v 0))) (pos (f 2 (f 4 (v 0)))))\n"
+    "step split 17 (groups (1 0 1 2)) (clause (pos (f 9)) (neg (f 8)))\n"
+    "step resolve 16 0 14 0 (subst) (clause (pos (f 8)))\n"
+    "step resolve 13 0 12 0 (subst (0 (v 64))) (clause (neg (f 2 (v 0))))\n"
+    "step resolve 21 0 18 1 (subst (0 (f 4 (v 64)))) (clause (neg (f 1 (v 0))) (neg (f 9)))\n"
+    "step resolve 0 0 22 0 (subst (64 (f 0))) (clause (neg (f 9)))\n"
+    "step resolve 19 0 23 0 (subst) (clause (neg (f 8)))\n"
+    "step resolve 20 0 24 0 (subst) (clause)\n"
+    "end\n";
+  const char* why = "";
+  ASS(proof_check_certificate((head + statement + steps).c_str(), &why) == PROOF_CHECK_ACCEPTED);
+
+  /* Without the hypothesis the statement is false (S with an element, T
+   * empty); with the equipotence denied, or a false claim, the steps prove nothing. */
+  ASS(proof_check_certificate((head + "statement (implies (and true true) (exists y T (= y y)))\n" + steps).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate((head + "statement (implies (and (not (equipotent S T)) true) (exists y T (= y y)))\n" + steps).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate((head + "statement (implies (and (equipotent S T) true) (exists y T (not (= y y))))\n" + steps).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+
+  /* An equipotence is used, never proved: not by itself, and not from another writing of itself. */
+  ASS(proof_check_certificate("certificate saturation\nsort S\nstatement (equipotent S S)\nclausify\nend\n", &why) != PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate("certificate saturation\nsort S\nsort T\nstatement (implies (equipotent S T) (equipotent S T))\nclausify\nend\n", &why) != PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(an_equipotence_with_a_product_of_sets_has_no_clauses_to_hand_over)
+{
+  qr_init();
+  std::string item = "$\\displaystyle (S \\times T \\sim T \\times S \\land a \\in S) \\implies a = a$";
   QrVerdict handedOver = qr_clauses_item(item.c_str(), item.c_str() + item.size());
   ASS(handedOver.logic == nullptr);
 }

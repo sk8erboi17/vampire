@@ -6,6 +6,6 @@
 % Result 6: CounterexampleVerified (engine)
 % Result 7: TheoremCertified (vampire)
 % Result 8: RefutationCertified (vampire)
-% Result 9: TheoremUnverified (vampire)
+% Result 9: TheoremCertified (vampire)
 % Result 10: TheoremCertified (engine)
-% Summary of parts.tex: 10 statements; TheoremCertified 5; TheoremUnverified 1; CounterexampleVerified 2; RefutationCertified 2
+% Summary of parts.tex: 10 statements; TheoremCertified 6; CounterexampleVerified 2; RefutationCertified 2
