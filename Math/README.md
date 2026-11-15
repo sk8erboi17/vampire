@@ -286,6 +286,22 @@ Vampire adds answers the engine did not have, and they are labelled for what
 they are. No statement is answered one way by one and the other way by the
 other.
 
+The 17 answers that are new were looked at one by one, and all are right:
+
+- 8 statements that hold in every finite set and fail in an infinite one
+  ("an injective map of a set into itself is onto", and the like): Vampire's
+  saturation ends without a contradiction, there is no finite model to
+  check, and they are reported as refuted, not verified;
+- 6 requests for an example of something that cannot exist (two sets that
+  are equal by definition and should differ, a reflexive relation with an
+  element not related to itself): Vampire refutes them by a proof;
+- 1 counterexample with six elements, verified, which the engine's own
+  search did not reach;
+- 1 request for an example that exists only in an infinite set (an
+  injective map that is not onto): found by saturation, not verified;
+- 1 theorem on an order between the maps of two sets, which the engine could
+  not prove and Vampire proves from the engine's laws on sets of maps.
+
 **Cost** (one document after the other, idle machine, `-t 3`):
 
 | | Time | Peak memory |
