@@ -58,10 +58,37 @@
  * and lets Vampire treat the goal as a goal. A statement that wants an
  * example has no conjecture: it is an axiom to be satisfied.
  *
- * WHAT IS NOT TRANSLATED. Sets of parts and of maps (which in the intended
- * interpretations contain ALL the parts and maps), quantifiers on parts,
- * equipotence and written numbers are not first-order over plain sorts:
- * LogicStatement::outside() refuses them and they never reach this class.
+ * SETS OF PARTS, SETS OF MAPS, WRITTEN NUMBERS. In the statement a set of
+ * parts is the set of ALL the parts of its base, and a set of maps the set
+ * of ALL the maps between two sets. First-order logic cannot say "all": the
+ * translation gives each of them an ordinary sort, with its structure
+ * symbol (membership, application), and the LAWS the engine supplies with
+ * the statement as axioms: two parts with the same elements are the same
+ * part, the elements satisfying such and such a condition are a part, and
+ * so on. Every intended interpretation satisfies the laws, so
+ *
+ *     what Vampire proves from the laws holds in every intended
+ *     interpretation: a proof is a proof.
+ *
+ * The converse fails, and callers must not use it: the laws are finitely
+ * many, and a model of them may lack parts or maps that really exist. So
+ * for such a statement a saturation without a contradiction says NOTHING
+ * about the statement, and a finite model found by Vampire is not a
+ * counterexample (LogicStatement::plainOnly() tells the two kinds apart).
+ * Counterexamples for these statements come from the engine's model finder,
+ * which builds the real sets of parts and of maps.
+ *
+ * On emptiness: a set of parts is never empty (the empty part is there),
+ * so it gets no proposition; a set of maps from S to T is empty exactly
+ * when S has an element and T has none, which is one more axiom,
+ * inhabited_M <=> (~inhabited_S | inhabited_T), true in every intended
+ * interpretation. The written numbers are named elements, declared distinct
+ * and declared to be all the elements of their sort.
+ *
+ * WHAT IS NOT TRANSLATED. A quantifier on the parts of a set that is not
+ * itself a set of the statement, and equipotence, have no first-order form
+ * here: LogicStatement::outside() refuses them and they never reach this
+ * class.
  */
 
 #ifndef __Math_LogicTranslator__
@@ -79,8 +106,17 @@ namespace Math {
 
 class LogicTranslator {
 public:
-  /** The part an input formula plays, for whoever explains a proof. */
-  enum class Role { HYPOTHESIS, CLAIM, STATEMENT, INHABITED };
+  /**
+   * The part an input formula plays, for whoever explains a proof.
+   *   HYPOTHESIS  a hypothesis of the statement
+   *   CLAIM       its claim (what enters the search is the negation)
+   *   STATEMENT   the whole statement, when it wants an example
+   *   INHABITED   "a total map into T makes T inhabited"
+   *   LAW         a law of the sets of parts and of maps, given by the engine
+   *   STRUCTURE   what a set is: the written numbers are distinct and are
+   *               all there is; when a set of maps is empty
+   */
+  enum class Role { HYPOTHESIS, CLAIM, STATEMENT, INHABITED, LAW, STRUCTURE };
 
   /** An input formula of the problem: the unit, its part, and its name in the proofs. */
   struct Input {
@@ -89,7 +125,7 @@ public:
     std::string name;
   };
 
-  /** @param statement must be first-order over plain sorts: statement.outside() is empty. It must outlive the translator. */
+  /** @param statement must be one that can be translated: statement.outside() is empty. It must outlive the translator. */
   explicit LogicTranslator(const LogicStatement& statement);
 
   /**
@@ -117,6 +153,7 @@ private:
   std::vector<bool> _mayBeEmpty;
   std::vector<unsigned> _inhabited;
   std::vector<Input> _inputs;
+  unsigned _nextVariable = 0;  // the first variable number not used by the statement
 
   void declare();
   Kernel::TermList term(const LogicStatement::Term& term) const;

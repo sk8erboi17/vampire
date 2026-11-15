@@ -22,7 +22,10 @@
  * this program is Vampire's.
  *
  * Checklist: the interface relies on these names of the engine: engine_init,
- * next_item, read_item, prove_item, prove, verdict_print, logic_delegated, LOGIC_DELEGATED, abstract_example, stack_origin,
+ * next_item, read_item, prove_item, prove, verdict_print, logic_task and
+ * its values, LOGIC_HANDED_OVER, the adopted_* inputs of model_adopt(),
+ * abstract_example, stack_origin, operation_symbols, relation_commands,
+ * greek_letters,
  * unjustified_steps, figure, figures_wanted, explanation,
  * explanations_wanted and the document_* functions of output.c. If the
  * engine renames one, this file stops compiling, which is the intent.
@@ -111,7 +114,7 @@ static QrVerdict export_verdict(const Verdict* verdict, int conditional, int rem
   QrVerdict result = {0};
   last_verdict = *verdict;
 
-  if (verdict->outcome == NOT_PROVED && verdict->reason == LOGIC_DELEGATED) {
+  if (verdict->outcome == NOT_PROVED && verdict->reason == LOGIC_HANDED_OVER) {
     result.outcome = QR_LOGIC;
     result.logic = verdict->detail;
     result.wants_example = abstract_example;
@@ -134,10 +137,13 @@ static QrVerdict export_verdict(const Verdict* verdict, int conditional, int rem
   return result;
 }
 
-QrVerdict qr_decide_item(const char* item, const char* end, int delegate_logic)
+/* Decides the item with the engine's procedure for logic set to task (the
+ * values of logic_task in Math/quaerens/main.c). The task matters only if
+ * the statement is one of logic over arbitrary sets; it is put back to
+ * "decide" at once, so that no later call inherits it. */
+static QrVerdict decide_item(const char* item, const char* end, int task)
 {
   ENTER_ENGINE();
-  logic_delegated = delegate_logic;
 
   /* The flags of the text around the formula. prove_item() uses them to
    * hold back a counterexample when a condition was not read; for a
@@ -146,18 +152,69 @@ QrVerdict qr_decide_item(const char* item, const char* end, int delegate_logic)
   int conditional = 0, remark = 0;
   if (!read_item(item, end, &statement)) { conditional = statement.conditional; remark = statement.remark; }
 
+  logic_task = task;
   Verdict verdict = prove_item(item, end);
-  logic_delegated = 0;
+  logic_task = LOGIC_DECIDE;
   return export_verdict(&verdict, conditional, remark);
+}
+
+QrVerdict qr_decide_item(const char* item, const char* end, int delegate_logic)
+{
+  return decide_item(item, end, delegate_logic ? LOGIC_HAND_OVER : LOGIC_DECIDE);
 }
 
 QrVerdict qr_decide_formula(const char* formula, int delegate_logic)
 {
   ENTER_ENGINE();
-  logic_delegated = delegate_logic;
+  logic_task = delegate_logic ? LOGIC_HAND_OVER : LOGIC_DECIDE;
   Verdict verdict = prove(formula, 'n', 0, 0);
-  logic_delegated = 0;
+  logic_task = LOGIC_DECIDE;
   return export_verdict(&verdict, 0, 0);
+}
+
+QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model)
+{
+  adopted_sorts = (int)model->sorts;
+  adopted_sizes = model->sizes;
+  adopted_symbols = (int)model->symbols;
+  adopted_tables = model->tables;
+  adopted_cells = model->cells;
+
+  /* A model that does not confirm is counted by the engine among its own
+   * steps that failed a recheck. This one is not the engine's: whoever
+   * found it answers for it, and the caller reports it. */
+  int failed_before = unjustified_steps;
+  QrVerdict verdict = decide_item(item, end, LOGIC_ADOPT_MODEL);
+  unjustified_steps = failed_before;
+
+  /* Borrowed for the call only. */
+  adopted_sizes = NULL;
+  adopted_tables = NULL;
+  adopted_cells = NULL;
+  adopted_sorts = adopted_symbols = 0;
+  return verdict;
+}
+
+QrVerdict qr_certify_item(const char* item, const char* end)
+{
+  return decide_item(item, end, LOGIC_CERTIFY);
+}
+
+const char* const* qr_symbol_commands(QrCommands list, size_t* count)
+{
+  switch (list) {
+    case QR_COMMANDS_OPERATIONS:
+      *count = sizeof operation_symbols / sizeof *operation_symbols;
+      return operation_symbols;
+    case QR_COMMANDS_RELATIONS:
+      *count = sizeof relation_commands / sizeof *relation_commands;
+      return relation_commands;
+    case QR_COMMANDS_GREEK:
+      *count = sizeof greek_letters / sizeof *greek_letters;
+      return greek_letters;
+  }
+  *count = 0;
+  return NULL;
 }
 
 int qr_unjustified_steps(void)

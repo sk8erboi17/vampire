@@ -26,6 +26,10 @@
  * engine reads them, unfolds the notation of the books into quantifiers,
  * rechecks the unfolding, and returns the statement in the language of the
  * certificates. Searching for a proof or a counterexample is Vampire's job.
+ * What Vampire finds comes back here: a finite model is loaded into the
+ * engine's own structure for models and judged as the engine judges its own
+ * (qr_adopt_model()); a statement Vampire proved is given a proof that the
+ * independent checker can recheck (qr_certify_item()).
  *
  * The interface is plain C so that the engine can stay in C while its parts
  * are being moved, one at a time, into C++ modules. Nothing else in Vampire
@@ -37,6 +41,8 @@
 
 #ifndef __Math_Engine__
 #define __Math_Engine__
+
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -110,6 +116,74 @@ QrVerdict qr_decide_item(const char* item, const char* end, int delegate_logic);
 
 /** As qr_decide_item(), for a bare formula that is not inside an \item. */
 QrVerdict qr_decide_formula(const char* formula, int delegate_logic);
+
+/**
+ * A finite interpretation of a statement that was handed over (QR_LOGIC),
+ * as plain data. Everything is in the order of the lines of
+ * QrVerdict::logic: one size for each "sort" line, one table for each
+ * "symbol" line.
+ *
+ * A table has one cell for every choice of the arguments of its symbol,
+ * the first argument changing fastest: for an operation on a set of 2
+ * elements the cells are (0,0), (1,0), (0,1), (1,1). A cell holds the value
+ * as the number of an element of the range, from 0, or 1 and 0 for true and
+ * false. A named element has one cell.
+ */
+typedef struct {
+  unsigned sorts;               /* how many sets */
+  const size_t* sizes;          /* the number of elements of each */
+  unsigned symbols;             /* how many declared symbols */
+  const size_t* const* tables;  /* the table of each */
+  const size_t* cells;          /* how many cells each table has */
+} QrModel;
+
+/**
+ * Judges a finite model found outside the engine for the statement in the
+ * item [item, end), which must be one that qr_decide_item() handed over.
+ *
+ * The model is loaded into the engine's structure for models and from there
+ * on it is treated as a model the engine found itself: the hypotheses and
+ * the claim are recomputed in it, and so is the statement as it is written,
+ * before the notation was unfolded; it is written out for a reader and as a
+ * certificate, which the independent checker must accept. Nothing of what
+ * comes in is trusted.
+ *
+ * The verdict is QR_REFUTED (a counterexample) or, for a statement that
+ * wants an example, QR_PROVED, in both cases with certified set; or
+ * QR_NOT_PROVED with the reason, if the data is not an interpretation of
+ * the statement or the statement does not have in it the value claimed.
+ */
+QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model);
+
+/**
+ * Writes a proof that the independent checker accepts for the statement in
+ * the item [item, end), which was handed over and has been PROVED outside
+ * the engine. The engine does not search for models with its SAT finder
+ * here: whether the statement is a theorem is already known, what is asked
+ * for is a proof in a form that can be rechecked.
+ *
+ * The verdict is QR_PROVED with certified set if a certificate was written
+ * and accepted, QR_NOT_PROVED if the engine could not rebuild a proof. It is
+ * QR_REFUTED only if the engine's check on small models found a
+ * counterexample, which contradicts the proof found outside: the caller
+ * must then report neither.
+ */
+QrVerdict qr_certify_item(const char* item, const char* end);
+
+/**
+ * The LaTeX commands the frontend reads as names of symbols, without the
+ * backslash, in three lists: the operations written between their arguments
+ * ("perp" for \perp), the order relations written between their arguments
+ * ("le" for \le), and the Greek letters. A symbol written with one of them
+ * carries its letters as its name wherever the statement goes (to Vampire,
+ * into a certificate): whoever shows the symbol to a reader again asks here
+ * which names are commands, so that the lists exist once.
+ *
+ * Returns the list and sets *count to its length. The strings are the
+ * engine's and are never freed.
+ */
+typedef enum { QR_COMMANDS_OPERATIONS, QR_COMMANDS_RELATIONS, QR_COMMANDS_GREEK } QrCommands;
+const char* const* qr_symbol_commands(QrCommands list, size_t* count);
 
 /**
  * How many proof steps failed the engine's internal rechecks and were

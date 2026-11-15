@@ -5,6 +5,12 @@
 #
 #     sh checks/latex-sanity build/vampire
 #
+# Who works on what. A statement of first-order logic over plain sets: Vampire
+# searches, the mathematical engine judges the models it finds and rebuilds
+# its proofs as certificates. A statement with sets of parts or of maps: the
+# engine goes first, Vampire is asked for a proof when the engine has none.
+# Mathematics proper: the engine. The independent checker judges every certificate.
+#
 # What is checked, for each document in checks/latex/:
 #   - the result of every statement ("% Result N: Code (who decided)") and the summary;
 #   - that no false statement is reported as a theorem and no invalid writing is read;
@@ -76,11 +82,12 @@ check_output_lacks() {
 	fi
 }
 
-# the four documents, statement by statement
+# the five documents, statement by statement
 check_results logic
 check_results mathematics
 check_results false
 check_results invalid
+check_results parts
 
 # no false statement is a theorem, however it is decided, and no invalid writing is read
 check_output_lacks "Theorem" --proof off -t 10 latex/false.tex
@@ -90,14 +97,26 @@ check_output_lacks "CounterSatisfiable" --proof off -t 10 latex/invalid.tex
 # a statement of logic is Vampire's problem in every mode: here it is only printed, as TPTP
 check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax latex latex/logic.tex
 
-# a proof found by Vampire is never called certified, and it is explained, in both languages
+# a theorem found by Vampire is certified when the engine rebuilds its proof and the
+# checker accepts it, and only then: statement 10 is proved by Vampire and the engine
+# cannot rebuild it, so it is "found but not independently verified"
+check_output_contains "% Result 1: TheoremCertified (vampire)" -t 10 latex/logic.tex
+check_output_contains "% Result 10: TheoremUnverified (vampire)" -t 10 latex/logic.tex
 check_output_contains "proof found but not independently verified" -t 10 latex/logic.tex
-check_output_contains "Superposition: an equation of one clause" -t 10 latex/logic.tex
 check_output_contains "prova trovata ma non verificata indipendentemente" -t 10 --math_language it latex/logic.tex
+
+# Vampire's proof is told step by step, in both languages
+check_output_contains "Superposition: an equation of one clause" -t 10 latex/logic.tex
 check_output_contains "Superposizione: un'equazione di una clausola" -t 10 --math_language it latex/logic.tex
 
-# a counterexample is called verified only with a certificate, and the empty set is a set
-check_output_contains '% Counterexample (LaTeX): $S = \{\}$; $f = \emptyset$' --proof off -t 10 latex/logic.tex
+# with sets of parts the engine goes first; where it has no answer Vampire is asked,
+# and what Vampire proves from the engine's laws is reported as its own, unverified
+check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/parts.tex
+
+# a model found by Vampire is judged by the engine as its own, and the empty set is a set
+check_output_contains '% Engine verdict: FALSO: controesempio $S = \{\}$; $f = \emptyset$; certificato verificato' --proof off -t 10 latex/logic.tex
 
 # TPTP input is untouched by all this: no verification line, the usual status
 check_output_lacks "Verification status" -t 10 Problems/PUZ/PUZ001+1.p
@@ -115,7 +134,7 @@ else
 fi
 if test -x "$scratch/checker"
 then
-	for name in logic mathematics false
+	for name in logic mathematics false parts
 	do
 		run_vampire --proof off -t 10 --math_certificates "$scratch/$name.cert" latex/$name.tex
 		written=`grep -c '^certificate' "$scratch/$name.cert"`

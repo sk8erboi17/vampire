@@ -1442,7 +1442,7 @@ MainLoopResult FiniteModelBuilder::runImpl()
   }
   if(!_prb.units()){
     // a statement read from LaTeX: preprocessing left no clause, so there is a model, but none was built;
-    // the smallest one goes to the independent checker (no-op for any other input)
+    // the smallest one is proposed for judgement (no-op for any other input)
     if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
       statement->onNoClauses();
     }
@@ -1811,8 +1811,8 @@ MainLoopResult FiniteModelBuilder::runImpl()
 void FiniteModelBuilder::onModelFound()
 {
   // Don't do any output if proof is off
-  // (a statement read from LaTeX needs the model all the same: without it the
-  // independent checker has nothing to recompute, and no model means no verified counterexample)
+  // (a statement read from LaTeX needs the model all the same: without it
+  // there is nothing to recompute, and no model means no verified counterexample)
   if(_opt.proof()==Options::Proof::OFF && !Math::LogicProblem::current()){
     return;
   }
@@ -2032,7 +2032,7 @@ void FiniteModelBuilder::onModelFound()
 
   env.statistics->model = model.toString();
 
-  // a statement read from LaTeX: the model goes to the independent checker (no-op for any other input)
+  // a statement read from LaTeX: the model goes back to be judged (no-op for any other input)
   if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
     statement->onFiniteModel(model);
   }

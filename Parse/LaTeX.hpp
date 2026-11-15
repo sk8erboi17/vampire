@@ -66,6 +66,8 @@ public:
     QrVerdict verdict = {};        // MATHEMATICS: the engine's verdict (strings valid until the next reading)
     Math::LogicStatement logic;    // LOGIC: the statement, first-order over plain sorts
     bool conditional = false;      // LOGIC: a condition after the formula was not read, so a counterexample is not conclusive
+    bool engineHadNoAnswer = false;// LOGIC: the engine went first on this statement and neither proved nor refuted it;
+                                   // verdict holds what it said, and Vampire is asked for a proof
     std::string notTranslated;     // MATHEMATICS reached from logic: why the statement was not given to Vampire, or empty
   };
 
@@ -76,12 +78,24 @@ public:
   bool next(Item& item);
 
   /**
-   * Reads and classifies an item. A statement of first-order logic over
-   * plain sorts comes back as LOGIC, for Vampire. Everything else is decided
-   * by the engine and comes back as MATHEMATICS: mathematics proper, and the
-   * statements of logic that have no such translation (sets of all the parts
-   * or of all the maps of a set, equipotence, written numbers), for which
-   * the engine's procedures are the only ones there are.
+   * Reads and classifies an item, and gives the first turn on it to
+   * whichever part of the program does better on its kind (the measures
+   * are in Math/README.md).
+   *
+   *   - First-order logic over plain sets: LOGIC. Vampire leads; the engine
+   *     judges the models it finds and rebuilds its proofs as certificates
+   *     (Math/Driver.cpp).
+   *   - Logic with sets of all the parts or of all the maps of a set, or
+   *     with written numbers: the engine leads, because a model there must
+   *     have every part and every map, and a proof must choose the parts
+   *     it needs. If it proves or refutes, that is the verdict
+   *     (MATHEMATICS). If it has no answer the statement comes back as
+   *     LOGIC with engineHadNoAnswer set, and Vampire is asked for a proof
+   *     from the laws of those sets that the engine supplies.
+   *   - Everything else is the engine's alone (MATHEMATICS): mathematics
+   *     proper, a statement that only computes with the numbers it writes,
+   *     and logic with no first-order form (a quantifier over parts that
+   *     are not a set of the statement, a bijection between two sets).
    */
   Statement read(const Item& item);
 

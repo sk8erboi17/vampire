@@ -41,15 +41,16 @@ class LogicStatementReader {
 public:
   LogicStatementReader(LogicStatement& statement) : _statement(statement) {}
 
-  /** Reads the condition in text; on any problem leaves the reason in the statement's _outside. */
-  void readCondition(const std::string& text)
+  /** Reads the condition in text and returns it; on any problem leaves the reason in the statement's _outside. */
+  LogicStatement::Formula readCondition(const std::string& text)
   {
     _text = &text;
     _position = 0;
+    _scope.clear();
     LogicStatement::Formula formula = condition(0);
     skipSpaces();
     if (ok() && _position != text.size()) fail("there is text after the condition");
-    if (ok()) _statement._formula = std::move(formula);
+    return formula;
   }
 
 private:
@@ -258,30 +259,74 @@ LogicStatement LogicStatement::read(const std::string& text, bool wantsExample)
   statement._wantsExample = wantsExample;
   LogicStatementReader reader(statement);
   bool hasCondition = false;
+  auto fail = [&](const std::string& reason) { if (statement._outside.empty()) statement._outside = reason; };
+  auto findSort = [&](const std::string& name) {
+    for (unsigned s = 0; s < statement._sorts.size(); s++)
+      if (statement._sorts[s].name == name) return (int)s;
+    return -1;
+  };
+  auto addSymbol = [&](Symbol symbol) {
+    for (const Symbol& other : statement._symbols)
+      if (other.name == symbol.name) fail("the symbol " + symbol.name + " is declared twice");
+    statement._symbols.push_back(std::move(symbol));
+  };
+
+  /* The names of the sets first: a set of parts or of maps names other sets, wherever they are declared. */
+  {
+    std::istringstream lines(text);
+    std::string line;
+    while (std::getline(lines, line)) {
+      std::vector<std::string> words = wordsOf(line);
+      if (words.size() >= 2 && words[0] == "sort") {
+        if (findSort(words[1]) >= 0) fail("the set " + words[1] + " is declared twice");
+        statement._sorts.push_back({words[1]});
+      }
+    }
+  }
 
   std::istringstream lines(text);
   std::string line;
+  unsigned sortsSeen = 0;
   while (statement._outside.empty() && std::getline(lines, line)) {
-    static const std::string STATEMENT = "statement ";
+    static const std::string STATEMENT = "statement ", AXIOM = "axiom ";
     if (line.compare(0, STATEMENT.size(), STATEMENT) == 0) {
-      /* The declarations all come before the statement: it is read last, with every name known. */
-      statement._condition = line.substr(STATEMENT.size());
-      reader.readCondition(statement._condition);
+      /* The declarations all come before the statement: it is read with every name known. */
+      statement._formula = reader.readCondition(line.substr(STATEMENT.size()));
       hasCondition = true;
+      continue;
+    }
+    if (line.compare(0, AXIOM.size(), AXIOM) == 0) {
+      statement._laws.push_back(reader.readCondition(line.substr(AXIOM.size())));
       continue;
     }
     std::vector<std::string> words = wordsOf(line);
     if (words.empty() || words[0] == "certificate") continue;
 
-    if (words[0] == "sort") {
-      /* A plain set is its name alone. More words say what the set is made
-       * of (parts, maps, the written numbers): not a first-order sort. */
-      if (words.size() != 2) {
-        statement._outside = words.size() > 2 && words[2] == "numbers" ? "the statement speaks of the numbers it writes"
-                           : "the statement speaks of a set of parts or of a set of maps";
-        break;
+    if (words[0] == "sort" && words.size() >= 2) {
+      unsigned index = sortsSeen++;
+      Sort& sort = statement._sorts[index];
+      if (words.size() == 2) continue;  // a plain set is its name alone
+
+      /* More words say what the set is made of, and name what comes with it. */
+      if (words[2] == "parts" && words.size() == 5) {
+        int base = findSort(words[3]);
+        if (base < 0) { fail("a set of parts is of a set that is not declared"); break; }
+        sort.kind = SortKind::PARTS;
+        sort.base = (unsigned)base;
+        addSymbol({words[4], {(unsigned)base, index}, BOOL, true});
+      } else if (words[2] == "maps" && words.size() == 6) {
+        int base = findSort(words[3]), target = findSort(words[4]);
+        if (base < 0 || target < 0) { fail("a set of maps is between sets that are not declared"); break; }
+        sort.kind = SortKind::MAPS;
+        sort.base = (unsigned)base;
+        sort.target = (unsigned)target;
+        addSymbol({words[5], {index, (unsigned)base}, target, true});
+      } else if (words[2] == "numbers" && words.size() >= 4) {
+        sort.kind = SortKind::NUMBERS;
+        for (size_t i = 3; i < words.size(); i++) addSymbol({words[i], {}, (int)index, true});
+      } else {
+        fail("a line of the statement is not understood: " + line);
       }
-      statement._sorts.push_back({words[1]});
       continue;
     }
     if (words[0] == "symbol" && words.size() >= 3) {
@@ -291,40 +336,17 @@ LogicStatement LogicStatement::read(const std::string& text, bool wantsExample)
       for (size_t i = 2; i < words.size(); i++) {
         bool last = i + 1 == words.size();
         if (last && words[i] == "bool") break;
-        int sort = -1;
-        for (unsigned s = 0; s < statement._sorts.size(); s++)
-          if (statement._sorts[s].name == words[i]) sort = (int)s;
-        if (sort < 0) { statement._outside = "the symbol " + symbol.name + " is declared on a set that is not declared"; break; }
+        int sort = findSort(words[i]);
+        if (sort < 0) { fail("the symbol " + symbol.name + " is declared on a set that is not declared"); break; }
         if (last) symbol.range = sort; else symbol.domain.push_back((unsigned)sort);
       }
-      for (const Symbol& other : statement._symbols)
-        if (other.name == symbol.name && statement._outside.empty()) statement._outside = "the symbol " + symbol.name + " is declared twice";
-      statement._symbols.push_back(std::move(symbol));
+      addSymbol(std::move(symbol));
       continue;
     }
-    statement._outside = "a line of the statement is not understood: " + line;
+    fail("a line of the statement is not understood: " + line);
   }
-  if (statement._outside.empty() && !hasCondition) statement._outside = "the statement has no condition";
+  if (!hasCondition) fail("the statement has no condition");
   return statement;
-}
-
-std::string LogicStatement::certificateHead(const std::string& kind, const std::vector<unsigned>* sizes) const
-{
-  std::ostringstream out;
-  out << "certificate " << kind << "\n";
-  for (unsigned i = 0; i < _sorts.size(); i++) {
-    out << "sort " << _sorts[i].name;
-    if (sizes) out << " " << (*sizes)[i];
-    out << "\n";
-  }
-  for (const Symbol& symbol : _symbols) {
-    out << "symbol " << symbol.name;
-    for (unsigned sort : symbol.domain) out << " " << _sorts[sort].name;
-    if (symbol.isRelation()) out << " bool"; else out << " " << _sorts[symbol.range].name;
-    out << "\n";
-  }
-  out << "statement " << _condition << "\n";
-  return out.str();
 }
 
 } // namespace Math

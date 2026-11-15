@@ -19,10 +19,8 @@
  * what was written; latexName() does that, and says whether the symbol is
  * one that is written between its two arguments.
  *
- * Checklist: the three lists below are the ones of the frontend
- * (operation_symbols, greek_letters and relation_commands in
- * Math/quaerens/parser.c). A command added there and not here is still
- * shown, upright and in prefix form, but not as it was written.
+ * Which names are commands is asked of the frontend itself
+ * (qr_symbol_commands() in Math/Engine.h): the lists exist once, there.
  */
 
 #ifndef __Math_Names__
@@ -30,6 +28,8 @@
 
 #include <cctype>
 #include <string>
+
+#include "Math/Engine.h"
 
 namespace Math {
 
@@ -71,11 +71,6 @@ inline std::string latexEscape(const std::string& text)
  */
 inline LatexName latexName(const std::string& printed)
 {
-  static const char* const OPERATIONS[] = {"ast", "star", "circ", "bullet", "diamond", "perp", "oplus", "otimes", "odot"};
-  static const char* const RELATIONS[] = {"le", "preceq", "sqsubseteq"};
-  static const char* const GREEK[] = {"alpha", "beta", "gamma", "delta", "iota", "kappa", "lambda", "mu", "nu", "pi", "rho",
-                                      "sigma", "tau", "phi", "varphi", "chi", "psi", "omega", "eta", "theta", "xi", "zeta"};
-
   /* Vampire keeps a name that is not a lower-case word between single
    * quotes, as TPTP wants it written: the quotes are not part of the name. */
   std::string raw = printed;
@@ -99,9 +94,13 @@ inline LatexName latexName(const std::string& printed)
     return true;
   };
   LatexName result;
-  for (const char* name : RELATIONS) if (command(name, true, result)) return result;
-  for (const char* name : OPERATIONS) if (command(name, true, result)) return result;
-  for (const char* name : GREEK) if (command(name, false, result)) return result;
+  static const struct { QrCommands list; bool infix; } LISTS[] = {
+    {QR_COMMANDS_RELATIONS, true}, {QR_COMMANDS_OPERATIONS, true}, {QR_COMMANDS_GREEK, false}};
+  for (const auto& entry : LISTS) {
+    size_t count = 0;
+    const char* const* names = qr_symbol_commands(entry.list, &count);
+    for (size_t i = 0; i < count; i++) if (command(names[i], entry.infix, result)) return result;
+  }
 
   /* Letters, then digits, then possibly "_" and a last part. */
   size_t letters = 0;

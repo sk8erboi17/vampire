@@ -38008,32 +38008,107 @@ static int saturation_attempt(const Sentence *root, const Sentence *const *laws,
     return 1;
 }
 
-/* DENTRO VAMPIRE: LA RICERCA È DEL DIMOSTRATORE CHE OSPITA IL MOTORE
+/* DENTRO VAMPIRE: CHI FA CHE COSA SU UN ENUNCIATO DI LOGICA
  *
- * Questo file, dentro Vampire, è il motore matematico di un solo programma:
- * la ricerca di una dimostrazione o di un controesempio per un enunciato su
- * insiemi qualsiasi la fa Vampire (risoluzione e superposizione, modelli
- * finiti), non i metodi di questo capitolo. Due dimostratori nello stesso
- * programma, che si contendono gli stessi enunciati, sarebbero un doppione.
+ * Questo file, dentro Vampire, è il motore matematico di un solo programma.
+ * Su un enunciato su insiemi qualsiasi i due lavorano insieme, ciascuno
+ * nella parte in cui è il migliore, e prove_abstract() non decide più da
+ * sola: fa il compito che le viene chiesto in logic_task.
  *
- * Con logic_delegated acceso prove_abstract() fa solo la parte che è sua:
- * legge l'enunciato, svolge la notazione dei libri (17q) e ricontrolla lo
- * svolgimento sui modelli finiti (28h). Poi consegna l'enunciato svolto,
- * scritto nella notazione dei certificati (insiemi, simboli, statement), e
- * si ferma: il verdetto è NOT_PROVED con reason == LOGIC_DELEGATED e
- * l'enunciato in detail. Chi lo riceve lo traduce per Vampire; un
- * controesempio trovato da Vampire torna qui come certificato, e lo
- * giudica checker.c.
+ *   LOGIC_DECIDE       il capitolo com'è sempre stato: legge, cerca un
+ *                      modello, cerca una dimostrazione. È ciò che fa il
+ *                      programma da solo. Dentro Vampire è il primo turno
+ *                      sugli enunciati con insiemi di parti o di
+ *                      applicazioni, dove un modello deve avere TUTTE le
+ *                      parti e TUTTE le applicazioni (28m) e una prova
+ *                      deve saper scegliere le parti che le servono: lì
+ *                      questo capitolo fa meglio di un dimostratore del
+ *                      primo ordine (misurato: Math/README.md), e Vampire
+ *                      interviene dopo, se qui non c'è risposta. Ed è il
+ *                      solo turno per ciò che al primo ordine non si dice
+ *                      (quantificatori su parti, equipotenza).
+ *   LOGIC_HAND_OVER    legge l'enunciato, svolge la notazione dei libri
+ *                      (17q), ricontrolla lo svolgimento sui modelli finiti
+ *                      (28h), e consegna l'enunciato svolto nella notazione
+ *                      dei certificati: NOT_PROVED con reason ==
+ *                      LOGIC_HANDED_OVER e l'enunciato in detail. Con
+ *                      l'enunciato consegna le leggi delle parti e delle
+ *                      applicazioni (28n), come voci axiom: sono vere in
+ *                      ogni interpretazione ammessa, e chi dimostra ne ha
+ *                      bisogno come delle ipotesi. La ricerca della
+ *                      dimostrazione è di Vampire. Non si consegna un
+ *                      enunciato che parla solo dei numeri che scrive
+ *                      (28m): lì non c'è nulla da cercare, c'è un conto, e
+ *                      il conto è di questo capitolo.
+ *   LOGIC_ADOPT_MODEL  Vampire ha trovato un modello finito. Lo si carica
+ *                      nella struttura dei modelli di questo capitolo
+ *                      (model_adopt()) e da lì in poi è un modello come
+ *                      quelli trovati qui: vi si ricalcolano ipotesi e
+ *                      tesi, e l'enunciato com'è scritto (28h); lo si
+ *                      scrive come controesempio e come certificato; lo
+ *                      giudica checker.c. Un solo percorso per i modelli,
+ *                      chiunque li abbia trovati.
+ *   LOGIC_CERTIFY      Vampire ha dimostrato l'enunciato. Qui si scrive una
+ *                      dimostrazione che checker.c sa ricontrollare: per
+ *                      clausole (28u) o per istanze (28b-28g). La ricerca
+ *                      dei modelli con il SAT non si fa: che l'enunciato
+ *                      sia un teorema lo ha già stabilito Vampire, e qui
+ *                      serve la prova, non il verdetto. Resta la ricerca
+ *                      breve sui modelli piccoli (28a), che dà il controllo
+ *                      indipendente alle prove per istanze; se trovasse un
+ *                      controesempio, sarebbe la prova di Vampire a essere
+ *                      sbagliata, e chi chiama lo deve dire.
  *
- * Con logic_delegated spento il capitolo è quello di sempre: lo usa chi
- * chiama per gli enunciati che la traduzione non sa dire (insiemi di parti
- * e di applicazioni, equipotenza, numeri scritti).
+ * Così la ricerca è una sola (di Vampire), la certificazione è una sola (di
+ * checker.c), e questo capitolo dà a ciascuna ciò che le serve: l'enunciato
+ * letto bene, i modelli ricontrollati, le prove in una forma controllabile.
  *
- * Warning: è il solo punto in cui questo file sa di essere ospitato. Se
- * cambia la notazione scritta da cert_abstract_head(), va aggiornato il
- * lettore in Math/LogicStatement.cpp. */
-static int logic_delegated;
-static const char *const LOGIC_DELEGATED = "la ricerca è consegnata al dimostratore che ospita il motore";
+ * Warning: è il solo capitolo che sa di essere ospitato. Se cambia la
+ * notazione scritta da cert_abstract_head(), va aggiornato il lettore in
+ * Math/LogicStatement.cpp; se cambia l'ordine delle tabelle di un modello,
+ * model_adopt() e chi la chiama (Math/Engine.c). */
+enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY };
+static int logic_task = LOGIC_DECIDE;
+static const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore che ospita il motore";
+
+/* Il modello ricevuto per LOGIC_ADOPT_MODEL, preso in prestito da chi
+ * chiama: una grandezza per insieme, nell'ordine delle voci sort
+ * dell'enunciato consegnato, e una tabella per simbolo dichiarato,
+ * nell'ordine delle voci symbol, con le celle nell'ordine dei modelli di
+ * questo capitolo (il primo argomento cambia più in fretta). */
+static const size_t *adopted_sizes;
+static const size_t *const *adopted_tables;
+static const size_t *adopted_cells;   /* quante celle ha ogni tabella */
+static int adopted_sorts, adopted_symbols;
+
+/* Carica in m il modello ricevuto. Ritorna 0 se non è un'interpretazione
+ * dei simboli dell'enunciato in corso: un numero diverso di insiemi o di
+ * tabelle, una tabella con un numero di celle diverso da quello che le
+ * grandezze chiedono, un valore fuori dal suo insieme, un'applicazione da
+ * un insieme con elementi a uno vuoto. Nulla di ciò che arriva è creduto:
+ * chi chiama ricalcola poi l'enunciato nel modello (abstract_model_result()).
+ * Le grandezze degli insiemi di parti e di applicazioni e le tabelle dei
+ * loro simboli di struttura non si ricevono: si calcolano (28m). */
+static int model_adopt(Model *m) {
+    if (adopted_sorts != sort_count || !model_dimensions(m)) return 0;
+    for (int i = 0; i < sort_count; i++) m->dimension[i].size = sort_data[i].kind == SORT_PLAIN ? adopted_sizes[i] : 0;
+    if (!model_derived_sizes(m) || !model_allocate(m)) return 0;
+    model_structure(m);
+
+    /* Le tabelle, nell'ordine in cui cert_abstract_head() dichiara i simboli. */
+    int given = 0;
+    for (int s = 0; s < symbol_count; s++) {
+        if (symbol_fixed(s) || symbol_bound[s]) continue;
+        size_t cells, values = model_cells(m, s, &cells);
+        if (given >= adopted_symbols || adopted_cells[given] != cells) return 0;
+        for (size_t c = 0; c < cells; c++) {
+            if (adopted_tables[given][c] >= values) return 0;
+            m->table[s][c] = adopted_tables[given][c];
+        }
+        given++;
+    }
+    return given == adopted_symbols;
+}
 
 /* Decide l'enunciato su insiemi qualsiasi scritto in formula e ne ritorna
  * il verdetto, come descritto in testa al capitolo: prima i modelli finiti,
@@ -38106,12 +38181,33 @@ static Verdict prove_abstract(const char *formula) {
      * la ricerca, che dentro Vampire non è di questo capitolo. Se la
      * notazione dei certificati non sa dire l'enunciato (certificate_broken)
      * non si consegna nulla, e chi chiama ripiega sul capitolo com'è. */
-    if (logic_delegated) {
+    int only_written_numbers = !plain_sorts() && !abstract_example;
+    for (int s = 0; s < symbol_count && only_written_numbers; s++) only_written_numbers = symbol_fixed(s);
+    if (logic_task == LOGIC_HAND_OVER && !only_written_numbers) {
+        /* Le leggi (28n), preparate come le prepara più sotto la ricerca
+         * di questo capitolo: se le lettere per scriverle non bastano, si
+         * consegna l'enunciato senza. */
+        const char *before_laws = syntax_error;
+        axioms_prepare();
+        if (syntax_error != before_laws) { axiom_count = 0; syntax_error = before_laws; }
         cert_abstract_head(abstract_example ? "example" : "counterexample", root, NULL);
+        cert_axioms();
         verdict.outcome = NOT_PROVED;
-        verdict.reason = LOGIC_DELEGATED;
+        verdict.reason = LOGIC_HANDED_OVER;
         verdict.detail = certificate_broken ? NULL : certificate_text;
         return verdict;
+    }
+
+    /* Il modello trovato da Vampire, da qui in poi un modello di questo
+     * capitolo: abstract_model_result() lo ricalcola e lo certifica, o dice
+     * che non conferma. */
+    if (logic_task == LOGIC_ADOPT_MODEL) {
+        if (!model_adopt(&model)) {
+            verdict.outcome = NOT_PROVED;
+            verdict.reason = "il modello ricevuto non è un'interpretazione dei simboli dell'enunciato";
+            return verdict;
+        }
+        return abstract_model_result(verdict, written, root, &model, compared);
     }
 
     /* 28a. I modelli finiti. Per chi chiede un esempio, uno in cui la
@@ -38125,7 +38221,9 @@ static Verdict prove_abstract(const char *formula) {
     unsigned long long first_work = abstract_example ? model_work_limit : model_work_limit / 16;
     if (!first_work) first_work = 1;
     unsigned long long remaining_work = model_work_limit - first_work;
-    if (!found) found = model_sat_slice(root, abstract_example, &model, &tried, bound, first_work);
+    /* (Dentro Vampire, LOGIC_CERTIFY: il SAT dei modelli non si fa, qui e
+     * più sotto. L'enunciato è già dimostrato; vedi sopra prove_abstract().) */
+    if (!found && logic_task != LOGIC_CERTIFY) found = model_sat_slice(root, abstract_example, &model, &tried, bound, first_work);
     if (found) return abstract_model_result(verdict, written, root, &model, compared);
     verdict.outcome = NOT_PROVED;
 
@@ -38185,7 +38283,7 @@ static Verdict prove_abstract(const char *formula) {
      * con un elemento per insieme sono stati provati tutti, ci si ferma. */
     if (bound < 1) {
         symbol_count = model_symbols;
-        if (model_sat_slice(root, 0, &model, &tried, bound, remaining_work))
+        if (logic_task != LOGIC_CERTIFY && model_sat_slice(root, 0, &model, &tried, bound, remaining_work))
             return abstract_model_result(verdict, written, root, &model, compared);
         verdict.reason = model_unconfirmed ? model_unconfirmed : "i modelli con pochi elementi sono troppi per provarli: manca il controllo indipendente";
         return verdict;
@@ -38226,7 +38324,7 @@ static Verdict prove_abstract(const char *formula) {
      * interrotta, un modello completo resta controllabile da solo. */
     if (!proved || failure) {
         symbol_count = model_symbols;
-        if (model_sat_slice(root, 0, &model, &tried, bound, remaining_work))
+        if (logic_task != LOGIC_CERTIFY && model_sat_slice(root, 0, &model, &tried, bound, remaining_work))
             return abstract_model_result(verdict, written, root, &model, compared);
     }
     if (failure) {

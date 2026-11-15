@@ -21,7 +21,11 @@
  *     the translated problem and then IS Vampire on that problem, in
  *     whatever mode and with whatever options the user chose. This is how
  *     Vampire's own portfolio mode runs its strategies, and it is why
- *     nothing in the prover had to learn about documents.
+ *     nothing in the prover had to learn about documents. What Vampire
+ *     finds comes back here as data, and the engine and the independent
+ *     checker turn it into a verified answer: a model is recomputed and
+ *     certified, a proof is rebuilt in a form the checker can recheck
+ *     (decideLogic() in Driver.cpp).
  *
  * THE DEFAULT PLAN FOR A STATEMENT OF LOGIC. Two searches, both Vampire's:
  * one for a finite model that refutes the statement (for at most

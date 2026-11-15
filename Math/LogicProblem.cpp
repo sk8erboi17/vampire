@@ -9,16 +9,14 @@
  */
 /**
  * @file LogicProblem.cpp
- * Implements LogicProblem: the verification of a finite model found by
- * Vampire and the report of an answer with its verification status.
+ * Implements LogicProblem: what Vampire found, read out of Vampire's own
+ * structures and written down for the process that asked.
  */
 
 #include "LogicProblem.hpp"
 
-#include <cctype>
 #include <cstdio>
 #include <fstream>
-#include <sstream>
 
 #include "Kernel/Problem.hpp"
 #include "Kernel/Signature.hpp"
@@ -27,15 +25,10 @@
 #include "Lib/Set.hpp"
 #include "FMB/FiniteModelMultiSorted.hpp" // not self-contained: needs the five headers above
 #include "Humanizer/ProofNarrator.hpp"
-#include "Kernel/Inference.hpp"
 #include "Kernel/Term.hpp"
 #include "Kernel/Unit.hpp"
 #include "Lib/Exception.hpp"
 #include "Lib/Stack.hpp"
-#include "Shell/UIHelper.hpp"
-
-#include "Names.hpp"
-#include "Proof/IndependentChecker.h"
 
 namespace Math {
 
@@ -43,55 +36,70 @@ using namespace Kernel;
 
 std::unique_ptr<LogicProblem> LogicProblem::_current;
 
-/* A model with more cells than this is not rewritten as a certificate: the
- * checker would refuse to recompute it anyway (its budget is far smaller),
- * and the text would be of no use to a reader. It stays unconfirmed. */
+/* A model with more cells than this is not passed on: the engine and the
+ * checker would refuse to recompute it anyway (their budgets are far
+ * smaller), and nobody could read it. The answer is then "saturated". */
 static constexpr unsigned long long MAX_MODEL_CELLS = 1ull << 20;
 
 /* ------------------------------------------------------------------------
- * The result, from the process that found it to the one that asked
+ * The answer, from the process that found it to the one that asked
  * ------------------------------------------------------------------------
  *
- * A text file: a first line "decided status byRefutation", then four fields, each a line
- * with its length in bytes followed by that many bytes and a newline. The
- * lengths make any text safe to carry, LaTeX and certificates included.
+ * A text file. First line: kind, goalUsed, proposed. Then the account, as a
+ * line with its length in bytes followed by that many bytes and a newline
+ * (the length makes any LaTeX safe to carry). Then the model: a line with
+ * the number of sorts and their sizes, a line with the number of symbols,
+ * and for each symbol a line with the number of cells and their values.
  */
 
-void LogicResult::write(const std::string& path) const
+void VampireAnswer::write(const std::string& path) const
 {
   std::string temporary = path + ".part";
   {
     std::ofstream out(temporary, std::ios::binary);
-    out << (decided ? 1 : 0) << " " << static_cast<int>(status) << " " << (byRefutation ? 1 : 0) << "\n";
-    for (const std::string* field : {&reason, &detail, &proof, &certificate})
-      out << field->size() << "\n" << *field << "\n";
+    out << static_cast<int>(kind) << " " << (goalUsed ? 1 : 0) << " " << (proposed ? 1 : 0) << "\n";
+    out << account.size() << "\n" << account << "\n";
+    out << sizes.size();
+    for (size_t size : sizes) out << " " << size;
+    out << "\n" << tables.size() << "\n";
+    for (const std::vector<size_t>& table : tables) {
+      out << table.size();
+      for (size_t value : table) out << " " << value;
+      out << "\n";
+    }
     if (!out) return;
   }
 
-  /* The name appears only when the file is complete: a reader never sees half a result. */
+  /* The name appears only when the file is complete: a reader never sees half an answer. */
   std::rename(temporary.c_str(), path.c_str());
 }
 
-bool LogicResult::read(const std::string& path, LogicResult& result)
+bool VampireAnswer::read(const std::string& path, VampireAnswer& answer)
 {
   std::ifstream in(path, std::ios::binary);
-  int decided, status, byRefutation;
-  if (!(in >> decided >> status >> byRefutation) || status < 0 || status > static_cast<int>(Status::UNSUPPORTED)) return false;
+  int kind, goalUsed, proposed;
+  size_t length, count;
+  if (!(in >> kind >> goalUsed >> proposed >> length) || kind < 0 || kind > static_cast<int>(Kind::SATURATED)) return false;
   in.get();
 
-  LogicResult read;
-  read.decided = decided != 0;
-  read.byRefutation = byRefutation != 0;
-  read.status = static_cast<Status>(status);
-  for (std::string* field : {&read.reason, &read.detail, &read.proof, &read.certificate}) {
-    size_t length;
-    if (!(in >> length)) return false;
-    in.get();
-    field->resize(length);
-    if (length && !in.read(&(*field)[0], (std::streamsize)length)) return false;
-    in.get();
+  VampireAnswer read;
+  read.kind = static_cast<Kind>(kind);
+  read.goalUsed = goalUsed != 0;
+  read.proposed = proposed != 0;
+  read.account.resize(length);
+  if (length && !in.read(&read.account[0], (std::streamsize)length)) return false;
+
+  if (!(in >> count)) return false;
+  read.sizes.resize(count);
+  for (size_t& size : read.sizes) if (!(in >> size)) return false;
+  if (!(in >> count)) return false;
+  read.tables.resize(count);
+  for (std::vector<size_t>& table : read.tables) {
+    if (!(in >> count)) return false;
+    table.resize(count);
+    for (size_t& value : table) if (!(in >> value)) return false;
   }
-  result = std::move(read);
+  answer = std::move(read);
   return true;
 }
 
@@ -108,112 +116,37 @@ UnitList* LogicProblem::install(LogicStatement statement, const Settings& settin
   return _current->_translator->translate();
 }
 
+void LogicProblem::send() const
+{
+  if (!_settings.answerPath.empty()) _answer.write(_settings.answerPath);
+}
+
 /* ------------------------------------------------------------------------
- * A finite model, to the independent checker
+ * A finite model, as the sizes and tables of the statement
  * ------------------------------------------------------------------------
  *
  * Vampire's model is for the translated problem: every sort has at least
  * one element, and the propositions inhabited_S say which sorts stand for
- * an empty set (LogicTranslator.hpp). The certificate speaks of the
- * statement as it was read: a set whose proposition is false has 0
- * elements, and a symbol with such a set among its arguments has an empty
- * table. Each symbol's table lists its value for every choice of the
- * arguments, the first argument changing fastest, an element being its
- * number from 0 in its set and a truth value being 1 or 0: the format of
- * the checker ("certificate counterexample", "certificate example").
+ * an empty set (LogicTranslator.hpp). The statement as it was read has
+ * possibly empty sets: a set whose proposition is false has 0 elements, and
+ * a symbol with such a set among its arguments has an empty table.
  *
- * The checker does not trust any of this: it evaluates the statement in the
- * tables with its own evaluator. If the translation or this rewriting were
- * wrong, the statement would not come out false (or true, for an example),
- * and the certificate would be rejected.
+ * Nothing is decided here. Whoever reads the answer loads these tables into
+ * the engine's structure for models, where the statement is recomputed in
+ * them; if the translation or this reading were wrong, the statement would
+ * not come out false there (or true, for an example), and the model would
+ * not be accepted.
  */
-
-/**
- * The name of the element number index of a set: the lower-case letter of
- * the set with the number as a subscript, s_0, s_1, ... for S, and
- * s_{2,0}, s_{2,1}, ... for S_2. So the elements of two sets are not confused.
- */
-static std::string elementName(const std::string& sort, unsigned index)
-{
-  bool letterAndDigits = !sort.empty() && std::isalpha((unsigned char)sort[0]);
-  for (size_t i = 1; i < sort.size() && letterAndDigits; i++) letterAndDigits = std::isdigit((unsigned char)sort[i]);
-  if (!letterAndDigits) return "(" + latexName(sort).latex + ")_{" + std::to_string(index) + "}";
-  std::string letter(1, (char)std::tolower((unsigned char)sort[0]));
-  if (sort.size() == 1) return letter + "_{" + std::to_string(index) + "}";
-  return letter + "_{" + sort.substr(1) + "," + std::to_string(index) + "}";
-}
-
-/**
- * The model for a reader: the sets, then every symbol with its table.
- *
- * It is written as the engine writes the models it finds itself (put_model()
- * in Math/quaerens/main.c), so that a counterexample reads the same whoever
- * found it: a relation as the set of the elements or pairs for which it
- * holds, a map by its values, an operation between its arguments, a map
- * from an empty set as the empty set.
- */
-std::string LogicProblem::describeModel(const std::vector<unsigned>& sizes, const std::vector<std::vector<unsigned>>& tables) const
-{
-  const std::vector<LogicStatement::Sort>& sorts = _statement.sorts();
-  const std::vector<LogicStatement::Symbol>& symbols = _statement.symbols();
-  std::ostringstream out;
-
-  for (unsigned i = 0; i < sorts.size(); i++) {
-    out << (i ? ", $" : "$") << latexName(sorts[i].name).latex << " = \\{";
-    for (unsigned e = 0; e < sizes[i]; e++) out << (e ? ", " : "") << elementName(sorts[i].name, e);
-    out << "\\}$";
-  }
-
-  for (unsigned s = 0; s < symbols.size(); s++) {
-    const LogicStatement::Symbol& symbol = symbols[s];
-    const std::vector<unsigned>& table = tables[s];
-    LatexName name = latexName(symbol.name);
-    size_t arity = symbol.domain.size();
-    out << "; $";
-
-    /* A map from an empty set is the empty graph: it is shown all the same. */
-    if (table.empty() && !symbol.isRelation()) { out << name.latex << " = \\emptyset$"; continue; }
-    if (symbol.isRelation()) out << name.latex << " = \\{";
-
-    unsigned written = 0;
-    for (size_t cell = 0; cell < table.size(); cell++) {
-      if (symbol.isRelation() && !table[cell]) continue;
-      if (written++) out << ", ";
-
-      /* The arguments of this cell, the first changing fastest. */
-      std::vector<std::string> arguments;
-      size_t rest = cell;
-      for (size_t k = 0; k < arity; k++) {
-        unsigned size = sizes[symbol.domain[k]];
-        arguments.push_back(elementName(sorts[symbol.domain[k]].name, (unsigned)(rest % size)));
-        rest /= size;
-      }
-
-      bool infix = name.infix && arity == 2 && !symbol.isRelation();
-      bool parentheses = arity >= 2 || (arity == 1 && !symbol.isRelation());
-      if (infix) {
-        out << arguments[0] << " " << name.latex << " " << arguments[1];
-      } else {
-        if (!symbol.isRelation()) out << name.latex;
-        if (parentheses) out << "(";
-        for (size_t k = 0; k < arity; k++) out << (k ? ", " : "") << arguments[k];
-        if (parentheses) out << ")";
-      }
-      if (!symbol.isRelation()) out << " = " << elementName(sorts[symbol.range].name, table[cell]);
-    }
-    if (symbol.isRelation()) out << (written ? "\\}" : "\\} = \\emptyset");
-    out << "$";
-  }
-  return out.str();
-}
 
 void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
 {
+  /* With a set of parts or of maps a model of the translation is not a
+   * model of the statement: it may lack parts or maps that really exist
+   * (LogicTranslator.hpp). There is nothing to pass on. */
+  if (!_statement.plainOnly()) return;
+
   const std::vector<LogicStatement::Sort>& sorts = _statement.sorts();
   const std::vector<LogicStatement::Symbol>& symbols = _statement.symbols();
-  bool italian = _settings.language == Language::ITALIAN;
-  _hasModel = true;
-  _modelCertificate.clear();
 
   /* A symbol that occurs in no clause the model builder saw (preprocessing
    * removed it, or the statement declares it and never uses it) has no value
@@ -221,10 +154,10 @@ void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
    * value it gets. Vampire's own convention for such symbols, when it
    * evaluates formulas in a model, is that a relation is false and a map
    * sends everything to the first element; the same is done here. Without
-   * this a declared and unused map made the table malformed, and the
-   * checker rejected a model that was right (f in "f: S -> T and |S| >= 2
-   * implies |T| >= 2"). If the convention gave something that is not a
-   * model the checker would say so: it recomputes the statement. */
+   * this a declared and unused map made the table malformed, and a model
+   * that was right was refused (f in "f: S -> T and |S| >= 2 implies
+   * |T| >= 2"). If the convention gave something that is not a model, the
+   * engine would say so: it recomputes the statement. */
   auto holds = [&](Literal* literal) {
     try {
       return model.evaluateGroundLiteral(literal);
@@ -237,79 +170,57 @@ void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
     return element ? element - 1 : 0;
   };
 
+  VampireAnswer answer;
+  answer.kind = VampireAnswer::Kind::MODEL;
   try {
     /* The sizes: Vampire's, or 0 where the model says the set is empty. */
-    std::vector<unsigned> sizes;
     for (unsigned i = 0; i < sorts.size(); i++) {
-      unsigned size = model.sortSize(_translator->sort(i));
+      size_t size = model.sortSize(_translator->sort(i));
       if (_translator->mayBeEmpty(i) && !holds(Literal::create(_translator->inhabited(i), /* polarity */ true, {})))
         size = 0;
-      sizes.push_back(size);
+      answer.sizes.push_back(size);
     }
 
     /* The tables, cell by cell: each is the value Vampire's model gives to
      * the symbol applied to elements of the model. */
-    std::vector<std::vector<unsigned>> tables(symbols.size());
+    answer.tables.resize(symbols.size());
     unsigned long long total = 0;
     for (unsigned s = 0; s < symbols.size(); s++) {
       const LogicStatement::Symbol& symbol = symbols[s];
       unsigned long long cells = 1;
       for (unsigned sort : symbol.domain) {
-        cells *= sizes[sort];
+        cells *= answer.sizes[sort];
         if (cells > MAX_MODEL_CELLS) break;
       }
       total += cells;
-      if (cells > MAX_MODEL_CELLS || total > MAX_MODEL_CELLS) {
-        _modelProblem = italian ? "il modello è troppo grande per essere riscritto come certificato"
-                                : "the model is too large to be rewritten as a certificate";
-        return;
-      }
+      if (cells > MAX_MODEL_CELLS || total > MAX_MODEL_CELLS) return;
 
-      std::vector<unsigned> index(symbol.domain.size(), 0);
+      std::vector<size_t> index(symbol.domain.size(), 0);
       for (unsigned long long cell = 0; cell < cells; cell++) {
         TermStack arguments;
         for (size_t k = 0; k < symbol.domain.size(); k++)
-          arguments.push(TermList(model.getDomainConstant(index[k] + 1, _translator->sort(symbol.domain[k]))));
+          arguments.push(TermList(model.getDomainConstant((unsigned)index[k] + 1, _translator->sort(symbol.domain[k]))));
 
         if (symbol.isRelation()) {
           Literal* literal = Literal::create(_translator->symbol(s), arguments.size(), true, arguments.begin());
-          tables[s].push_back(holds(literal) ? 1 : 0);
+          answer.tables[s].push_back(holds(literal) ? 1 : 0);
         } else {
           Term* term = Term::create(_translator->symbol(s), arguments.size(), arguments.begin());
-          tables[s].push_back(valueOf(term));
+          answer.tables[s].push_back(valueOf(term));
         }
 
         /* The next choice of the arguments: the first changes fastest. */
         for (size_t k = 0; k < index.size(); k++) {
-          if (++index[k] < sizes[symbol.domain[k]]) break;
+          if (++index[k] < answer.sizes[symbol.domain[k]]) break;
           index[k] = 0;
         }
       }
     }
-
-    std::ostringstream certificate;
-    certificate << _statement.certificateHead(_statement.wantsExample() ? "example" : "counterexample", &sizes);
-    for (unsigned s = 0; s < symbols.size(); s++) {
-      certificate << "table " << symbols[s].name;
-      for (unsigned value : tables[s]) certificate << " " << value;
-      certificate << "\n";
-    }
-    certificate << "end\n";
-
-    /* The judge. Only an accepted certificate makes the model a counterexample. */
-    const char* why = "";
-    std::string text = certificate.str();
-    ProofCheck answer = proof_check_certificate(text.c_str(), &why);
-    if (answer == PROOF_CHECK_ACCEPTED) {
-      _modelCertificate = text;
-      _modelText = describeModel(sizes, tables);
-    } else {
-      _modelProblem = std::string(answer == PROOF_CHECK_REJECTED ? (italian ? "respinto: " : "rejected: ")
-                                                              : (italian ? "non controllabile: " : "cannot be checked: ")) + why;
-    }
   } catch (Lib::Exception&) {
-    _modelProblem = italian ? "il modello di Vampire non si è potuto rileggere" : "Vampire's model could not be read back";
+    /* The model could not be read back: there is none to pass on. */
+    return;
   }
+  _answer = std::move(answer);
 }
 
 /**
@@ -325,11 +236,10 @@ void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
  * one, because there was nothing to search.
  *
  * Here the smallest candidate is built, one element in every sort, completed
- * with those records, and handed to the checker like any other model. It is
- * a candidate and nothing more: the checker recomputes the statement in it.
- * If it does not accept, this is not a sign that anything is wrong with
- * Vampire's answer, only that no confirmed model is at hand, and the answer
- * is reported as an unverified one.
+ * with those records, and passed on like any other model, marked as
+ * proposed. It is a candidate and nothing more: if the engine does not
+ * confirm it, nothing is wrong with Vampire's answer, there is only no
+ * confirmed model at hand.
  */
 void LogicProblem::onNoClauses()
 {
@@ -344,55 +254,22 @@ void LogicProblem::onNoClauses()
      * removed ones are computed from them, in the order Vampire recorded. */
     model.restoreEliminatedDefinitions(env.getMainProblem());
     onFiniteModel(model);
+    _answer.proposed = true;
   } catch (Lib::Exception&) {
-    _modelCertificate.clear();
-    _modelProblem = _settings.language == Language::ITALIAN ? "non si è potuto costruire" : "it could not be built";
+    _answer = VampireAnswer();
   }
-  if (_modelCertificate.empty()) _hasModel = false;
 }
 
 /* ------------------------------------------------------------------------
- * The report
+ * The answers
  * ------------------------------------------------------------------------ */
 
-void LogicProblem::report(std::ostream& out, const LogicResult& result) const
-{
-  Shell::addCommentSignForSZS(out) << "Verification status: " << statusName(result.status, _settings.language)
-                                   << " [" << statusCode(result.status) << "]" << std::endl;
-  if (!result.reason.empty()) Shell::addCommentSignForSZS(out) << result.reason << std::endl;
-  if (!result.detail.empty())
-    Shell::addCommentSignForSZS(out) << (_statement.wantsExample() ? "Example (LaTeX): " : "Counterexample (LaTeX): ") << result.detail << std::endl;
-  if (_settings.printAccount && !result.proof.empty()) {
-    Shell::addCommentSignForSZS(out) << "Explanation (LaTeX) start" << std::endl;
-    out << result.proof;
-    Shell::addCommentSignForSZS(out) << "Explanation (LaTeX) end" << std::endl;
-  }
-  if (!_settings.resultPath.empty()) result.write(_settings.resultPath);
-}
-
-void LogicProblem::onRefutation(std::ostream& out, Unit* refutation)
+void LogicProblem::onRefutation(Unit* refutation)
 {
   bool italian = _settings.language == Language::ITALIAN;
-  LogicResult result;
-  result.decided = true;
-  result.byRefutation = true;
-
-  /* A refutation is a proof, and a proof printed by Vampire is not a
-   * certified one: the checker has not replayed it. */
-  if (_statement.wantsExample()) {
-    result.status = Status::COUNTEREXAMPLE_UNVERIFIED;
-    result.reason = italian
-      ? "Vampire ha refutato l'enunciato stesso: nessuna interpretazione lo rende vero. La refutazione non è ricontrollata dal verificatore indipendente."
-      : "Vampire refuted the statement itself: no interpretation makes it true. The refutation is not rechecked by the independent checker.";
-  } else {
-    result.status = Status::THEOREM_UNVERIFIED;
-    result.reason = italian
-      ? "Vampire ha trovato una refutazione; il verificatore indipendente non sa ancora ripercorrere le prove di Vampire, quindi la prova non è certificata."
-      : "Vampire found a refutation; the independent checker cannot replay Vampire's proofs yet, so the proof is not certified.";
-    if (!refutation->derivedFromGoal())
-      result.reason += italian ? " Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
-                               : " The hypotheses are contradictory by themselves: the claim was not used.";
-  }
+  _answer = VampireAnswer();
+  _answer.kind = VampireAnswer::Kind::REFUTATION;
+  _answer.goalUsed = refutation->derivedFromGoal();
 
   if (_settings.explain) {
     Humanizer::ProofNarrator narrator(_settings.language);
@@ -416,50 +293,35 @@ void LogicProblem::onRefutation(std::ostream& out, Unit* refutation)
           narrator.label(input.unit, italian ? "Un'applicazione definita su insiemi con elementi arriva in un insieme con elementi"
                                              : "A map defined on sets with elements lands in a set with elements");
           break;
+        case LogicTranslator::Role::LAW:
+          narrator.label(input.unit, italian ? "Una legge degli insiemi di parti e di applicazioni: vale qualunque siano gli insiemi"
+                                             : "A law of the sets of parts and of maps: it holds whatever the sets are");
+          break;
+        case LogicTranslator::Role::STRUCTURE:
+          narrator.label(input.unit, italian ? "Per ci\\`o che l'insieme \\`e: i suoi elementi sono fissati dall'enunciato"
+                                             : "By what the set is: its elements are fixed by the statement");
+          break;
       }
     }
     for (unsigned i = 0; i < _statement.sorts().size(); i++) guards = guards || _translator->mayBeEmpty(i);
     if (guards)
-      result.proof = italian
+      _answer.account = italian
         ? "Gli insiemi possono essere vuoti: $\\mathrm{inhabited}_{S}$ \\`e la condizione ``$S$ ha un elemento'', e accompagna i quantificatori su $S$. "
         : "The sets may be empty: $\\mathrm{inhabited}_{S}$ is the condition ``$S$ has an element'', and it goes with the quantifiers over $S$. ";
-    result.proof += narrator.narrate(refutation);
+    _answer.account += narrator.narrate(refutation);
   }
-  report(out, result);
+  send();
 }
 
-void LogicProblem::onSatisfiable(std::ostream& out)
+void LogicProblem::onSatisfiable()
 {
-  bool italian = _settings.language == Language::ITALIAN;
-  LogicResult result;
-  result.decided = true;
-
-  if (_hasModel && !_modelCertificate.empty()) {
-    /* For a statement that wants an example the model is the proof: "there
-     * are sets and symbols for which it holds", and the checker agreed. */
-    result.status = _statement.wantsExample() ? Status::THEOREM_CERTIFIED : Status::COUNTEREXAMPLE_VERIFIED;
-    result.detail = _modelText;
-    result.certificate = _modelCertificate;
-  } else if (_hasModel) {
-    /* A model the checker did not confirm is not a counterexample. */
-    result.status = Status::UNSOLVED;
-    result.reason = (italian ? "Vampire ha trovato un modello finito, ma il verificatore indipendente non lo ha confermato ("
-                             : "Vampire found a finite model, but the independent checker did not confirm it (")
-                  + _modelProblem + (italian ? "): non è riportato come controesempio." : "): it is not reported as a counterexample.");
-  } else {
-    result.status = _statement.wantsExample() ? Status::THEOREM_UNVERIFIED : Status::COUNTEREXAMPLE_UNVERIFIED;
-    result.reason = italian
-      ? "La ricerca di Vampire è finita senza contraddizione, il che per una strategia completa vuol dire che c'è un'interpretazione che soddisfa le formule date; "
-        "non è stato prodotto un modello finito che il verificatore indipendente potesse ricalcolare."
-      : "Vampire's search ended without a contradiction, which for a complete strategy means that some interpretation satisfies the given formulas; "
-        "no finite model was produced for the independent checker to recompute.";
-
-    /* onNoClauses() proposed a model and the checker did not take it: said, because it explains the status. */
-    if (!_modelProblem.empty())
-      result.reason += (italian ? " Il modello più piccolo, proposto al verificatore, non è stato confermato (" : " The smallest model, proposed to the checker, was not confirmed (")
-                     + _modelProblem + ").";
+  /* With a model, read by onFiniteModel(), the answer is the model;
+   * without one all there is to say is that the search saturated. */
+  if (_answer.kind != VampireAnswer::Kind::MODEL) {
+    _answer = VampireAnswer();
+    _answer.kind = VampireAnswer::Kind::SATURATED;
   }
-  report(out, result);
+  send();
 }
 
 } // namespace Math

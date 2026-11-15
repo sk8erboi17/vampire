@@ -9,33 +9,34 @@
  */
 /**
  * @file LogicProblem.hpp
- * The statement Vampire is working on, when it came from the LaTeX frontend.
+ * The statement Vampire is working on, when it came from the LaTeX frontend,
+ * and what Vampire found about it.
  *
  * Vampire's proving code does not know where a problem comes from, and
- * should not. But two things must happen when the problem was a statement
- * read from LaTeX, in whatever mode and process Vampire finds its answer:
+ * should not. But when the problem is a statement read from LaTeX, what
+ * Vampire finds is not the end of the story: a finite model goes back to
+ * the mathematical engine, which judges it as it judges its own, and a
+ * refutation goes back to be rebuilt as a proof the independent checker can
+ * recheck (Math/Driver.cpp). For that, the process in which Vampire finds
+ * its answer, whatever mode it runs in, has to say WHAT it found, as data.
  *
- *   - a finite model must go to the independent checker before anybody
- *     calls it a counterexample (onFiniteModel());
- *   - the answer must be reported with its verification status, and told
- *     to whoever is collecting the statements of a document (onRefutation(),
- *     onSatisfiable()).
- *
- * LogicProblem is the place for both: one object per process, installed by
- * the frontend before the search starts, and consulted by three one-line
- * hooks (in FMB/FiniteModelBuilder.cpp and Shell/UIHelper.cpp). With TPTP or
- * SMT-LIB input nothing is installed, current() is null, and the hooks do
- * nothing: Vampire behaves exactly as before.
+ * LogicProblem is the place for it: one object per process, installed by
+ * the frontend before the search starts, and consulted by a few one-line
+ * hooks (in FMB/FiniteModelBuilder.cpp and Shell/UIHelper.cpp). It records a
+ * VampireAnswer and writes it where the process that asked will read it.
+ * It decides nothing and calls nothing verified. With TPTP or SMT-LIB input
+ * nothing is installed, current() is null, and the hooks do nothing: Vampire
+ * behaves exactly as before.
  *
  * A process forked after install() inherits the object, which is how the
- * strategies of a portfolio report through it.
+ * strategies of a portfolio answer through it.
  */
 
 #ifndef __Math_LogicProblem__
 #define __Math_LogicProblem__
 
+#include <cstddef>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <vector>
 
@@ -50,31 +51,42 @@ namespace FMB { class FiniteModelMultiSorted; }
 namespace Math {
 
 /**
- * What the search established about one statement of logic, as the process
- * that found it tells the one that asked. Strings are empty when missing.
+ * What Vampire found about one statement of logic: data for whoever asked,
+ * not a verdict. Nothing in it has been checked by anybody else yet.
  */
-struct LogicResult {
-  bool decided = false;     // false: the search ended without an answer
-  bool byRefutation = false;// the answer rests on a refutation (a proof), not on a model or on saturation
-  Status status = Status::UNSOLVED;
-  std::string reason;       // why the status is not a certified one, for a reader
-  std::string detail;       // a counterexample or an example, as LaTeX text
-  std::string proof;        // the account of the proof, as LaTeX text
-  std::string certificate;  // the certificate the independent checker accepted
+struct VampireAnswer {
+  enum class Kind {
+    NONE,        // the search ended without an answer
+    REFUTATION,  // a refutation: a proof of the statement (or, for a statement that wants an example, that there is none)
+    MODEL,       // a finite model: sizes and tables
+    SATURATED    // saturation without a contradiction and without a model to show
+  };
+  Kind kind = Kind::NONE;
 
-  /** Writes the result to the file path, whole or not at all (through a temporary name). */
+  /* REFUTATION */
+  bool goalUsed = true;   // false if the refutation does not use the claim: the hypotheses are contradictory
+  std::string account;    // the account of the refutation, as LaTeX text; empty if none was asked for
+
+  /* MODEL: in the order of the statement, one size per sort and one table
+   * per symbol; a table has a cell for every choice of the arguments, the
+   * first changing fastest, holding the number of an element from 0, or 1
+   * and 0 for true and false (the layout of QrModel in Engine.h). */
+  bool proposed = false;  // not found by the model builder: the smallest candidate, when preprocessing left no clause
+  std::vector<size_t> sizes;
+  std::vector<std::vector<size_t>> tables;
+
+  /** Writes the answer to the file path, whole or not at all (through a temporary name). */
   void write(const std::string& path) const;
-  /** Reads a result written by write(). Returns false, leaving result alone, if there is none. */
-  static bool read(const std::string& path, LogicResult& result);
+  /** Reads an answer written by write(). Returns false, leaving answer alone, if there is none. */
+  static bool read(const std::string& path, VampireAnswer& answer);
 };
 
 class LogicProblem {
 public:
   struct Settings {
     Language language = Language::ENGLISH;
-    bool explain = true;        // write the account of a proof
-    bool printAccount = false;  // also print that account on the output, after the proof
-    std::string resultPath;     // where to write the LogicResult, or empty
+    bool explain = true;      // write the account of a refutation
+    std::string answerPath;   // where to write the VampireAnswer, or empty
   };
 
   /** The statement of this process, or null if the input was not LaTeX. */
@@ -89,25 +101,21 @@ public:
 
   bool hasConjecture() const { return _translator->hasConjecture(); }
 
-  /**
-   * Called by the finite model builder with the model it found. Rewrites
-   * the model as a certificate and has the independent checker recompute
-   * the statement in it; the outcome is reported by onSatisfiable().
-   */
+  /** Called by the finite model builder with the model it found: reads it as sizes and tables of the statement. */
   void onFiniteModel(FMB::FiniteModelMultiSorted& model);
 
   /**
    * Called by the finite model builder when preprocessing removed every
    * clause: the problem is satisfiable, but Vampire builds no model then.
-   * Proposes the smallest one to the checker, as onFiniteModel() does.
+   * Proposes the smallest one, read as onFiniteModel() reads a model.
    */
   void onNoClauses();
 
-  /** Called where Vampire reports a refutation: adds the verification status to out and records the result. */
-  void onRefutation(std::ostream& out, Kernel::Unit* refutation);
+  /** Called where Vampire reports a refutation: records it, with its account. */
+  void onRefutation(Kernel::Unit* refutation);
 
-  /** Called where Vampire reports satisfiability, with or without a model: as onRefutation(). */
-  void onSatisfiable(std::ostream& out);
+  /** Called where Vampire reports satisfiability, with or without a model. */
+  void onSatisfiable();
 
 private:
   static std::unique_ptr<LogicProblem> _current;
@@ -117,15 +125,9 @@ private:
   LogicStatement _statement;
   std::unique_ptr<LogicTranslator> _translator;
   Settings _settings;
+  VampireAnswer _answer;
 
-  /* The model handed in by onFiniteModel(), if any. */
-  bool _hasModel = false;
-  std::string _modelCertificate;  // non-empty only if the checker accepted it
-  std::string _modelProblem;      // why the model is not confirmed
-  std::string _modelText;         // the model for a reader, LaTeX
-
-  std::string describeModel(const std::vector<unsigned>& sizes, const std::vector<std::vector<unsigned>>& tables) const;
-  void report(std::ostream& out, const LogicResult& result) const;
+  void send() const;
 };
 
 } // namespace Math

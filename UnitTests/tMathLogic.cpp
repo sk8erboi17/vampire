@@ -11,8 +11,9 @@
  * @file tMathLogic.cpp
  * Unit tests of the path of a statement of logic read from LaTeX: the typed
  * reading (Math/LogicStatement), the translation into a Vampire problem
- * (Math/LogicTranslator), the independent checker (Proof/IndependentChecker.h), and
- * what the mathematical engine does with false, ill-defined and ambiguous
+ * (Math/LogicTranslator), the independent checker (Proof/IndependentChecker.h),
+ * what the mathematical engine does with a model or a proof found by
+ * Vampire, and what it does with false, ill-defined and ambiguous
  * statements.
  *
  * The rule the tests defend: nothing false is ever reported as proved, and
@@ -20,6 +21,7 @@
  */
 
 #include <string>
+#include <vector>
 
 #include "Kernel/Unit.hpp"
 #include "Math/Engine.h"
@@ -82,15 +84,96 @@ TEST_FUN(a_bound_variable_hides_a_symbol_of_the_same_name)
   ASS(body.terms[0].variable >= 0);       // the variable of the quantifier
 }
 
-TEST_FUN(refuses_what_is_not_first_order_over_plain_sets)
+TEST_FUN(reads_sets_of_parts_sets_of_maps_and_written_numbers)
 {
-  /* The set of all the parts of S, the written numbers, a quantifier on
-   * parts, a bijection: none has a first-order translation over plain sorts. */
-  ASS(!LogicStatement::read("sort S\nsort P_1 parts S inP_1\nstatement true\n", false).outside().empty());
-  ASS(!LogicStatement::read("sort S\nsort M_1 maps S S apM_1\nstatement true\n", false).outside().empty());
-  ASS(!LogicStatement::read("sort Num numbers num1 num2\nstatement true\n", false).outside().empty());
+  /* The set of all the parts of S comes with membership, the set of all
+   * the maps from S to T with application, the written numbers with their
+   * names; the laws the engine gives are read with the statement. */
+  LogicStatement parts = LogicStatement::read(
+    "sort S\nsort P_1 parts S inP_1\nsymbol f S P_1\n"
+    "statement (forall x S (inP_1 x (f x)))\n"
+    "axiom (forall h P_1 (forall j P_1 (implies (forall k S (iff (inP_1 k h) (inP_1 k j))) (= h j))))\n", false);
+  ASS(parts.outside().empty());
+  ASS(!parts.plainOnly());
+  ASS(parts.sorts()[1].kind == LogicStatement::SortKind::PARTS);
+  ASS_EQ(parts.sorts()[1].base, 0u);
+  ASS_EQ(parts.symbols().size(), 2u);
+  ASS(parts.symbols()[0].structure && parts.symbols()[0].isRelation());
+  ASS(!parts.symbols()[1].structure);
+  ASS_EQ(parts.laws().size(), 1u);
+
+  LogicStatement maps = LogicStatement::read(
+    "sort S\nsort T\nsort M_2 maps S T apM_2\nstatement (forall f M_2 (forall x S (= (apM_2 f x) (apM_2 f x))))\n", false);
+  ASS(maps.outside().empty());
+  ASS(maps.sorts()[2].kind == LogicStatement::SortKind::MAPS);
+  ASS_EQ(maps.sorts()[2].target, 1u);
+  ASS_EQ(maps.symbols()[0].range, 1);
+
+  LogicStatement numbers = LogicStatement::read(
+    "sort S\nsort Num numbers num1 num2\nsymbol f S Num\nstatement (forall x S (or (= (f x) num1) (= (f x) num2)))\n", false);
+  ASS(numbers.outside().empty());
+  ASS(numbers.sorts()[1].kind == LogicStatement::SortKind::NUMBERS);
+  ASS_EQ(numbers.symbols().size(), 3u);
+}
+
+TEST_FUN(refuses_what_has_no_first_order_form)
+{
+  /* A quantifier on parts that are not a set of the statement, and a
+   * bijection between two sets, are left to the engine. */
   ASS(!LogicStatement::read("sort S\nstatement (forallpart X S (forall x S (X x)))\n", false).outside().empty());
   ASS(!LogicStatement::read("sort S\nsort T\nstatement (equipotent S T)\n", false).outside().empty());
+
+  /* A set of parts of a set that is not there, a law that is not a condition. */
+  ASS(!LogicStatement::read("sort P_1 parts S inP_1\nstatement true\n", false).outside().empty());
+  ASS(!LogicStatement::read("sort S\nstatement true\naxiom (forall x S\n", false).outside().empty());
+}
+
+TEST_FUN(the_laws_of_a_set_of_parts_go_to_vampire_as_axioms)
+{
+  LogicStatement statement = LogicStatement::read(
+    "sort S\nsort P_1 parts S inP_1\n"
+    "statement (forall X P_1 (forall Y P_1 (implies (forall x S (iff (inP_1 x X) (inP_1 x Y))) (= X Y))))\n"
+    "axiom (forall h P_1 (forall j P_1 (implies (forall k S (iff (inP_1 k h) (inP_1 k j))) (= h j))))\n"
+    "axiom (exists m P_1 (forall n S (iff (inP_1 n m) (not true))))\n", false);
+  LogicTranslator translator(statement);
+  translator.translate();
+
+  /* The empty part is always there: the set of parts needs no guard. S may be empty. */
+  ASS(translator.mayBeEmpty(0));
+  ASS(!translator.mayBeEmpty(1));
+  ASS_EQ(translator.inputs().size(), 3u);
+  ASS(translator.inputs()[0].role == LogicTranslator::Role::LAW);
+  ASS(translator.inputs()[1].role == LogicTranslator::Role::LAW);
+  ASS(translator.inputs()[2].role == LogicTranslator::Role::CLAIM);
+}
+
+TEST_FUN(the_written_numbers_are_distinct_and_are_all_there_is)
+{
+  LogicStatement statement = LogicStatement::read(
+    "sort Num numbers num1 num2 num3\nsymbol R Num Num bool\nstatement (R num1 num2)\n", false);
+  LogicTranslator translator(statement);
+  translator.translate();
+  ASS(!translator.mayBeEmpty(0));
+  ASS_EQ(translator.inputs().size(), 3u);
+  ASS(translator.inputs()[0].role == LogicTranslator::Role::STRUCTURE);
+  ASS(translator.inputs()[1].role == LogicTranslator::Role::STRUCTURE);
+  std::string distinct = translator.inputs()[0].unit->toString();
+  std::string all = translator.inputs()[1].unit->toString();
+  ASS(distinct.find("num1 != num2") != std::string::npos);
+  ASS(all.find("num3") != std::string::npos);
+}
+
+TEST_FUN(a_set_of_maps_is_empty_exactly_when_its_maps_cannot_exist)
+{
+  LogicStatement statement = LogicStatement::read(
+    "sort S\nsort T\nsort M_2 maps S T apM_2\nstatement (exists f M_2 true)\n", false);
+  LogicTranslator translator(statement);
+  translator.translate();
+  ASS(translator.mayBeEmpty(2));
+  bool found = false;
+  for (const LogicTranslator::Input& input : translator.inputs())
+    found = found || (input.role == LogicTranslator::Role::STRUCTURE && input.unit->toString().find("inhabited_M_2 <=>") != std::string::npos);
+  ASS(found);
 }
 
 TEST_FUN(refuses_a_statement_that_is_not_well_sorted_or_not_well_written)
@@ -217,6 +300,102 @@ TEST_FUN(the_engine_hands_logic_over_only_when_asked)
   QrVerdict decided = qr_decide_formula(involution, 0);
   ASS(decided.outcome == QR_PROVED);
   ASS(decided.certified);
+}
+
+/* The statement of LEFT_INVERSE as it is written in LaTeX, as the text of an \\item. */
+static const std::string LEFT_INVERSE_ITEM =
+  "$\\displaystyle (f \\colon S \\to T \\land g \\colon T \\to S \\land \\forall x \\in S\\ (g(f(x)) = x)) "
+  "\\implies \\forall y \\in T\\ \\exists x \\in S\\ (f(x) = y)$";
+
+/** Has the engine judge a model of LEFT_INVERSE_ITEM given as sizes of S and T and tables of f and g. */
+static QrVerdict adoptLeftInverse(std::vector<size_t> sizes, std::vector<size_t> f, std::vector<size_t> g)
+{
+  const size_t* tables[] = {f.data(), g.data()};
+  size_t cells[] = {f.size(), g.size()};
+  QrModel model = {(unsigned)sizes.size(), sizes.data(), 2, tables, cells};
+  return qr_adopt_model(LEFT_INVERSE_ITEM.c_str(), LEFT_INVERSE_ITEM.c_str() + LEFT_INVERSE_ITEM.size(), &model);
+}
+
+TEST_FUN(the_engine_adopts_a_model_found_elsewhere_and_certifies_it)
+{
+  qr_init();
+
+  /* S = {0}, T = {0, 1}, f(0) = 1, g = 0 everywhere. */
+  QrVerdict verdict = adoptLeftInverse({1, 2}, {1}, {0, 0});
+  ASS(verdict.outcome == QR_REFUTED);
+  ASS(verdict.certified);
+  ASS(verdict.certificate != nullptr);
+  ASS(proof_check_certificate(verdict.certificate, nullptr) == PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(the_engine_does_not_adopt_what_is_not_a_counterexample)
+{
+  qr_init();
+
+  /* T with one element: f is onto, the statement holds in this model. */
+  ASS(adoptLeftInverse({1, 1}, {0}, {0}).outcome == QR_NOT_PROVED);
+
+  /* g is not a left inverse of f: the hypothesis fails, the statement holds. */
+  ASS(adoptLeftInverse({2, 2}, {0, 1}, {1, 0}).outcome == QR_NOT_PROVED);
+}
+
+TEST_FUN(the_engine_does_not_adopt_what_is_not_an_interpretation)
+{
+  qr_init();
+  ASS(adoptLeftInverse({1}, {1}, {0, 0}).outcome == QR_NOT_PROVED);          // a set is missing
+  ASS(adoptLeftInverse({1, 2}, {5}, {0, 0}).outcome == QR_NOT_PROVED);       // a value outside its set
+  ASS(adoptLeftInverse({1, 2}, {1}, {0}).outcome == QR_NOT_PROVED);          // a table too short
+  ASS(adoptLeftInverse({1, 2}, {1, 1}, {0, 0}).outcome == QR_NOT_PROVED);    // a table too long
+  ASS(adoptLeftInverse({1, 0}, {0}, {}).outcome == QR_NOT_PROVED);           // a map into an empty set
+
+  /* None of the above is a failed step of the engine: the model was not its own. */
+  ASS_EQ(qr_unjustified_steps(), 0);
+}
+
+TEST_FUN(the_engine_adopts_a_model_with_an_empty_set)
+{
+  qr_init();
+
+  /* "Every map of S into itself has a point x with f(x) = f(x)" fails in the empty set, and only there. */
+  std::string item = "$\\displaystyle \\forall f \\in S^{S}\\ \\exists x \\in S\\ (f(x) = f(x))$";
+  std::vector<size_t> sizes = {0};
+  const size_t* tables[] = {nullptr};
+  size_t cells[] = {0};
+  QrModel model = {1, sizes.data(), 1, tables, cells};
+  QrVerdict verdict = qr_adopt_model(item.c_str(), item.c_str() + item.size(), &model);
+  ASS(verdict.outcome == QR_REFUTED);
+  ASS(verdict.certified);
+}
+
+/** The text of an \\item with one displayed formula. */
+static std::string asItem(const char* formula) { return std::string("$\\displaystyle ") + formula + "$"; }
+
+TEST_FUN(the_engine_rebuilds_a_proof_found_elsewhere_as_a_certificate)
+{
+  qr_init();
+  std::string involution = asItem("(f \\colon S \\to S \\land \\forall x \\in S\\ (f(f(x)) = x)) \\implies "
+                                  "\\forall x, y \\in S\\ (f(x) = f(y) \\implies x = y)");
+  QrVerdict verdict = qr_certify_item(involution.c_str(), involution.c_str() + involution.size());
+  ASS(verdict.outcome == QR_PROVED);
+  ASS(verdict.certified);
+  ASS(proof_check_certificate(verdict.certificate, nullptr) == PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(rebuilding_a_proof_of_a_false_statement_gives_no_proof)
+{
+  qr_init();
+
+  /* Asked to certify a statement that is false, the engine does not write
+   * a proof: its check on small models finds the counterexample, and the
+   * caller learns that the "proof" it was given cannot be right. */
+  QrVerdict falseOne = qr_certify_item(LEFT_INVERSE_ITEM.c_str(), LEFT_INVERSE_ITEM.c_str() + LEFT_INVERSE_ITEM.size());
+  ASS(falseOne.outcome == QR_REFUTED);
+
+  /* True in every finite set and false in general: no counterexample to
+   * find, and no proof to write either. */
+  std::string trap = asItem("(f \\colon S \\to S \\land \\forall x, y \\in S\\ (f(x) = f(y) \\implies x = y)) \\implies "
+                            "\\forall y \\in S\\ \\exists x \\in S\\ (f(x) = y)");
+  ASS(qr_certify_item(trap.c_str(), trap.c_str() + trap.size()).outcome == QR_NOT_PROVED);
 }
 
 TEST_FUN(the_engine_does_not_hand_over_mathematics)

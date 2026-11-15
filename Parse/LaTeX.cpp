@@ -63,22 +63,32 @@ LaTeX::Statement LaTeX::read(const Item& item)
   statement.verdict = qr_decide_item(begin, end, /* delegate_logic */ 1);
   if (statement.verdict.outcome != QR_LOGIC) return statement;
 
-  /* The engine handed the statement over. It is given to Vampire only if
-   * the typed reading succeeds and the statement is first-order over plain
-   * sorts; otherwise it goes back to the engine, whose procedures know the
-   * sets of parts and of maps for what they are. */
+  /* The engine handed the statement over. It is given to Vampire if the
+   * typed reading succeeds; a statement with no first-order form (a
+   * quantifier over parts that are not a set of the statement, a
+   * bijection between two sets) goes back to the engine, whose procedures
+   * are the only ones there are for it. */
   if (statement.verdict.logic) {
     statement.logic = Math::LogicStatement::read(statement.verdict.logic, statement.verdict.wants_example != 0);
     statement.notTranslated = statement.logic.outside();
   } else {
     statement.notTranslated = "the statement cannot be written in the language of the certificates";
   }
-  if (statement.notTranslated.empty()) {
+  bool conditional = statement.verdict.conditional != 0;
+  if (statement.notTranslated.empty() && statement.logic.plainOnly()) {
     statement.kind = Kind::LOGIC;
-    statement.conditional = statement.verdict.conditional != 0;
+    statement.conditional = conditional;
     return statement;
   }
+
+  /* The engine's turn: the only one, if the statement has no first-order
+   * form, and the first one otherwise (see the header). */
   statement.verdict = qr_decide_item(begin, end, 0);
+  if (statement.notTranslated.empty() && statement.verdict.outcome == QR_NOT_PROVED) {
+    statement.kind = Kind::LOGIC;
+    statement.conditional = conditional;
+    statement.engineHadNoAnswer = true;
+  }
   return statement;
 }
 

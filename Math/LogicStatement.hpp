@@ -22,14 +22,16 @@
  * statement means:
  *   - the LaTeX frontend (the engine in Math/quaerens/), which produces it;
  *   - LogicTranslator, which turns it into a Vampire problem;
- *   - ModelCertificate, which writes a model found by Vampire back in the
- *     language of the independent checker.
+ *   - LogicProblem, which reads a model found by Vampire as sizes and
+ *     tables of this statement, for the engine to judge.
  *
  * MEANING. The statement is to hold in every interpretation: any choice of
- * the sets, finite or infinite and possibly EMPTY, of an element for each
- * name, a total map for each function symbol and a subset for each relation.
- * A statement that "wants an example" asks instead for one interpretation in
- * which it holds.
+ * the plain sets, finite or infinite and possibly EMPTY, of an element for
+ * each name, a total map for each function symbol and a subset for each
+ * relation. A set of parts is then the set of all the parts of its base, and
+ * a set of maps the set of all the maps from its base to its target: an
+ * interpretation does not choose them. A statement that "wants an example"
+ * asks instead for one interpretation in which it holds.
  */
 
 #ifndef __Math_LogicStatement__
@@ -45,9 +47,24 @@ public:
   /** The range of a relation: it has no sort, it is a truth value. */
   static constexpr int BOOL = -1;
 
+  /**
+   * What a set of the statement is.
+   *   PLAIN    any set: its elements are whatever an interpretation says
+   *   PARTS    the set of ALL the parts (subsets) of the set base
+   *   MAPS     the set of ALL the maps from the set base to the set target
+   *   NUMBERS  the numbers the statement writes, all distinct, and nothing else
+   * The last three are not chosen by an interpretation: once the plain sets
+   * are given they are determined, with their structure symbol (membership
+   * in a part, application of a map) or their named elements (the numbers).
+   */
+  enum class SortKind { PLAIN, PARTS, MAPS, NUMBERS };
+
   /** A set the statement speaks of. An index into sorts() names it. */
   struct Sort {
     std::string name;
+    SortKind kind = SortKind::PLAIN;
+    unsigned base = 0;    // PARTS, MAPS: an index into sorts()
+    unsigned target = 0;  // MAPS: an index into sorts()
   };
 
   /**
@@ -58,6 +75,9 @@ public:
     std::string name;
     std::vector<unsigned> domain;
     int range;
+    bool structure = false;  // not declared by the statement but given with a set: "t is in the part X"
+                             // (domain: base, the parts), "the value of the map f at x" (domain: the
+                             // maps, base; range: target), a written number (an element of NUMBERS)
     bool isRelation() const { return range == BOOL; }
   };
 
@@ -96,40 +116,54 @@ public:
   };
 
   /**
-   * Reads a statement written in the language of the certificates: lines
-   * "certificate KIND", "sort NAME", "symbol NAME SORT... (SORT | bool)" and
-   * "statement CONDITION", as the engine writes them.
+   * Reads a statement written in the language of the certificates, as the
+   * engine writes it: lines "certificate KIND"; "sort NAME", "sort NAME parts
+   * BASE SYMBOL", "sort NAME maps BASE TARGET SYMBOL", "sort NAME numbers
+   * NAME..."; "symbol NAME SORT... (SORT | bool)"; "statement CONDITION";
+   * and "axiom CONDITION" for the laws of the sets of parts and of maps
+   * that the engine gives with the statement.
    *
    * The reading checks the sorts: a symbol is applied to elements of its
    * domain, an equality compares two elements of the same set. Whatever the
-   * text contains, the result is safe to use: if the statement is outside
-   * first-order logic over plain sets (a set of parts or of maps, a
-   * quantifier on parts, equipotence, written numbers), or the text is not
-   * what this reader expects, outside() says why and the statement must not
-   * be translated.
+   * text contains, the result is safe to use: if the statement has no
+   * first-order form (a quantifier on the parts of a set, equipotence), or
+   * the text is not what this reader expects, outside() says why and the
+   * statement must not be translated.
    */
   static LogicStatement read(const std::string& text, bool wantsExample);
 
   const std::vector<Sort>& sorts() const { return _sorts; }
   const std::vector<Symbol>& symbols() const { return _symbols; }
   const Formula& formula() const { return _formula; }
+
+  /**
+   * The laws given with the statement: conditions that hold in every
+   * interpretation because of what a set of parts or of maps is (two parts
+   * with the same elements are the same part; the elements that satisfy a
+   * condition are a part). A proof may use them as it uses the hypotheses.
+   */
+  const std::vector<Formula>& laws() const { return _laws; }
+
+  /** True if every set is a plain one: then a finite model is just sizes and tables. */
+  bool plainOnly() const
+  {
+    for (const Sort& sort : _sorts) if (sort.kind != SortKind::PLAIN) return false;
+    return true;
+  }
   unsigned variables() const { return _variables; }
   bool wantsExample() const { return _wantsExample; }
 
-  /** Empty if the statement is first-order logic over plain sets; otherwise the reason it is not. */
+  /** Empty if the statement can be given to a first-order prover; otherwise the reason it cannot. */
   const std::string& outside() const { return _outside; }
-
-  /** The first lines of a certificate for this statement: kind, sorts (with sizes, if given), symbols, statement. */
-  std::string certificateHead(const std::string& kind, const std::vector<unsigned>* sizes) const;
 
 private:
   std::vector<Sort> _sorts;
   std::vector<Symbol> _symbols;
   Formula _formula;
+  std::vector<Formula> _laws;
   unsigned _variables = 0;
   bool _wantsExample = false;
   std::string _outside;
-  std::string _condition;  // the condition as it was read, for certificateHead()
 
   friend class LogicStatementReader;
 };

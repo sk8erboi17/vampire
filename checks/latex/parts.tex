@@ -1,0 +1,18 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\title{Statements with sets of parts and with written numbers}
+\begin{document}
+\maketitle
+Here a set of parts is the set of all the parts of a set, which first-order
+logic cannot say: the mathematical engine goes first, and Vampire is asked
+only when the engine has no answer, for a proof from the laws of those sets.
+\begin{enumerate}
+\item $\displaystyle S \neq \emptyset \implies (\exists! X \in \mathcal{P}(S)\ \forall x \in S\ (x \in X))$
+\item $\displaystyle \forall x \in S\ \exists X \in \mathcal{P}(S)\ (x \in X)$
+\item $\displaystyle \forall X \in \mathcal{P}(S)\ \exists x \in S\ (x \in X)$
+\item $\displaystyle \exists S\ \exists F\ ((F \subseteq \mathcal{P}(S) \land \emptyset \in F) \land \forall X \in F\ \exists x \in S\ (x \in X))$
+\item $\displaystyle G_{1} = \{(0, 0), (1, 1), (0, 1), (1, 0)\} \implies (\forall x, y\ ((x, y) \in G_{1} \implies (y, x) \in G_{1}))$
+\item $\displaystyle G_{1} = \{(1, 2), (2, 3)\} \implies (\forall x, y, z\ (((x, y) \in G_{1} \land (y, z) \in G_{1}) \implies (x, z) \in G_{1}))$
+\end{enumerate}
+\end{document}

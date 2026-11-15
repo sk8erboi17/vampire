@@ -486,9 +486,9 @@ void UIHelper::outputResult(std::ostream& out)
         out << "% SZS output end Proof for " << env.options->problemName << endl << flush;
       }
     }
-    // a statement read from LaTeX: say how far the answer was verified (no-op for any other input)
+    // a statement read from LaTeX: the refutation goes back to whoever asked (no-op for any other input)
     if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
-      statement->onRefutation(out, refutation);
+      statement->onRefutation(refutation);
     }
     if (env.options->questionAnswering()!=Options::QuestionAnsweringMode::OFF) {
       ASS(refutation->isClause());
@@ -641,9 +641,9 @@ void UIHelper::outputSatisfiableResult(std::ostream& out)
       outputInterferences(out,*env.getMainProblem());
     }
   }
-  // a statement read from LaTeX: say how far the answer was verified (no-op for any other input)
+  // a statement read from LaTeX: the answer goes back to whoever asked (no-op for any other input)
   if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
-    statement->onSatisfiable(out);
+    statement->onSatisfiable();
   }
 }
 

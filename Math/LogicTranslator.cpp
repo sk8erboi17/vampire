@@ -34,10 +34,13 @@ LogicTranslator::LogicTranslator(const LogicStatement& statement) : _statement(s
 /**
  * Declares sorts and symbols, and decides which sorts may be empty.
  *
- * A sort is certainly inhabited if some function symbol into it has all its
- * arguments in certainly inhabited sorts (a named element has none, so its
- * sort is). The least set closed under this rule is computed by repeating
- * the rule until nothing changes; the other sorts may be empty.
+ * A sort is certainly inhabited if
+ *   - it is a set of parts (the empty part is always there), or
+ *   - some function symbol into it has all its arguments in certainly
+ *     inhabited sorts (a named element, or a written number, has none), or
+ *   - it is a set of maps into a certainly inhabited sort (a constant map).
+ * The least set closed under these rules is computed by repeating them
+ * until nothing changes; the other sorts may be empty.
  */
 void LogicTranslator::declare()
 {
@@ -57,6 +60,7 @@ void LogicTranslator::declare()
   }
 
   std::vector<bool> inhabited(sorts.size(), false);
+  for (unsigned i = 0; i < sorts.size(); i++) inhabited[i] = sorts[i].kind == LogicStatement::SortKind::PARTS;
   for (bool changed = true; changed;) {
     changed = false;
     for (const LogicStatement::Symbol& symbol : symbols) {
@@ -65,6 +69,8 @@ void LogicTranslator::declare()
       for (unsigned sort : symbol.domain) reached = reached && inhabited[sort];
       if (reached) inhabited[symbol.range] = changed = true;
     }
+    for (unsigned i = 0; i < sorts.size(); i++)
+      if (sorts[i].kind == LogicStatement::SortKind::MAPS && !inhabited[i] && inhabited[sorts[i].target]) inhabited[i] = changed = true;
   }
 
   for (unsigned i = 0; i < sorts.size(); i++) {
@@ -185,6 +191,10 @@ static void conjuncts(const LogicStatement::Formula& formula, std::vector<const 
 UnitList* LogicTranslator::translate()
 {
   declare();
+
+  /* The variables of the statement and of its laws are numbered by their
+   * binders; the ones introduced here come after them. */
+  _nextVariable = _statement.variables();
   std::vector<unsigned> bound;
   const LogicStatement::Formula& statement = _statement.formula();
   const std::vector<LogicStatement::Symbol>& symbols = _statement.symbols();
@@ -214,6 +224,43 @@ UnitList* LogicTranslator::translate()
     Formula* premise = count == 1 ? arguments->head() : new JunctionFormula(AND, arguments);
     addInput(new BinaryFormula(IMP, premise, inhabitedFormula(symbol.range)), Role::INHABITED, "total_map_" + symbol.name);
   }
+
+  /* What the sets of maps and the written numbers are (see the header). */
+  const std::vector<LogicStatement::Sort>& sorts = _statement.sorts();
+  for (unsigned i = 0; i < sorts.size(); i++) {
+    if (sorts[i].kind == LogicStatement::SortKind::MAPS && _mayBeEmpty[i]) {
+      /* The target may be empty here, or the set of maps would be certainly
+       * inhabited: there is a map exactly when the base has no element or
+       * the target has one. */
+      Formula* target = inhabitedFormula(sorts[i].target);
+      Formula* exists = !_mayBeEmpty[sorts[i].base] ? target
+        : new JunctionFormula(OR, FormulaList::cons(new NegatedFormula(inhabitedFormula(sorts[i].base)), FormulaList::singleton(target)));
+      addInput(new BinaryFormula(IFF, inhabitedFormula(i), exists), Role::STRUCTURE, "maps_exist_" + sorts[i].name);
+    }
+    if (sorts[i].kind != LogicStatement::SortKind::NUMBERS) continue;
+
+    /* The written numbers: each different from the others, and no other element. */
+    std::vector<TermList> numbers;
+    for (unsigned s = 0; s < symbols.size(); s++)
+      if (symbols[s].structure && !symbols[s].isRelation() && symbols[s].domain.empty() && symbols[s].range == (int)i)
+        numbers.push_back(TermList(Term::createConstant(_symbols[s])));
+    FormulaList* different = FormulaList::empty();
+    FormulaList* one = FormulaList::empty();
+    TermList x = TermList::var(_nextVariable++);
+    for (size_t a = 0; a < numbers.size(); a++) {
+      FormulaList::push(new AtomicFormula(Literal::createEquality(true, x, numbers[a], _sorts[i])), one);
+      for (size_t b = a + 1; b < numbers.size(); b++)
+        FormulaList::push(new AtomicFormula(Literal::createEquality(false, numbers[a], numbers[b], _sorts[i])), different);
+    }
+    if (numbers.size() > 2) addInput(new JunctionFormula(AND, different), Role::STRUCTURE, "numbers_distinct_" + sorts[i].name);
+    else if (numbers.size() == 2) addInput(different->head(), Role::STRUCTURE, "numbers_distinct_" + sorts[i].name);
+    Formula* some = numbers.size() == 1 ? one->head() : new JunctionFormula(OR, one);
+    addInput(new QuantifiedFormula(FORALL, VSList::singleton(VarSort(x.var(), _sorts[i])), some), Role::STRUCTURE, "numbers_all_" + sorts[i].name);
+  }
+
+  /* The laws of the sets of parts and of maps, as the engine gives them. */
+  for (unsigned i = 0; i < _statement.laws().size(); i++)
+    addInput(formula(_statement.laws()[i], bound), Role::LAW, "law_" + std::to_string(i + 1));
 
   if (_statement.wantsExample()) {
     addInput(formula(statement, bound), Role::STATEMENT, "statement");
