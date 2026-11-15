@@ -100,6 +100,7 @@ set(UNIT_TESTS
     UnitTests/tList.cpp
     UnitTests/tMap.cpp
     UnitTests/tMathLogic.cpp
+    UnitTests/tMathNumbers.cpp
     UnitTests/tProofReplay.cpp
     UnitTests/tOption.cpp
     UnitTests/tPredicateElimination.cpp
@@ -605,6 +606,8 @@ set(SOURCES
     Math/LogicTranslator.cpp
     Math/LogicTranslator.hpp
     Math/Names.hpp
+    Math/NumberStatement.cpp
+    Math/NumberStatement.hpp
     Math/Verification.hpp
     Minisat/core/Dimacs.h
     Minisat/core/Solver.cc

@@ -38126,6 +38126,13 @@ static int sp_static_comprehensions(SpState *s) {
  *                      Vampire può dimostrare ciò che questo capitolo non
  *                      ha dimostrato, e la prova è subito un certificato.
  *
+ *   LOGIC_NUMBERS      non riguarda questo capitolo ma gli enunciati con
+ *                      quantificatori sui numeri (capitoli 17 e 18): quelli
+ *                      che il motore sa leggere e non decidere si consegnano
+ *                      alle teorie aritmetiche di Vampire
+ *                      (numbers_handed_over(), in fondo al file, dove
+ *                      prove_core() smista gli enunciati).
+ *
  * Così la ricerca è una sola (di Vampire), la certificazione è una sola (di
  * checker.c), e questo capitolo dà a ciascuna ciò che le serve: l'enunciato
  * letto bene, i modelli ricontrollati, le prove in una forma controllabile.
@@ -38134,7 +38141,7 @@ static int sp_static_comprehensions(SpState *s) {
  * notazione scritta da cert_abstract_head(), va aggiornato il lettore in
  * Math/LogicStatement.cpp; se cambia l'ordine delle tabelle di un modello,
  * model_adopt() e chi la chiama (Math/Engine.c). */
-enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY, LOGIC_CLAUSES };
+enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY, LOGIC_CLAUSES, LOGIC_NUMBERS };
 static int logic_task = LOGIC_DECIDE;
 static const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore che ospita il motore";
 
@@ -51487,6 +51494,245 @@ static int has_derivative_sign(const char *text) {
     return 0;
 }
 
+/* DENTRO VAMPIRE: GLI ENUNCIATI SUI NUMERI CHE IL MOTORE NON DECIDE
+ *
+ * A che cosa serve. "Per ogni a, b, c interi, se (ab - 2)(a - b) = 0 e
+ * (bc - 2)(b - c) = 0 allora (ac - 2)(a - c) = 0." Il motore lo legge, e le
+ * sue regole sui quantificatori (capitolo 18) non bastano né a dimostrarlo
+ * né a smentirlo. Vampire ha le teorie dell'aritmetica degli interi, dei
+ * razionali e dei reali, e questo lo dimostra. Perché ci arrivi, l'enunciato
+ * va consegnato in una forma che dica esattamente la stessa cosa.
+ *
+ * Che cosa si consegna. Solo ciò che si traduce senza interpretare:
+ *
+ *   - quantificatori su insiemi di numeri tutti dello stesso genere: tutti
+ *     di interi (\mathbb{N}, \mathbb{N}_{0}, \mathbb{Z}), o tutti di
+ *     razionali (\mathbb{Q}, \mathbb{Q}^{+}), o tutti di reali, con il loro
+ *     estremo inferiore e i punti tolti. Con generi diversi insieme la
+ *     traduzione dovrebbe scegliere come passare dagli uni agli altri, e non
+ *     si consegna;
+ *   - i connettivi, i confronti =, \neq, <, \le, l'appartenenza di
+ *     un'espressione a un insieme dello stesso genere (che è allora il suo
+ *     estremo e i suoi punti tolti) e, tra interi, la divisibilità;
+ *   - espressioni fatte di numeri interi scritti, lettere legate, somma,
+ *     differenza, opposto, prodotto, potenza con esponente intero scritto
+ *     da 1 a 16, e, tra razionali e tra reali, divisione per un intero
+ *     scritto diverso da zero.
+ *
+ * Tutto il resto resta al motore: applicazioni dichiarate, parametri,
+ * coppie, numeri complessi, segni di derivata, funzioni, radici, esponenti
+ * che sono lettere, divisioni per un'espressione (che chiederebbero di dire
+ * dove il divisore è zero), richieste di soluzioni.
+ *
+ * La notazione. Una riga "numbers int", "numbers rat" o "numbers real", poi
+ * l'enunciato a parentesi:
+ *
+ *     (forall x SET C)  (exists x SET C)     x è (var N), N la lettera
+ *     SET = (set [ge L | gt L] [except P/Q]...)
+ *     (and C C) (or C C) (implies C C) (iff C C) (not C)
+ *     (= E E) (neq E E) (less E E) (lesseq E E)
+ *     (in E SET)  (divides E E)              "il primo divide il secondo"
+ *     E = N | (var N) | (add E E) | (sub E E) | (neg E) | (mul E E)
+ *       | (pow E K) | (div E N)
+ *
+ * La divisibilità è quella di 17n: u divide v se v è u per un intero, quindi
+ * zero divide solo zero. Chi riceve la traduce così.
+ *
+ * Che cosa vale ciò che torna. Una dimostrazione di Vampire su questo testo
+ * non passa da checker.c, che non ha un linguaggio per l'aritmetica con i
+ * quantificatori: il verdetto di chi ospita il motore deve dire "prova
+ * trovata, non verificata". Il motore, da parte sua, non dichiara nulla.
+ */
+
+/* Le lettere legate nel punto dell'enunciato che numbers_formula() sta
+ * scrivendo, dalla più esterna: un'espressione può usare solo queste. */
+static int numbers_bound[64], numbers_bound_count;
+
+/* Il genere dei numeri dell'enunciato consegnato: 0 non ancora fissato, poi
+ * 1 interi, 2 razionali, 3 reali. Lo fissa il primo insieme incontrato, e
+ * tutti gli altri devono avere lo stesso. */
+static int numbers_base;
+
+/* Scrive l'insieme di numeri set. Ritorna 0 se non è del genere degli altri
+ * insiemi dell'enunciato, o è \mathbb{C}. */
+static int numbers_set(const NumberSet *set) {
+    int base = set->complex ? 0 : set->integers ? 1 : set->reals ? 3 : 2;
+    if (!base || (numbers_base && numbers_base != base)) return 0;
+    numbers_base = base;
+    cert_add("(set");
+    if (set->bounded) cert_add(" %s %lld", set->strict ? "gt" : "ge", set->low);
+    for (int i = 0; i < set->holes; i++) cert_add(" except %lld/%lld", set->hole[i].num, set->hole[i].den);
+    cert_add(")");
+    return 1;
+}
+
+/* Scrive l'espressione n. Ritorna 0 se ha qualcosa che non si consegna
+ * (vedi sopra): una lettera non legata, una funzione, un esponente che non
+ * è un intero scritto da 1 a 16, una divisione che non è per un intero
+ * scritto diverso da zero, o una divisione tra interi. */
+static int numbers_term(const Node *n) {
+    static const char *const word[] = {[N_ADD] = "add", [N_SUB] = "sub", [N_MUL] = "mul"};
+    if (!n) return 0;
+    switch (n->kind) {
+    case N_NUM:
+        if (n->value < 0) return 0;
+        cert_add("%lld", n->value);
+        return 1;
+    case N_VAR:
+        for (int i = 0; i < numbers_bound_count; i++)
+            if (numbers_bound[i] == n->name) { cert_add("(var %d)", n->name); return 1; }
+        return 0;
+    case N_NEG:
+        cert_add("(neg ");
+        if (!numbers_term(n->a)) return 0;
+        cert_add(")");
+        return 1;
+    case N_ADD: case N_SUB: case N_MUL:
+        cert_add("(%s ", word[n->kind]);
+        if (!numbers_term(n->a)) return 0;
+        cert_add(" ");
+        if (!numbers_term(n->b)) return 0;
+        cert_add(")");
+        return 1;
+    case N_POW:
+        if (!n->b || n->b->kind != N_NUM || n->b->value < 1 || n->b->value > 16) return 0;
+        cert_add("(pow ");
+        if (!numbers_term(n->a)) return 0;
+        cert_add(" %lld)", n->b->value);
+        return 1;
+    case N_DIV:
+        /* Tra interi il quoziente non è un intero: sarebbe un altro genere. */
+        if (numbers_base == 1 || !n->b || n->b->kind != N_NUM || n->b->value <= 0) return 0;
+        cert_add("(div ");
+        if (!numbers_term(n->a)) return 0;
+        cert_add(" %lld)", n->b->value);
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Scrive la condizione f. Ritorna 0 se ha qualcosa che non si consegna. */
+static int numbers_formula(const Formula *f) {
+    static const char *const word[] = {[F_EQUAL] = "=", [F_DISTINCT] = "neq", [F_LESS] = "less", [F_LESS_EQ] = "lesseq",
+                                       [F_AND] = "and", [F_OR] = "or", [F_IMPLIES] = "implies", [F_IFF] = "iff"};
+    if (!f) return 0;
+    switch (f->kind) {
+    case F_EQUAL: case F_DISTINCT: case F_LESS: case F_LESS_EQ:
+        cert_add("(%s ", word[f->kind]);
+        if (!numbers_term(f->left)) return 0;
+        cert_add(" ");
+        if (!numbers_term(f->right)) return 0;
+        cert_add(")");
+        return 1;
+    case F_AND: case F_OR: case F_IMPLIES: case F_IFF:
+        cert_add("(%s ", word[f->kind]);
+        if (!numbers_formula(f->a)) return 0;
+        cert_add(" ");
+        if (!numbers_formula(f->b)) return 0;
+        cert_add(")");
+        return 1;
+    case F_NOT:
+        cert_add("(not ");
+        if (!numbers_formula(f->a)) return 0;
+        cert_add(")");
+        return 1;
+    case F_FORALL: case F_EXISTS:
+        /* Una coppia (17t-2) o un quantificatore sul resto non si traducono. */
+        if (f->pair || f->complex || numbers_bound_count == (int)(sizeof numbers_bound / sizeof *numbers_bound)) return 0;
+        cert_add("(%s (var %d) ", f->kind == F_FORALL ? "forall" : "exists", f->variable);
+        if (!numbers_set(&f->numbers)) return 0;
+        cert_add(" ");
+        numbers_bound[numbers_bound_count++] = f->variable;
+        int written = numbers_formula(f->a);
+        numbers_bound_count--;
+        if (!written) return 0;
+        cert_add(")");
+        return 1;
+    case F_IN:
+        /* \notin è la negazione (swapped). */
+        if (f->swapped) cert_add("(not ");
+        cert_add("(in ");
+        if (!numbers_term(f->left)) return 0;
+        cert_add(" ");
+        if (!numbers_set(&f->numbers)) return 0;
+        cert_add(f->swapped ? "))" : ")");
+        return 1;
+    case F_DIVIDES:
+        /* Solo tra interi: tra razionali "divide" chiede un quoziente
+         * intero, che è di nuovo un altro genere. \nmid è la negazione. */
+        if (numbers_base != 1) return 0;
+        if (f->swapped) cert_add("(not ");
+        cert_add("(divides ");
+        if (!numbers_term(f->left)) return 0;
+        cert_add(" ");
+        if (!numbers_term(f->right)) return 0;
+        cert_add(f->swapped ? "))" : ")");
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Dentro Vampire (LOGIC_NUMBERS). Legge l'enunciato con quantificatori sui
+ * numeri scritto in formula e, se sta nel frammento descritto sopra, lo
+ * consegna: NOT_PROVED con reason == LOGIC_HANDED_OVER e il testo in
+ * detail. Altrimenti NOT_PROVED con il motivo, e nulla da consegnare. Non
+ * decide nulla.
+ *
+ * Svuota l'arena e le tabelle dell'enunciato, come decide_quantified(), di
+ * cui ripete la lettura: i risultati di chiamate precedenti non sono più
+ * validi. */
+static Verdict numbers_handed_over(const char *formula) {
+    Verdict verdict = {NOT_PROVED, 0, 0, 0, "l'enunciato non sta nel frammento che si consegna alle teorie aritmetiche di Vampire",
+                       NULL, NULL, NULL, NULL, NULL};
+
+    /* La lettura, come in decide_quantified(). */
+    proof_reset();
+    arena_used = arena_keep;
+    atom_count = base_poly_count = atan_count = 0;
+    failure = NULL;
+    env_count = 0;
+    map_count = statement_parameter_count = 0;
+    syntax_error = NULL;
+    cursor = formula;
+    next_token();
+    Formula *thesis = logic_statement();
+    if (token.kind != T_END) syntax("testo inatteso dopo l'enunciato");
+    derivative_signs = 0;
+    if (!syntax_error) formula_derivatives_expanded(thesis);
+    if (!syntax_error && !failure && !map_count && !pair_set_count && !statement_parameter_count) {
+        quantifier_depth = 0;
+        formula_check(thesis);
+        scope_count = 0;
+    }
+    int readable = !syntax_error && !failure && !map_count && !pair_set_count && !statement_parameter_count && !derivative_signs;
+
+    /* La scrittura. Il genere dei numeri si conosce solo alla fine, e va in
+     * testa: prima si scrive l'enunciato dopo un'intestazione di lunghezza
+     * fissa, poi la si riempie. */
+    if (readable) {
+        static const char *const head[] = {NULL, "numbers int \n", "numbers rat \n", "numbers real\n"};
+        certificate_length = 0;
+        certificate_broken = 0;
+        cert_add("%s", head[3]);
+        numbers_base = numbers_bound_count = 0;
+        if (numbers_formula(thesis) && numbers_base && !certificate_broken) {
+            cert_add("\n");
+            if (!certificate_broken) {
+                memcpy(certificate_text, head[numbers_base], strlen(head[numbers_base]));
+                verdict.reason = LOGIC_HANDED_OVER;
+                verdict.detail = certificate_text;
+            }
+        }
+    }
+
+    /* Come prove_quantified(): ciò che l'enunciato ha dichiarato non deve
+     * restare visibile al lettore delle espressioni. */
+    map_count = statement_parameter_count = 0;
+    return verdict;
+}
+
 /* Prova a dimostrare l'enunciato scritto in formula.
  *
  * variable, has_base e base riguardano le dimostrazioni per induzione (vedi
@@ -51508,6 +51754,21 @@ static Verdict prove_core(const char *formula, int variable, int has_base, long 
      * questo rifiuto 6000 radici una dentro l'altra fermavano il programma. */
     const Verdict too_long = {UNSUPPORTED, variable, 0, 0, "enunciato troppo lungo", NULL, NULL, NULL, NULL, NULL};
     stack_guard = strlen(formula) >= MAX_FORMULA;
+
+    /* Dentro Vampire (LOGIC_NUMBERS): l'enunciato non si decide, si
+     * consegna, se è di quelli che più sotto andrebbero com'è scritto a
+     * prove_quantified() (vedi numbers_handed_over()). Per tutti gli altri
+     * la risposta è subito "niente da consegnare": i rami qui sotto li
+     * deciderebbero una seconda volta, e non è questo che è stato chiesto.
+     * Warning: la condizione ripete, negati, i rami che in questa funzione
+     * precedono quello di \mathbb; se ne nasce uno nuovo va aggiunto qui. */
+    if (logic_task == LOGIC_NUMBERS) {
+        int as_written = !stack_guard && strstr(formula, "\\mathbb") && !uses_partial_notation(formula) && !uses_index_notation(formula) &&
+                         !uses_linear_systems(formula) && !uses_matrices(formula) && !starts_with_integral(formula) &&
+                         !uses_cardinality(formula, 0) && !uses_equipotence(formula);
+        if (as_written) return numbers_handed_over(formula);
+        return (Verdict){NOT_PROVED, variable, 0, 0, "non è un enunciato con quantificatori sui numeri", NULL, NULL, NULL, NULL, NULL};
+    }
 
     /* L'insieme delle soluzioni di un sistema lineare, \{(x, y) \in
      * \mathbb{R}^{2} \mid ...\}: un enunciato del capitolo 33, anche quando

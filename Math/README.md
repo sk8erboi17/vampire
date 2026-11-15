@@ -98,11 +98,23 @@ what the statement is, by measurement (see "Measures").
   statement suggest (for "f(y) = y for every y" with an induction principle
   among the hypotheses, the part of the x with f(x) = x). What Vampire
   refutes there is a certificate at once.
-- **Mathematics proper.** No faithful first-order translation exists that
-  Vampire could use, so the statement goes to its algorithm in the engine:
+- **Mathematics proper.** The statement goes to its algorithm in the engine:
   induction on sums and products, sign tables for equations and inequalities
   (also solving them), limits, derivatives, integrals, matrices and linear
-  systems, functions of several variables, identities with indices. The
+  systems, functions of several variables, identities with indices. One
+  kind of statement has a faithful translation for Vampire, and is given to
+  it when the engine has no answer: **quantifiers over numbers**, when
+  every variable ranges over numbers of one kind (all integers, or all
+  rationals, or all reals) and the expressions are sums, products, written
+  powers, comparisons and, among integers, divisibility. The engine hands
+  the statement over as it read it (`qr_numbers_item`),
+  `Math/NumberStatement` writes it as a TPTP problem over `$int`, `$rat` or
+  `$real`, which Vampire's own parser reads, and two searches run together,
+  for a proof of the statement and for a proof of its negation. What is
+  proved there is found, not verified: the checker has no language for
+  arithmetic with quantifiers. Variables of two kinds, exponents that are
+  letters, divisions by an expression, functions and roots are not handed
+  over: they would need a choice the translation must not make. The
   same holds for a bijection between two sets: to prove one is to build
   it, which the engine's search for witnesses does and a first-order prover
   cannot.
@@ -159,6 +171,9 @@ Rules that are not negotiable:
   the output says `CONTRADICTION`. None has occurred in any test.
 - **No numerical test makes a theorem.** The engine never reports one on such
   grounds, and nothing in this module upgrades a status.
+- **A proof by Vampire's arithmetic theories is never certified.** It is
+  `TheoremUnverified`, or `CounterexampleUnverified` when what was proved
+  is the negation, and the output says which.
 
 ## The account of a proof
 
@@ -201,6 +216,7 @@ prints a statement as TPTP.
 | `Math/quaerens/` | the engine's sources: `main.c` (search, calculus, decisions), `parser.c` (LaTeX), `output.c` (document), `plot.c` (plots), `checker.c` (checker) |
 | `Math/LogicStatement` | a statement of logic as a typed tree: sorts, symbols with signatures, formulas |
 | `Math/LogicTranslator` | that tree into Vampire units; possibly empty sorts |
+| `Math/NumberStatement` | a statement with quantifiers over numbers, as the engine hands it over, into a TPTP problem for Vampire's arithmetic |
 | `Math/LogicProblem` | the statement of the running process: what Vampire found (a refutation, a model), written down as data |
 | `Math/Driver` | the run over the statements of an input; the searches of Vampire in child processes; models and proofs back to the engine |
 | `Math/Verification.hpp` | the statuses |
@@ -225,9 +241,12 @@ and rechecked, with the laws of its sets of parts and of maps; it adopts a
 model found by Vampire; it hands over the clauses from which the checker
 starts a proof by saturation, with the instances of the formulas on parts;
 it writes a certifiable proof of a statement Vampire proved; or it decides,
-as it always did. The other four files, the checker among them, are byte
-for byte those of Quaerens: nothing was added to the checker for Vampire's
-proofs, which are written in the steps it already had.
+as it always did. A second, smaller place is at the end of the file, where
+statements are sent to their chapters: a statement with quantifiers over
+numbers can be handed over instead of decided (`numbers_handed_over()`).
+The other four files, the checker among them, are byte for byte those of
+Quaerens: nothing was added to the checker for Vampire's proofs, which are
+written in the steps it already had.
 
 ## Migration: what is where, and what is not done
 
@@ -243,6 +262,7 @@ proofs, which are written in the steps it already had.
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |
 | Sign tables: equations, inequalities, solving, parameters, congruences | engine | in use |
+| Quantifiers over integers, rationals, reals | engine first, then **Vampire** | the engine's rules and sign tables lead; what they do not decide goes to Vampire's arithmetic theories, when every variable is of one kind |
 | Limits, derivatives, integrals | engine | in use |
 | Matrices, determinants, linear systems, discussion by a parameter | engine | in use |
 | Partial derivatives, gradients, Hessians, critical points | engine | in use |
@@ -274,8 +294,12 @@ Not done, and not claimed:
   finite model to recompute and no refutation to follow.
 - **No reasoning inside one proof across the two.** They pass statements,
   models and proofs to each other; Vampire cannot ask the engine for a
-  computation in the middle of a proof, and statements that mix logic with
-  arithmetic or analysis are not given to Vampire's arithmetic theories.
+  computation in the middle of a proof.
+- **Vampire's arithmetic gets only statements about numbers of one kind**,
+  with polynomial expressions. A statement that mixes integers and
+  rationals, or has a declared map, an exponent that is a letter, a
+  function or a root, stays with the engine; and what Vampire proves about
+  numbers is not rechecked by anything.
 - **A bijection between two sets is not given to Vampire**; those
   statements are the engine's alone. A hypothesis "S and T are equipotent"
   could be given as two maps inverse to each other, but the checker's
@@ -300,14 +324,22 @@ Not done, and not claimed:
   once its statement is denied or its last step removed; a refuted request
   for an example is certified as the negation; a statement on the parts of
   a set is handed over with the parts to try.
+- `UnitTests/tMathNumbers.cpp` (ctest `MathNumbers`): what the engine hands
+  over of a statement on numbers (the sets with their bounds and removed
+  points, divisibility, the three sorts) and the TPTP problem written from
+  it; what cannot be said exactly is not handed over (variables of two
+  kinds, an exponent that is a letter, a division by an expression or among
+  integers, functions, roots, declared maps, requests for solutions); a
+  text that is not what the engine hands over is refused.
 - `UnitTests/tMathLogic.cpp` (ctest `MathLogic`): the typed reading, the
   translation (plain sets, sets of parts and of maps, written numbers), the
   checker on correct and altered counterexamples, the engine adopting and
   refusing models found elsewhere, the engine rebuilding a proof and
   refusing to rebuild one of a false statement, the engine on false,
   ill-defined and ambiguous statements.
-- `checks/latex-sanity build/vampire`: five documents in `checks/latex/`
-  (logic, sets of parts, mathematics, false statements, invalid writings)
+- `checks/latex-sanity build/vampire`: six documents in `checks/latex/`
+  (logic, sets of parts, numbers, mathematics, false statements, invalid
+  writings)
   with the expected result of every statement and of who reached it; no
   false statement is a theorem, among them one on the parts of a set that
   holds in every finite set; a theorem is certified only when the checker

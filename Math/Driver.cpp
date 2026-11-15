@@ -36,6 +36,7 @@
 
 #include "Engine.h"
 #include "LogicProblem.hpp"
+#include "NumberStatement.hpp"
 #include "Proof/IndependentChecker.h"
 #include "Proof/Replay.hpp"
 #include "Verification.hpp"
@@ -586,6 +587,115 @@ bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& pro
   return true;
 }
 
+/** What Vampire's arithmetic theories said of a statement about numbers. */
+struct ArithmeticAnswer {
+  bool asked = false;   // the statement was one that can be given to them
+  bool found = false;   // a proof was found ...
+  bool denied = false;  // ... of the negation of the statement, rather than of the statement
+  std::string sort;     // the sort of the problem: $int, $rat or $real
+};
+
+/**
+ * Gives a statement with quantifiers over numbers, which the engine read
+ * and could not decide, to Vampire's arithmetic theories.
+ *
+ * The engine hands the statement over if every variable in it ranges over
+ * numbers of one kind (Engine.h, qr_numbers_item()); NumberStatement writes
+ * it as a TPTP problem over $int, $rat or $real, and Vampire's own parser
+ * reads it in a child process, which from there on is Vampire on that
+ * problem with whatever options were given. Two such processes run
+ * together, one with the statement as conjecture and one with its
+ * negation: a statement about numbers is as likely to be false as true,
+ * and a proof of the negation is the only refutation Vampire can give
+ * (there are no finite models of arithmetic to look for). The first that
+ * finds a proof ends the other, and its output, with Vampire's own report
+ * of the proof, is copied to the output; the problem of the negation is
+ * named as such there ("the negation of ..."), so that the status Vampire
+ * prints for it is not read as the status of the statement.
+ *
+ * Nothing rechecks what is found: the caller must report it as found, not
+ * verified (NumberStatement.hpp).
+ *
+ * Returns false in a child process, with the problem loaded: the caller
+ * must return at once so that the process goes on to prove it.
+ */
+bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, ArithmeticAnswer& answer)
+{
+  QrVerdict handed = qr_numbers_item(item.text.c_str(), item.text.c_str() + item.text.size());
+  if (!handed.logic) return true;
+  NumberStatement statement = NumberStatement::read(handed.logic);
+  if (!statement.ok()) return true;
+  answer.asked = true;
+  answer.sort = statement.sort();
+
+  Options& options = *env.options;
+  std::string base = (std::filesystem::temp_directory_path()
+    / ("vampire-latex-" + std::to_string(getpid()) + "-" + std::to_string(run.statements) + "-numbers")).string();
+  struct Search {
+    bool denied;
+    std::string answerPath, outputPath;
+    pid_t process = -1;
+    bool running = false;
+    VampireAnswer found;
+  };
+  Search searches[2] = {{false, base + "-0.answer", base + "-0.out"}, {true, base + "-1.answer", base + "-1.out"}};
+
+  /* Nothing buffered may cross the fork (see searchWithVampire()). */
+  std::cout.flush();
+  if (run.certificates.is_open()) run.certificates.flush();
+  fflush(nullptr);
+
+  for (Search& search : searches) {
+    pid_t child = Lib::Sys::fork();
+    if (child != 0) {
+      search.process = child;
+      search.running = true;
+      continue;
+    }
+    Lib::System::registerForSIGHUPOnParentDeath();
+    int file = open(search.outputPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (file < 0 || dup2(file, STDOUT_FILENO) < 0) _exit(1);
+    close(file);
+
+    options.problemName = (search.denied ? "the negation of " : "") + problemName;
+    std::istringstream problem(statement.tptp(search.denied));
+    UIHelper::parseStream(problem, "", Options::InputSyntax::TPTP, /* verbose */ false, /* preferSMTonAuto */ false);
+    LogicProblem::Settings settings;
+    settings.explain = false;
+    settings.answerPath = search.answerPath;
+    LogicProblem::installLoaded(settings);
+    return false;
+  }
+
+  /* The first proof ends the other search. */
+  Search* settled = nullptr;
+  while (!settled && (searches[0].running || searches[1].running)) {
+    Lib::Sys::Headstone ended = Lib::Sys::waitForChildTermination(-1);
+    for (Search& search : searches) {
+      if (!search.running || search.process != ended.pid) continue;
+      search.running = false;
+      VampireAnswer::read(search.answerPath, search.found);
+      if (search.found.kind == VampireAnswer::Kind::REFUTATION) settled = &search;
+    }
+  }
+  for (Search& search : searches) {
+    if (!search.running) continue;
+    Lib::Sys::kill(search.process, SIGINT);
+    Lib::Sys::waitForChildTermination(search.process);
+    search.running = false;
+  }
+  if (settled) {
+    answer.found = true;
+    answer.denied = settled->denied;
+    copyToOutput(settled->outputPath);
+  }
+  for (const Search& search : searches) {
+    std::remove(search.answerPath.c_str());
+    std::remove(search.outputPath.c_str());
+  }
+  return true;
+}
+
 /**
  * Decides a statement of first-order logic, the two parts of the program
  * working on it together.
@@ -950,10 +1060,36 @@ std::optional<int> Driver::run()
        * certified theorem (or, for a statement that wants an example, the
        * certified proof that there is none). */
       Recheck onClauses;
+      ArithmeticAnswer arithmetic;
       if (statement.clausesOnly) {
         if (!refuteCheckerClauses(item, problemName, run, /* proved */ false, onClauses)) return std::nullopt;
+      } else if ((statement.verdict.outcome == QR_NOT_PROVED || statement.verdict.outcome == QR_UNSUPPORTED) && statement.notTranslated.empty()) {
+        /* Mathematics that the engine neither proved nor refuted, or read
+         * and had no method for: if it is a statement with quantifiers
+         * over numbers of one kind, Vampire's arithmetic theories are
+         * asked (askArithmetic()). What the engine could not read is not
+         * handed over, so nothing is asked of it. */
+        bool conditional = statement.verdict.conditional != 0;
+        if (!askArithmetic(item, problemName, run, arithmetic)) return std::nullopt;
+
+        /* The caution of the engine: after the formula there was a
+         * condition nobody read, and the statement may be false only in
+         * the cases it excludes. A proof holds whatever the condition. */
+        if (arithmetic.found && arithmetic.denied && conditional) arithmetic.found = false;
       }
-      if (onClauses.certified) {
+      if (arithmetic.found) {
+        bool italian = run.language == Language::ITALIAN;
+        LogicOutcome outcome;
+        outcome.status = arithmetic.denied ? Status::COUNTEREXAMPLE_UNVERIFIED : Status::THEOREM_UNVERIFIED;
+        outcome.reason = italian
+          ? "Il motore matematico non aveva né una dimostrazione né una confutazione; l'enunciato è stato dato alle teorie aritmetiche di Vampire come problema su " + arithmetic.sort + ", e Vampire ha dimostrato "
+            + (arithmetic.denied ? "la sua negazione" : "l'enunciato") + ". La prova non è ricontrollata dal verificatore indipendente."
+          : "The mathematical engine had neither a proof nor a refutation; the statement was given to Vampire's arithmetic theories as a problem over " + arithmetic.sort + ", and Vampire proved "
+            + (arithmetic.denied ? "its negation" : "the statement") + ". The proof is not rechecked by the independent checker.";
+        status = outcome.status;
+        decidedBy = "vampire";
+        reportLogic(outcome);
+      } else if (onClauses.certified) {
         bool italian = run.language == Language::ITALIAN;
         LogicOutcome outcome;
         outcome.status = statement.wantsExample ? Status::REFUTATION_CERTIFIED : Status::THEOREM_CERTIFIED;
@@ -977,6 +1113,9 @@ std::optional<int> Driver::run()
           addCommentSignForSZS(std::cout) << "Not given to Vampire as a first-order problem: " << statement.notTranslated << std::endl;
         if (statement.clausesOnly)
           addCommentSignForSZS(std::cout) << "Vampire, asked for a refutation of the checker's clauses: " << onClauses.problem << std::endl;
+        if (arithmetic.asked)
+          addCommentSignForSZS(std::cout) << "Vampire's arithmetic theories, asked too (a problem over " << arithmetic.sort
+                                          << "), proved neither the statement nor its negation" << std::endl;
         if (!verdict.certificate.empty() && run.certificates.is_open()) run.certificates << verdict.certificate << "\n";
         if (run.document) qr_document_item(item.text.c_str(), item.text.c_str() + item.text.size());
       }

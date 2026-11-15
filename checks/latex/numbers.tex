@@ -1,0 +1,26 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\title{Statements with quantifiers over numbers}
+\begin{document}
+\maketitle
+Statements about integers, rationals and reals. The mathematical engine goes
+first, with its rules for quantifiers and its sign tables. Where it has no
+answer, a statement whose variables are all of one kind is given to Vampire's
+arithmetic theories, as it is and as its negation; what Vampire proves there
+is found, not verified. The first is the engine's; the second it reads and
+has no method for, and Vampire, asked, does not prove it either. The last
+three are not given to Vampire: variables of two kinds, an exponent that is
+a letter, a set of another kind.
+\begin{enumerate}
+\item $\displaystyle \forall n \in \mathbb{N}\ \exists m \in \mathbb{N}\ (m = n + 1)$
+\item $\displaystyle \forall n \in \mathbb{N}\ (n^{2} \ge n)$
+\item $\displaystyle \forall a, b, c \in \mathbb{Z}\ (((ab - 2)(a - b) = 0 \land (bc - 2)(b - c) = 0) \implies (ac - 2)(a - c) = 0)$
+\item $\displaystyle \forall a, b \in \mathbb{Z} \setminus \{0\}\ ((a \mid a \land a \mid b \land \forall e \in \mathbb{Z}\ ((e \mid a \land e \mid b) \implies e \mid a)) \iff (a \mid b \land b \mid b \land \forall e \in \mathbb{Z}\ ((a \mid e \land b \mid e) \implies b \mid e)))$
+\item $\displaystyle \forall x, y \in \mathbb{Z}\ ((\exists k \in \mathbb{N}\ (x = k + 100) \land \exists k \in \mathbb{N}\ (y = k + 100)) \implies x = y)$
+\item $\displaystyle \forall m \in \mathbb{Z}\ \exists x \in \mathbb{N}\ (x - m \in \mathbb{N}_{0} \land m - x \in \mathbb{N}_{0})$
+\item $\displaystyle \forall x, y \in \mathbb{Q}^{+}\ \forall a, b \in \mathbb{Z}\ ((y = ax \land x = by) \implies x = y)$
+\item $\displaystyle \forall a \in \mathbb{Z}\ \forall m, n \in \mathbb{N}\ \exists p \in \mathbb{N}\ (a^{m} a^{n} = a^{p})$
+\item $\displaystyle \forall x \in \mathbb{R}\ (x \in \mathbb{Q} \lor x^{2} \neq 2)$
+\end{enumerate}
+\end{document}

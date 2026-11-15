@@ -192,6 +192,34 @@ QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model
 QrVerdict qr_clauses_item(const char* item, const char* end);
 
 /**
+ * A statement with quantifiers over numbers, handed over for the arithmetic
+ * theories of a first-order prover: the statement in the item [item, end),
+ * which the engine can read and could not decide. The verdict is QR_LOGIC
+ * and its logic field holds a line "numbers int", "numbers rat" or
+ * "numbers real" (every variable of the statement ranges over integers, or
+ * every one over rationals, or every one over reals) and the statement in a
+ * prefix notation:
+ *
+ *     (forall (var N) SET C)  (exists (var N) SET C)
+ *     SET = (set [ge L | gt L] [except P/Q]...)      a lower bound, points removed
+ *     (and C C) (or C C) (implies C C) (iff C C) (not C)
+ *     (= E E) (neq E E) (less E E) (lesseq E E)
+ *     (in E SET)                                      E satisfies the bound and avoids the points
+ *     (divides E E)                                   the second is the first times an integer
+ *     E = N | (var N) | (add E E) | (sub E E) | (neg E) | (mul E E) | (pow E K) | (div E N)
+ *
+ * with N a non-negative integer, K from 1 to 16, and (div E N) only among
+ * rationals and reals, by a positive integer. The logic field is NULL if
+ * the statement is outside this fragment (declared maps, parameters, pairs,
+ * functions, variables of different kinds, an exponent that is a letter, a
+ * division by an expression): then it stays the engine's alone.
+ *
+ * The engine decides nothing here, and has no checker for what a prover
+ * finds on this text: a proof found there is found, not verified.
+ */
+QrVerdict qr_numbers_item(const char* item, const char* end);
+
+/**
  * Writes a proof that the independent checker accepts for the statement in
  * the item [item, end), which was handed over and has been PROVED outside
  * the engine. The engine does not search for models with its SAT finder

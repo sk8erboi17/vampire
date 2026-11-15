@@ -208,6 +208,20 @@ QrVerdict qr_clauses_item(const char* item, const char* end)
   return verdict;
 }
 
+QrVerdict qr_numbers_item(const char* item, const char* end)
+{
+  QrVerdict verdict = decide_item(item, end, LOGIC_NUMBERS);
+
+  /* A statement that is not one with quantifiers over numbers is decided
+   * as usual by the engine, whatever the task: nothing of that is wanted
+   * here, only whether there is a text to hand over. */
+  if (verdict.outcome != QR_LOGIC) {
+    verdict = (QrVerdict){0};
+    verdict.outcome = QR_LOGIC;
+  }
+  return verdict;
+}
+
 QrVerdict qr_certify_item(const char* item, const char* end)
 {
   return decide_item(item, end, LOGIC_CERTIFY);

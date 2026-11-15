@@ -127,6 +127,14 @@ public:
    */
   static Kernel::UnitList* installClauses(const Proof::Replay& clauses, const Settings& settings);
 
+  /**
+   * Makes a problem whose units were loaded by another reader (a statement
+   * about numbers, written as TPTP and read by Vampire's own parser) the
+   * problem of this process: all that is recorded of it is whether Vampire
+   * found a refutation.
+   */
+  static void installLoaded(const Settings& settings);
+
   bool hasConjecture() const { return _translator && _translator->hasConjecture(); }
 
   /** Called by the finite model builder with the model it found: reads it as sizes and tables of the statement. */
@@ -151,7 +159,8 @@ private:
   LogicProblem(LogicStatement statement, const Settings& settings);
 
   LogicStatement _statement;
-  std::unique_ptr<LogicTranslator> _translator;  // null when the problem is the checker's clauses
+  std::unique_ptr<LogicTranslator> _translator;  // null when the problem is not a translated statement
+  bool _clauses = false;                         // the problem is the checker's clauses: the refutation is recorded
   Settings _settings;
   VampireAnswer _answer;
 

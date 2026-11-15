@@ -156,6 +156,7 @@ UnitList* LogicProblem::installClauses(const Proof::Replay& clauses, const Setti
   _current.reset(new LogicProblem(LogicStatement(), settings));
   LogicProblem& problem = *_current;
   problem._translator.reset();
+  problem._clauses = true;
 
   TermList individual = AtomicSort::defaultSort();
   std::vector<unsigned> symbols;
@@ -191,6 +192,12 @@ UnitList* LogicProblem::installClauses(const Proof::Replay& clauses, const Setti
     units.pushBack(clause);
   }
   return units.list();
+}
+
+void LogicProblem::installLoaded(const Settings& settings)
+{
+  _current.reset(new LogicProblem(LogicStatement(), settings));
+  _current->_translator.reset();
 }
 
 /** A term of Vampire as the checker writes terms; empty if it uses a symbol that is not one of the checker's. */
@@ -524,9 +531,10 @@ void LogicProblem::onRefutation(Unit* refutation)
   _answer.kind = VampireAnswer::Kind::REFUTATION;
   _answer.goalUsed = refutation->derivedFromGoal();
 
-  /* The checker's clauses: what is wanted is the refutation itself, to be rechecked. */
+  /* The checker's clauses: what is wanted is the refutation itself, to be
+   * rechecked. A problem loaded by another reader: that there is one. */
   if (!_translator) {
-    _answer.inferences = inferencesOf(refutation);
+    if (_clauses) _answer.inferences = inferencesOf(refutation);
     send();
     return;
   }

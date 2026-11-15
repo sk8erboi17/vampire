@@ -1,0 +1,10 @@
+% Result 1: TheoremUnverified (engine)
+% Result 2: Unsupported (engine)
+% Result 3: TheoremUnverified (vampire)
+% Result 4: TheoremUnverified (vampire)
+% Result 5: CounterexampleUnverified (vampire)
+% Result 6: CounterexampleUnverified (vampire)
+% Result 7: Unsolved (engine)
+% Result 8: Unsolved (engine)
+% Result 9: Unsolved (engine)
+% Summary of numbers.tex: 9 statements; TheoremUnverified 3; CounterexampleUnverified 2; Unsolved 3; Unsupported 1
