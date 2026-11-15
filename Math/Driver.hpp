@@ -24,8 +24,13 @@
  *     nothing in the prover had to learn about documents. What Vampire
  *     finds comes back here as data, and the engine and the independent
  *     checker turn it into a verified answer: a model is recomputed and
- *     certified, a proof is rebuilt in a form the checker can recheck
- *     (decideLogic() in Driver.cpp).
+ *     certified, the inferences of a proof are written as steps the
+ *     checker follows (decideLogic() and refuteCheckerClauses() in
+ *     Driver.cpp);
+ *   - a statement of logic that has no first-order form of its own (a
+ *     quantifier over the parts of a set), and that the engine could not
+ *     decide, gets a child process too: Vampire on the clauses that the
+ *     independent checker builds from the statement.
  *
  * THE DEFAULT PLAN FOR A STATEMENT OF LOGIC. Two searches, both Vampire's:
  * one for a finite model that refutes the statement (for at most

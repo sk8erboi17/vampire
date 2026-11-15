@@ -38,6 +38,8 @@ enum class Status {
   RESULT_UNVERIFIED,         // result computed and reread by the engine, not confirmed by the checker
   COUNTEREXAMPLE_VERIFIED,   // counterexample recomputed and accepted by the independent checker
   COUNTEREXAMPLE_UNVERIFIED, // the statement was refuted, the checker did not confirm it
+  REFUTATION_CERTIFIED,      // the statement was refuted without a counterexample to show (it asks for an example
+                             // and there is none), and the checker accepted the certificate of the refutation
   UNSOLVED,                  // neither proved nor refuted within the limits
   UNSUPPORTED                // outside the fragment the program reads
 };
@@ -56,6 +58,7 @@ inline const char* statusName(Status status, Language language)
     case Status::RESULT_UNVERIFIED:         return italian ? "risultato calcolato ma non verificato indipendentemente" : "result computed but not independently verified";
     case Status::COUNTEREXAMPLE_VERIFIED:   return italian ? "controesempio verificato" : "counterexample verified";
     case Status::COUNTEREXAMPLE_UNVERIFIED: return italian ? "confutazione trovata ma non verificata indipendentemente" : "refutation found but not independently verified";
+    case Status::REFUTATION_CERTIFIED:      return italian ? "enunciato confutato, confutazione certificata" : "statement refuted, refutation certified";
     case Status::UNSOLVED:                  return italian ? "problema non risolto" : "problem not solved";
     case Status::UNSUPPORTED:               return italian ? "frammento non supportato" : "fragment not supported";
   }
@@ -72,6 +75,7 @@ inline const char* statusCode(Status status)
     case Status::RESULT_UNVERIFIED:         return "ResultUnverified";
     case Status::COUNTEREXAMPLE_VERIFIED:   return "CounterexampleVerified";
     case Status::COUNTEREXAMPLE_UNVERIFIED: return "CounterexampleUnverified";
+    case Status::REFUTATION_CERTIFIED:      return "RefutationCertified";
     case Status::UNSOLVED:                  return "Unsolved";
     case Status::UNSUPPORTED:               return "Unsupported";
   }
@@ -88,6 +92,7 @@ inline const char* statusSZS(Status status)
     case Status::RESULT_UNVERIFIED:         return "Success";
     case Status::COUNTEREXAMPLE_VERIFIED:
     case Status::COUNTEREXAMPLE_UNVERIFIED: return "CounterSatisfiable";
+    case Status::REFUTATION_CERTIFIED:      return "Unsatisfiable";  // of a condition for which an example was asked
     case Status::UNSOLVED:                  return "GaveUp";
     case Status::UNSUPPORTED:               return "Inappropriate";
   }

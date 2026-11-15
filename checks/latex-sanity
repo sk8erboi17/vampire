@@ -6,10 +6,11 @@
 #     sh checks/latex-sanity build/vampire
 #
 # Who works on what. A statement of first-order logic over plain sets: Vampire
-# searches, the mathematical engine judges the models it finds and rebuilds
-# its proofs as certificates. A statement with sets of parts or of maps: the
-# engine goes first, Vampire is asked for a proof when the engine has none.
-# Mathematics proper: the engine. The independent checker judges every certificate.
+# searches, the mathematical engine judges the models it finds, and the
+# independent checker follows Vampire's proofs inference by inference. A
+# statement with sets of parts or of maps: the engine goes first, Vampire is
+# asked for a proof when the engine has none. Mathematics proper: the engine.
+# The independent checker judges every certificate.
 #
 # What is checked, for each document in checks/latex/:
 #   - the result of every statement ("% Result N: Code (who decided)") and the summary;
@@ -97,22 +98,43 @@ check_output_lacks "CounterSatisfiable" --proof off -t 10 latex/invalid.tex
 # a statement of logic is Vampire's problem in every mode: here it is only printed, as TPTP
 check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax latex latex/logic.tex
 
-# a theorem found by Vampire is certified when the engine rebuilds its proof and the
-# checker accepts it, and only then: statement 10 is proved by Vampire and the engine
-# cannot rebuild it, so it is "found but not independently verified"
+# a theorem found by Vampire is certified when the checker has followed Vampire's
+# own inferences one by one: Vampire refutes again the clauses the checker builds
+# from the statement, and each inference becomes a step of the certificate.
+# Statements 10 and 11 need Vampire's splitting, which the checker follows too
 check_output_contains "% Result 1: TheoremCertified (vampire)" -t 10 latex/logic.tex
-check_output_contains "% Result 10: TheoremUnverified (vampire)" -t 10 latex/logic.tex
-check_output_contains "proof found but not independently verified" -t 10 latex/logic.tex
-check_output_contains "prova trovata ma non verificata indipendentemente" -t 10 --math_language it latex/logic.tex
+check_output_contains "% Result 10: TheoremCertified (vampire)" -t 10 latex/logic.tex
+check_output_contains "% Result 11: TheoremCertified (vampire)" -t 10 latex/logic.tex
+check_output_contains "% Vampire's inferences rechecked by the independent checker" -t 10 latex/logic.tex
+
+# without that recheck the engine rebuilds the proof as a certificate of its own,
+# and only then is the theorem certified: statement 10 is proved by Vampire and the
+# engine cannot rebuild it, so it is "found but not independently verified"
+check_output_contains "% Result 1: TheoremCertified (vampire)" -t 10 --math_recheck_time 0 latex/logic.tex
+check_output_contains "% Result 10: TheoremUnverified (vampire)" -t 10 --math_recheck_time 0 latex/logic.tex
+check_output_contains "proof found but not independently verified" -t 10 --math_recheck_time 0 latex/logic.tex
+check_output_contains "prova trovata ma non verificata indipendentemente" -t 10 --math_recheck_time 0 --math_language it latex/logic.tex
+check_output_lacks "inferences rechecked" -t 10 --math_recheck_time 0 latex/logic.tex
 
 # Vampire's proof is told step by step, in both languages
 check_output_contains "Superposition: an equation of one clause" -t 10 latex/logic.tex
 check_output_contains "Superposizione: un'equazione di una clausola" -t 10 --math_language it latex/logic.tex
 
-# with sets of parts the engine goes first; where it has no answer Vampire is asked,
-# and what Vampire proves from the engine's laws is reported as its own, unverified
+# with sets of parts the engine goes first; where it has no answer Vampire is asked.
+# Statement 4 asks for an example that does not exist: Vampire refutes it from the
+# engine's laws, and the checker follows the refutation. Without the recheck the
+# refutation is reported as Vampire's own, unverified
 check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 4: RefutationCertified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/parts.tex
+
+# a quantifier on the parts of a set has no first-order form of its own. Where the
+# engine has no answer Vampire refutes the clauses of the checker, with the parts the
+# engine proposes: statement 7 is induction (the part of the x with f(x) = x), and
+# statement 8 asks for an example that the empty part rules out
+check_output_contains "% Result 7: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 8: RefutationCertified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "comprehend 0 (clause (eq (f 2 (v 0)) (v 0)))" --proof off -t 10 --math_certificates /dev/stdout latex/parts.tex
 check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/parts.tex
 
 # a model found by Vampire is judged by the engine as its own, and the empty set is a set
@@ -163,6 +185,23 @@ then
 		if test "$accepted" -ne 0
 		then
 			echo "check failed: $accepted altered certificates of $name.tex accepted"
+			exit 1
+		fi
+	done
+
+	# a refutation without its last step does not reach the empty clause: every
+	# certificate that follows Vampire's inferences must be rejected, the others
+	# are untouched
+	for name in logic parts
+	do
+		awk '{ if (held != "" && !($0 == "end" && held ~ /^step /)) print held; held = $0 } END { print held }' \
+		    "$scratch/$name.cert" > "$scratch/$name.cut"
+		saturations=`grep -c '^certificate saturation' "$scratch/$name.cert"`
+		before=`"$scratch/checker" "$scratch/$name.cert" | grep -c 'ACCETTATO'`
+		after=`"$scratch/checker" "$scratch/$name.cut" | grep -c 'ACCETTATO'`
+		if test "$saturations" -eq 0 || test `expr "$before" - "$after"` -ne "$saturations"
+		then
+			echo "check failed: $saturations refutations of $name.tex lost their last step, $before certificates accepted before and $after after"
 			exit 1
 		fi
 	done

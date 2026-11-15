@@ -36,6 +36,7 @@
 #define __Math_LogicProblem__
 
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@
 
 #include "LogicStatement.hpp"
 #include "LogicTranslator.hpp"
+#include "Proof/Replay.hpp"
 #include "Verification.hpp"
 
 namespace FMB { class FiniteModelMultiSorted; }
@@ -66,6 +68,23 @@ struct VampireAnswer {
   /* REFUTATION */
   bool goalUsed = true;   // false if the refutation does not use the claim: the hypotheses are contradictory
   std::string account;    // the account of the refutation, as LaTeX text; empty if none was asked for
+  /* When the problem was the checker's clauses (installClauses()): the
+   * refutation, one line per unit in the order of derivation, clauses
+   * written as the checker writes them.
+   *   input UNIT INDEX                        the initial clause number INDEX
+   *   unit UNIT COUNT PREMISE... RULE ASSUMED LEVEL... (clause ...)
+   *                                           an inference by Vampire's rule RULE; the clause holds
+   *                                           under ASSUMED split levels of AVATAR
+   *   definition UNIT VARIABLE (clause ...)   AVATAR: the SAT variable names this clause
+   *   component UNIT LEVEL                    AVATAR: the component clause of a split level
+   *   split UNIT PARENT COUNT NAME...         AVATAR: the clause of names (v, or -v for a negation)
+   *                                           got by splitting the clause PARENT
+   *   contradiction UNIT PARENT COUNT NAME... AVATAR: the clause of names read off PARENT, an
+   *                                           empty clause under assumptions
+   *   propositional UNIT COUNT PREMISE...     AVATAR: the empty clause, the clauses of names
+   *                                           PREMISE... being unsatisfiable
+   *   unit UNIT unknown RULE                  anything else */
+  std::string inferences;
 
   /* MODEL: in the order of the statement, one size per sort and one table
    * per symbol; a table has a cell for every choice of the arguments, the
@@ -99,7 +118,16 @@ public:
    */
   static Kernel::UnitList* install(LogicStatement statement, const Settings& settings);
 
-  bool hasConjecture() const { return _translator->hasConjecture(); }
+  /**
+   * Makes the clauses the independent checker starts from the problem of
+   * this process, and returns them as units. Vampire then refutes those
+   * very clauses, and its refutation is recorded inference by inference
+   * (VampireAnswer::inferences) for Proof::Replay to rebuild as steps the
+   * checker rechecks.
+   */
+  static Kernel::UnitList* installClauses(const Proof::Replay& clauses, const Settings& settings);
+
+  bool hasConjecture() const { return _translator && _translator->hasConjecture(); }
 
   /** Called by the finite model builder with the model it found: reads it as sizes and tables of the statement. */
   void onFiniteModel(FMB::FiniteModelMultiSorted& model);
@@ -123,9 +151,16 @@ private:
   LogicProblem(LogicStatement statement, const Settings& settings);
 
   LogicStatement _statement;
-  std::unique_ptr<LogicTranslator> _translator;
+  std::unique_ptr<LogicTranslator> _translator;  // null when the problem is the checker's clauses
   Settings _settings;
   VampireAnswer _answer;
+
+  /* The checker's clauses as the problem: which symbol of the checker each
+   * function and predicate of Vampire is, and which initial clause each
+   * input unit is. */
+  std::map<unsigned, int> _functionSymbol, _predicateSymbol, _inputClause;
+
+  std::string inferencesOf(Kernel::Unit* refutation) const;
 
   void send() const;
 };

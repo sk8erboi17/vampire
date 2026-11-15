@@ -100,6 +100,7 @@ set(UNIT_TESTS
     UnitTests/tList.cpp
     UnitTests/tMap.cpp
     UnitTests/tMathLogic.cpp
+    UnitTests/tProofReplay.cpp
     UnitTests/tOption.cpp
     UnitTests/tPredicateElimination.cpp
     UnitTests/tProofOutput.cpp
@@ -628,6 +629,8 @@ set(SOURCES
     Minisat/utils/System.cc
     Minisat/utils/System.h
     Proof/IndependentChecker.h
+    Proof/Replay.cpp
+    Proof/Replay.hpp
     Parse/LaTeX.cpp
     Parse/LaTeX.hpp
     Parse/SMTLIB2.cpp

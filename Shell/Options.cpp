@@ -1010,6 +1010,12 @@ Options::Options ()
        .description = "With LaTeX input: for a statement of first-order logic, how long to look for a finite counter-model beside the proof search "
                       "(before it, in the portfolio modes), within the time limit. Same format as time_limit; 0 skips the search for models.",
        .tag = OptionTag::INPUT})
+  , _mathRecheckTime("math_recheck_time",this,50,
+      {.short_name = "mrt",
+       .description = "With LaTeX input: when Vampire has proved a statement of first-order logic, how long it may take to refute the clauses "
+                      "of the independent checker again, so that the checker can follow its inferences one by one, within the time limit. "
+                      "Same format as time_limit; 0 skips this recheck.",
+       .tag = OptionTag::INPUT})
   , _instantiation("instantiation",this,false,
       {.short_name = "inst",
        .description = "Heuristically instantiate variables. Often wastes a lot of effort. Consider using thi instead.",

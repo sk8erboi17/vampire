@@ -38008,6 +38008,49 @@ static int saturation_attempt(const Sentence *root, const Sentence *const *laws,
     return 1;
 }
 
+/* Dentro Vampire (LOGIC_CLAUSES, più sotto). Aggiunge alle clausole
+ * iniziali di s le istanze delle formule universali su parti che si possono
+ * proporre senza cercare, perché chi cercherà la refutazione, Vampire, non
+ * sa scegliere una parte: per lui una formula su parti senza istanze è un
+ * nome senza vincoli (11m di checker.c).
+ *
+ *   - La parte vuota e la parte intera, per ogni formula
+ *     (sp_seed_comprehensions()), comprese le formule che nascono dentro
+ *     un'istanza.
+ *   - Per ogni letterale chiuso L[c] delle clausole iniziali, scritto con i
+ *     simboli dell'enunciato, e ogni costante c che vi compare, la proprietà
+ *     complementare "non L[x]" (sp_propose_term()). È la scelta che 28u fa
+ *     sulle clausole unitarie mentre satura; qui la saturazione viene dopo
+ *     e la fa un altro, quindi si guardano tutti i letterali iniziali: tra
+ *     loro c'è la tesi negata, con le sue costanti di Skolem, ed è lei che
+ *     dice quale parte serve (per "f(y) = y per ogni y" con un principio di
+ *     induzione tra le ipotesi, la parte degli x con f(x) = x).
+ *
+ * Nessuna di queste istanze è un'ipotesi in più: ognuna è "la formula vale
+ * per ogni parte, quindi per questa", e il verificatore la ricostruisce da
+ * sé dalla riga comprehend. Ritorna 0 se un'istanza è rimasta a metà (il
+ * budget di lavoro, o una forma che la traduzione non sa): chi chiama deve
+ * allora ripartire dalle sole clausole iniziali, perché un gruppo parziale
+ * non si consegna. */
+static int sp_static_comprehensions(SpState *s) {
+    int initial = s->clauses;
+    while (s->seed_schema < s->schemas && !s->limited && !s->unsupported) sp_seed_comprehensions(s);
+    for (int i = 0; i < initial && !s->limited && !s->unsupported; i++) {
+        /* La clausola si rilegge a ogni letterale: un'istanza aggiunge
+         * clausole, e il deposito può essersi spostato. */
+        for (int j = 0; j < s->clause[i].count && !s->limited && !s->unsupported; j++) {
+            SpLiteral l = s->clause[i].literal[j];
+            if (sp_guard(s, l)) continue;
+            if (!l.left || (!l.right && (l.left < 0 || s->term[l.left].symbol >= s->inputs))) continue;
+            if (!sp_ground_term(s, l.left) || !sp_ground_term(s, l.right)) continue;
+            sp_propose_term(s, l, l.left);
+            sp_propose_term(s, l, l.right);
+        }
+    }
+    while (s->seed_schema < s->schemas && !s->limited && !s->unsupported) sp_seed_comprehensions(s);
+    return !s->limited && !s->unsupported;
+}
+
 /* DENTRO VAMPIRE: CHI FA CHE COSA SU UN ENUNCIATO DI LOGICA
  *
  * Questo file, dentro Vampire, è il motore matematico di un solo programma.
@@ -38024,9 +38067,12 @@ static int saturation_attempt(const Sentence *root, const Sentence *const *laws,
  *                      deve saper scegliere le parti che le servono: lì
  *                      questo capitolo fa meglio di un dimostratore del
  *                      primo ordine (misurato: Math/README.md), e Vampire
- *                      interviene dopo, se qui non c'è risposta. Ed è il
- *                      solo turno per ciò che al primo ordine non si dice
- *                      (quantificatori su parti, equipotenza).
+ *                      interviene dopo, se qui non c'è risposta. Per ciò
+ *                      che al primo ordine non si dice (quantificatori su
+ *                      parti) Vampire interviene dopo sulle clausole del
+ *                      verificatore (LOGIC_CLAUSES); per l'equipotenza
+ *                      questo è il solo turno, perché dimostrarla vuol dire
+ *                      costruire una biiezione.
  *   LOGIC_HAND_OVER    legge l'enunciato, svolge la notazione dei libri
  *                      (17q), ricontrolla lo svolgimento sui modelli finiti
  *                      (28h), e consegna l'enunciato svolto nella notazione
@@ -38059,6 +38105,27 @@ static int saturation_attempt(const Sentence *root, const Sentence *const *laws,
  *                      controesempio, sarebbe la prova di Vampire a essere
  *                      sbagliata, e chi chiama lo deve dire.
  *
+ *   LOGIC_CLAUSES      consegna le clausole da cui il verificatore fa
+ *                      partire una prova per saturazione (11m di checker.c):
+ *                      l'enunciato negato in forma normale, con i predicati
+ *                      di dominio per gli insiemi forse vuoti, le funzioni di
+ *                      Skolem e i nomi delle sottoformule, nella numerazione
+ *                      che il verificatore ricostruisce da sé (sp_prepare()).
+ *                      Vampire cerca la refutazione di QUELLE clausole, e
+ *                      ogni sua inferenza diventa un passo che il
+ *                      verificatore ricontrolla (Proof/Replay): così una
+ *                      prova di Vampire è certificata per ciò che è, senza
+ *                      che questo capitolo la rifaccia. Per un enunciato
+ *                      che chiede un esempio ("esistono insiemi e simboli
+ *                      per cui E") ciò che Vampire può dimostrare è che
+ *                      l'esempio non c'è: l'enunciato del certificato è
+ *                      allora "non E", e le clausole sono quelle di E.
+ *                      Con i quantificatori su parti si consegnano anche le
+ *                      istanze che si propongono senza cercare
+ *                      (sp_static_comprehensions()): su queste clausole
+ *                      Vampire può dimostrare ciò che questo capitolo non
+ *                      ha dimostrato, e la prova è subito un certificato.
+ *
  * Così la ricerca è una sola (di Vampire), la certificazione è una sola (di
  * checker.c), e questo capitolo dà a ciascuna ciò che le serve: l'enunciato
  * letto bene, i modelli ricontrollati, le prove in una forma controllabile.
@@ -38067,7 +38134,7 @@ static int saturation_attempt(const Sentence *root, const Sentence *const *laws,
  * notazione scritta da cert_abstract_head(), va aggiornato il lettore in
  * Math/LogicStatement.cpp; se cambia l'ordine delle tabelle di un modello,
  * model_adopt() e chi la chiama (Math/Engine.c). */
-enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY };
+enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY, LOGIC_CLAUSES };
 static int logic_task = LOGIC_DECIDE;
 static const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore che ospita il motore";
 
@@ -38193,6 +38260,65 @@ static Verdict prove_abstract(const char *formula) {
         cert_abstract_head(abstract_example ? "example" : "counterexample", root, NULL);
         cert_axioms();
         verdict.outcome = NOT_PROVED;
+        verdict.reason = LOGIC_HANDED_OVER;
+        verdict.detail = certificate_broken ? NULL : certificate_text;
+        return verdict;
+    }
+
+    /* Le clausole della saturazione (vedi sopra prove_abstract()). Ciò che
+     * si consegna è l'inizio di un certificato saturation, fino alla riga
+     * clausify compresa, seguito da due elenchi che del certificato non
+     * fanno parte e che chi riceve stacca: i simboli della traduzione
+     * (quanti argomenti, e se è un predicato), nell'ordine dei loro numeri,
+     * e le clausole iniziali, nell'ordine dei loro indici. Sono gli stessi
+     * numeri e gli stessi indici che il verificatore ricostruisce: lo
+     * garantisce sp_prepare(), su cui poggiano già i certificati di 28u. */
+    if (logic_task == LOGIC_CLAUSES) {
+        verdict.outcome = NOT_PROVED;
+        if (!sp_supported_formula(root)) {
+            verdict.reason = "l'enunciato non ha una traduzione in clausole";
+            return verdict;
+        }
+        /* Chi chiede un esempio di E è smentito da una prova che E non
+         * vale in nessuna interpretazione, cioè da una prova di "non E".
+         * Il certificato saturation refuta la negazione del suo enunciato:
+         * con l'enunciato "non E" le clausole da cui parte sono quelle di
+         * E, ed è proprio E che Vampire ha refutato. Chi riceve deve
+         * leggere il certificato per ciò che dice: che l'esempio non c'è. */
+        const Sentence *claimed = abstract_example ? axiom_join(S_NOT, (Sentence *)root, NULL) : root;
+        const char *before_laws = syntax_error;
+        axioms_prepare();
+        if (syntax_error != before_laws) { axiom_count = 0; syntax_error = before_laws; }
+        SpState clauses = {0};
+        int prepared = sp_prepare(&clauses, claimed, axioms, axiom_count);
+        /* Le istanze delle formule su parti; se una resta a metà si riparte
+         * dalle sole clausole iniziali (sp_static_comprehensions()). */
+        if (prepared && clauses.schemas && !sp_static_comprehensions(&clauses)) {
+            sp_clear(&clauses);
+            clauses = (SpState){0};
+            prepared = sp_prepare(&clauses, claimed, axioms, axiom_count);
+        }
+        if (!prepared) {
+            sp_clear(&clauses);
+            verdict.reason = "la traduzione in clausole non è riuscita entro i limiti di memoria e di lavoro";
+            return verdict;
+        }
+        cert_abstract_head("saturation", claimed, NULL);
+        cert_axioms();
+        cert_add(clauses.forward ? "clausify forward\n" : "clausify\n");
+        /* Le righe comprehend, nell'ordine in cui le istanze sono nate: il
+         * verificatore ne ricostruisce clausole e simboli nello stesso
+         * ordine, in coda a quelli iniziali. */
+        for (int i = 0; i < clauses.introductions; i++) {
+            SpExpansion e = clauses.expansion[clauses.introduction[i].index];
+            SpClause property = {.count=1, .literal=&e.property};
+            cert_add("comprehend %d ", e.schema); sp_cert_clause(&clauses, property); cert_add("\n");
+        }
+        cert_add("symbols %d\n", clauses.symbols);
+        for (int i = 0; i < clauses.symbols; i++) cert_add("%d %d\n", clauses.symbol[i].arity, clauses.symbol[i].predicate);
+        cert_add("clauses %d\n", clauses.clauses);
+        for (int i = 0; i < clauses.clauses; i++) { sp_cert_clause(&clauses, clauses.clause[i]); cert_add("\n"); }
+        sp_clear(&clauses);
         verdict.reason = LOGIC_HANDED_OVER;
         verdict.detail = certificate_broken ? NULL : certificate_text;
         return verdict;

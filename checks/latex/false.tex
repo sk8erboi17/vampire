@@ -6,7 +6,9 @@
 \maketitle
 None of these is a theorem: a wrong coefficient, a division by zero, a
 condition of existence that is ignored, an inequality that holds only from
-some point on, a converse that fails. None may be reported as proved.
+some point on, a converse that fails, a condition on all the parts of a set
+that says less than it seems (the last one holds in every finite set).
+None may be reported as proved.
 \begin{enumerate}
 \item $\displaystyle \sum_{k=1}^{n} k = \frac{n(n+2)}{2}$
 \item $\displaystyle \forall x \in \mathbb{R}\ \left(\frac{x}{x} = 1\right)$
@@ -15,5 +17,6 @@ some point on, a converse that fails. None may be reported as proved.
 \item $\displaystyle \det \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix} = 2$
 \item $\displaystyle (A \subseteq S \land B \subseteq S \land A \subseteq B) \implies B \subseteq A$
 \item $\displaystyle (f \colon S \to S \land \forall x, y \in S\ (f(x) = f(y) \implies x = y)) \implies \forall x \in S\ (f(f(x)) = x)$
+\item $\displaystyle (f \colon S \to S \land \forall X, Y \subseteq S\ (f(X) \subseteq f(Y) \implies X \subseteq Y)) \implies \forall y \in S\ \exists x \in S\ (f(x) = y)$
 \end{enumerate}
 \end{document}

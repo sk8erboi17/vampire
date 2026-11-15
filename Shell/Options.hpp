@@ -1258,6 +1258,7 @@ public:
   bool mathExplanations() const { return _mathExplanations.actualValue; }
   MathLanguage mathLanguage() const { return _mathLanguage.actualValue; }
   int mathModelTime() const { return _mathModelTime.actualValue; }
+  int mathRecheckTime() const { return _mathRecheckTime.actualValue; }
   bool normalize() const { return _normalize.actualValue; }
   void setNormalize(bool normalize) { _normalize.actualValue = normalize; }
   GoalGuess guessTheGoal() const { return _guessTheGoal.actualValue; }
@@ -1777,6 +1778,7 @@ private:
   BoolOptionValue _mathExplanations;
   ChoiceOptionValue<MathLanguage> _mathLanguage;
   TimeLimitOptionValue _mathModelTime;
+  TimeLimitOptionValue _mathRecheckTime;
   BoolOptionValue _instantiation;
 
   ChoiceOptionValue<Induction> _induction;

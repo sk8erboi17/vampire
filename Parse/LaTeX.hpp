@@ -69,6 +69,11 @@ public:
     bool engineHadNoAnswer = false;// LOGIC: the engine went first on this statement and neither proved nor refuted it;
                                    // verdict holds what it said, and Vampire is asked for a proof
     std::string notTranslated;     // MATHEMATICS reached from logic: why the statement was not given to Vampire, or empty
+    bool clausesOnly = false;      // MATHEMATICS reached from logic, and the engine neither proved nor refuted it: the
+                                   // statement has no first-order form of its own (it quantifies over the parts of a
+                                   // set), but Vampire can still look for a proof on the clauses of the independent
+                                   // checker
+    bool wantsExample = false;     // the statement asks for an example ("there are sets and symbols such that ...")
   };
 
   /** @param text the whole input. The frontend keeps a copy. */

@@ -450,5 +450,10 @@ TEST_FUN(a_status_says_who_confirmed_it)
   ASS(std::string(statusSZS(Status::THEOREM_UNVERIFIED)) == "Theorem");
   ASS(statusPositive(Status::RESULT_VALIDATED));
   ASS(!statusPositive(Status::COUNTEREXAMPLE_VERIFIED));
+
+  /* A refutation that the checker followed is not a counterexample, and it is not a theorem. */
+  ASS(std::string(statusCode(Status::REFUTATION_CERTIFIED)) != statusCode(Status::COUNTEREXAMPLE_VERIFIED));
+  ASS(!statusPositive(Status::REFUTATION_CERTIFIED));
+  ASS(std::string(statusSZS(Status::REFUTATION_CERTIFIED)) == "Unsatisfiable");
   ASS(!statusPositive(Status::UNSOLVED));
 }

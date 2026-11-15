@@ -1,7 +1,9 @@
 % Result 1: TheoremCertified (engine)
 % Result 2: TheoremCertified (engine)
 % Result 3: CounterexampleVerified (vampire)
-% Result 4: CounterexampleUnverified (vampire)
+% Result 4: RefutationCertified (vampire)
 % Result 5: TheoremCertified (engine)
 % Result 6: CounterexampleVerified (engine)
-% Summary of parts.tex: 6 statements; TheoremCertified 3; CounterexampleVerified 2; CounterexampleUnverified 1
+% Result 7: TheoremCertified (vampire)
+% Result 8: RefutationCertified (vampire)
+% Summary of parts.tex: 8 statements; TheoremCertified 4; CounterexampleVerified 2; RefutationCertified 2

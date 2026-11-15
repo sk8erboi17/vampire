@@ -156,6 +156,42 @@ typedef struct {
 QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model);
 
 /**
+ * The clauses from which the independent checker starts a proof by
+ * saturation of the statement in the item [item, end), which was handed
+ * over. The verdict is QR_LOGIC and its logic field holds, in this order:
+ *
+ *   - the beginning of a certificate "saturation" for the statement, up to
+ *     and including its line "clausify" (or "clausify forward"), and, if
+ *     the statement quantifies over the parts of a set, the lines
+ *     "comprehend" of the instances that can be proposed without a search:
+ *     the empty part and the whole set, and the parts that the ground
+ *     literals of the statement suggest (a first-order prover cannot choose
+ *     a part by itself; each instance only says "what holds for every part
+ *     holds for this one");
+ *   - a line "symbols N" and N lines "ARITY PREDICATE" (PREDICATE is 1 or
+ *     0), one for each symbol of the translation, in the order of their
+ *     numbers: the declared symbols, one predicate per set saying "is an
+ *     element of it" (the sets may be empty), the Skolem functions, the
+ *     names of subformulas;
+ *   - a line "clauses M" and M lines "(clause LITERAL...)", the clauses
+ *     the checker has after that beginning, in the order of their indices,
+ *     written as the checker reads them: (pos T), (neg T), (eq T T),
+ *     (ne T T), with terms (f N T...) and variables (v N).
+ *
+ * The numbers and the indices are the ones the checker rebuilds by itself
+ * from the first part, so a refutation of these clauses whose steps are
+ * written after that part is a certificate the checker can check. The
+ * logic field is NULL if the statement has no such translation (it speaks
+ * of a bijection between sets).
+ *
+ * For a statement that wants an example of a condition E, the statement of
+ * the certificate is "not E" and the clauses are those of E: a refutation
+ * of them certifies that there is no example, which is the only thing a
+ * refutation can say about such a statement.
+ */
+QrVerdict qr_clauses_item(const char* item, const char* end);
+
+/**
  * Writes a proof that the independent checker accepts for the statement in
  * the item [item, end), which was handed over and has been PROVED outside
  * the engine. The engine does not search for models with its SAT finder

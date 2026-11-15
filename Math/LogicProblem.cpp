@@ -15,9 +15,17 @@
 
 #include "LogicProblem.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <set>
+#include <sstream>
 
+#include "Kernel/Clause.hpp"
+#include "Kernel/Formula.hpp"
+#include "Kernel/FormulaUnit.hpp"
+#include "Kernel/Inference.hpp"
+#include "Kernel/OperatorType.hpp"
 #include "Kernel/Problem.hpp"
 #include "Kernel/Signature.hpp"
 #include "Lib/DArray.hpp"
@@ -28,6 +36,7 @@
 #include "Kernel/Term.hpp"
 #include "Kernel/Unit.hpp"
 #include "Lib/Exception.hpp"
+#include "Lib/SharedSet.hpp"
 #include "Lib/Stack.hpp"
 
 namespace Math {
@@ -45,9 +54,10 @@ static constexpr unsigned long long MAX_MODEL_CELLS = 1ull << 20;
  * The answer, from the process that found it to the one that asked
  * ------------------------------------------------------------------------
  *
- * A text file. First line: kind, goalUsed, proposed. Then the account, as a
- * line with its length in bytes followed by that many bytes and a newline
- * (the length makes any LaTeX safe to carry). Then the model: a line with
+ * A text file. First line: kind, goalUsed, proposed. Then the account and
+ * the inferences, each as a line with its length in bytes followed by that
+ * many bytes and a newline (the length makes any text safe to carry). Then
+ * the model: a line with
  * the number of sorts and their sizes, a line with the number of symbols,
  * and for each symbol a line with the number of cells and their values.
  */
@@ -59,6 +69,7 @@ void VampireAnswer::write(const std::string& path) const
     std::ofstream out(temporary, std::ios::binary);
     out << static_cast<int>(kind) << " " << (goalUsed ? 1 : 0) << " " << (proposed ? 1 : 0) << "\n";
     out << account.size() << "\n" << account << "\n";
+    out << inferences.size() << "\n" << inferences << "\n";
     out << sizes.size();
     for (size_t size : sizes) out << " " << size;
     out << "\n" << tables.size() << "\n";
@@ -88,6 +99,10 @@ bool VampireAnswer::read(const std::string& path, VampireAnswer& answer)
   read.proposed = proposed != 0;
   read.account.resize(length);
   if (length && !in.read(&read.account[0], (std::streamsize)length)) return false;
+  if (!(in >> length)) return false;
+  in.get();
+  read.inferences.resize(length);
+  if (length && !in.read(&read.inferences[0], (std::streamsize)length)) return false;
 
   if (!(in >> count)) return false;
   read.sizes.resize(count);
@@ -116,6 +131,242 @@ UnitList* LogicProblem::install(LogicStatement statement, const Settings& settin
   return _current->_translator->translate();
 }
 
+/* ------------------------------------------------------------------------
+ * The checker's clauses as the problem
+ * ------------------------------------------------------------------------
+ *
+ * The clauses are over one domain: the checker's translation puts all the
+ * sets of a statement into it, with a predicate per set for "is an element
+ * of it". So every symbol is over Vampire's default sort, and its name is
+ * its number in the checker's translation (f12, p7), which is all that the
+ * way back needs.
+ */
+
+/** A term of the checker's clauses as a term of Vampire. */
+static TermList clauseTerm(const Proof::Replay& clauses, int term, const std::vector<unsigned>& functions)
+{
+  if (Proof::Replay::isVariable(term)) return TermList::var((unsigned)Proof::Replay::variableOf(term));
+  TermStack arguments;
+  for (int argument : clauses.argumentsOf(term)) arguments.push(clauseTerm(clauses, argument, functions));
+  return TermList(Term::create(functions[clauses.symbolOf(term)], arguments.size(), arguments.begin()));
+}
+
+UnitList* LogicProblem::installClauses(const Proof::Replay& clauses, const Settings& settings)
+{
+  _current.reset(new LogicProblem(LogicStatement(), settings));
+  LogicProblem& problem = *_current;
+  problem._translator.reset();
+
+  TermList individual = AtomicSort::defaultSort();
+  std::vector<unsigned> symbols;
+  for (unsigned i = 0; i < clauses.symbols().size(); i++) {
+    const Proof::Replay::Symbol& symbol = clauses.symbols()[i];
+    if (symbol.predicate) {
+      symbols.push_back(env.signature->addPredicate("p" + std::to_string(i), OperatorType::getPredicateTypeUniformRange(symbol.arity, individual))->number());
+      problem._predicateSymbol[symbols.back()] = (int)i;
+    } else {
+      symbols.push_back(env.signature->addFunction("f" + std::to_string(i), OperatorType::getFunctionTypeUniformRange(symbol.arity, individual, individual))->number());
+      problem._functionSymbol[symbols.back()] = (int)i;
+    }
+  }
+
+  UnitList::FIFO units;
+  for (int index = 0; index < clauses.initialClauses(); index++) {
+    Stack<Literal*> literals;
+    bool holds = false;  // a literal "true" makes the clause say nothing
+    for (const Proof::Replay::Literal& literal : clauses.clause(index).literals) {
+      if (!literal.left) { holds = holds || !literal.negative; continue; }
+      if (literal.right) {
+        literals.push(Literal::createEquality(!literal.negative, clauseTerm(clauses, literal.left, symbols),
+                                              clauseTerm(clauses, literal.right, symbols), individual));
+      } else {
+        TermStack arguments;
+        for (int argument : clauses.argumentsOf(literal.left)) arguments.push(clauseTerm(clauses, argument, symbols));
+        literals.push(Literal::create(symbols[clauses.symbolOf(literal.left)], arguments.size(), !literal.negative, arguments.begin()));
+      }
+    }
+    if (holds) continue;
+    Clause* clause = Clause::fromStack(literals, FromInput(UnitInputType::AXIOM));
+    problem._inputClause[clause->number()] = index;
+    units.pushBack(clause);
+  }
+  return units.list();
+}
+
+/** A term of Vampire as the checker writes terms; empty if it uses a symbol that is not one of the checker's. */
+static std::string checkerTerm(TermList term, const std::map<unsigned, int>& functions)
+{
+  if (term.isVar()) return term.isSpecialVar() ? "" : "(v " + std::to_string(term.var()) + ")";
+  auto symbol = functions.find(term.term()->functor());
+  if (symbol == functions.end()) return "";
+  std::string text = "(f " + std::to_string(symbol->second);
+  for (unsigned i = 0; i < term.term()->arity(); i++) {
+    std::string argument = checkerTerm(*term.term()->nthArgument(i), functions);
+    if (argument.empty()) return "";
+    text += " " + argument;
+  }
+  return text + ")";
+}
+
+/**
+ * The names in a propositional clause of AVATAR, as Vampire writes it: a
+ * disjunction of named formulas, "7" or "~7" (with a prefix before the
+ * number when the proof is printed for TPTP). Appends v for the SAT
+ * variable v and -v for its negation. Returns false if the formula is not
+ * such a clause.
+ */
+static bool namesOf(Formula* formula, std::vector<int>& names)
+{
+  if (formula->connective() == OR) {
+    FormulaList::Iterator parts(formula->args());
+    while (parts.hasNext()) if (!namesOf(parts.next(), names)) return false;
+    return true;
+  }
+  if (formula->connective() != NAME) return false;
+  std::string name = static_cast<NamedFormula*>(formula)->name();
+  size_t digits = name.size();
+  while (digits > 0 && std::isdigit((unsigned char)name[digits - 1])) digits--;
+  if (digits == name.size() || name.size() - digits > 9) return false;
+  int variable = std::stoi(name.substr(digits));
+  names.push_back(!name.empty() && name[0] == '~' ? -variable : variable);
+  return true;
+}
+
+/**
+ * The refutation as lines, one per unit, in the order of derivation (see
+ * VampireAnswer::inferences). A unit that is not a clause over the
+ * checker's symbols, nor one of the units of AVATAR below, is written as
+ * "unit N unknown": whoever rebuilds the refutation stops there.
+ *
+ * AVATAR (Saturation/Splitter.cpp) leaves five kinds of units in a proof:
+ *   the definition of a name, a formula "7 <=> ![X]: (clause)";
+ *   the component clause, the named clause under the assumption of its name;
+ *   the clause of names got by splitting a clause, a formula over names;
+ *   the clause of names read off an empty clause under assumptions;
+ *   the empty clause, from the clauses of names the SAT solver found
+ *   unsatisfiable.
+ * And every clause may hold under assumptions, its split levels: level
+ * 2(v-1) is "the SAT variable v is true", 2(v-1)+1 "it is false"
+ * (Splitter::getNameFromLiteralUnsafe()).
+ */
+std::string LogicProblem::inferencesOf(Unit* refutation) const
+{
+  auto byNumber = [](Unit* left, Unit* right) { return left->number() < right->number(); };
+  std::set<Unit*, decltype(byNumber)> units(byNumber);
+  std::vector<Unit*> pending = {refutation};
+  while (!pending.empty()) {
+    Unit* unit = pending.back();
+    pending.pop_back();
+    if (!units.insert(unit).second) continue;
+    UnitIterator parents = unit->getParents();
+    while (parents.hasNext()) pending.push_back(parents.next());
+  }
+
+  /* A literal in the checker's notation, or "" if it is not over the checker's symbols. */
+  auto checkerLiteral = [&](Literal* literal) -> std::string {
+    if (literal->isEquality()) {
+      std::string left = checkerTerm(*literal->nthArgument(0), _functionSymbol);
+      std::string right = checkerTerm(*literal->nthArgument(1), _functionSymbol);
+      if (left.empty() || right.empty()) return "";
+      return std::string(literal->polarity() ? " (eq " : " (ne ") + left + " " + right + ")";
+    }
+    auto symbol = _predicateSymbol.find(literal->functor());
+    if (symbol == _predicateSymbol.end()) return "";
+    std::string atom = "(f " + std::to_string(symbol->second);
+    for (unsigned a = 0; a < literal->arity(); a++) {
+      std::string argument = checkerTerm(*literal->nthArgument(a), _functionSymbol);
+      if (argument.empty()) return "";
+      atom += " " + argument;
+    }
+    return std::string(literal->polarity() ? " (pos " : " (neg ") + atom + "))";
+  };
+
+  std::ostringstream out;
+  for (Unit* unit : units) {
+    auto input = _inputClause.find(unit->number());
+    if (input != _inputClause.end()) { out << "input " << unit->number() << " " << input->second << "\n"; continue; }
+
+    InferenceRule rule = unit->inference().rule();
+    std::vector<unsigned> premises;
+    Unit* clausePremise = nullptr;  // for a clause of names: the clause it was read off
+    UnitIterator parents = unit->getParents();
+    while (parents.hasNext()) {
+      Unit* parent = parents.next();
+      premises.push_back(parent->number());
+      if (parent->isClause()) clausePremise = parent;
+    }
+    auto unknown = [&]() { out << "unit " << unit->number() << " unknown " << ruleName(rule) << "\n"; };
+
+    if (!unit->isClause()) {
+      Formula* formula = static_cast<FormulaUnit*>(unit)->formula();
+      std::vector<int> names;
+      if (rule == InferenceRule::AVATAR_DEFINITION && formula->connective() == IFF && namesOf(formula->left(), names) && names[0] > 0) {
+        /* The named clause: a literal, or a disjunction of literals, under its quantifiers. */
+        Formula* body = formula->right();
+        while (body->connective() == FORALL) body = body->qarg();
+        std::vector<Formula*> parts = {body};
+        std::string clause;
+        bool known = true;
+        while (!parts.empty() && known) {
+          Formula* part = parts.back();
+          parts.pop_back();
+          if (part->connective() == OR) {
+            FormulaList::Iterator disjuncts(part->args());
+            while (disjuncts.hasNext()) parts.push_back(disjuncts.next());
+          } else {
+            std::string literal = part->connective() == LITERAL ? checkerLiteral(part->literal()) : "";
+            known = !literal.empty();
+            clause += literal;
+          }
+        }
+        if (!known) { unknown(); continue; }
+        out << "definition " << unit->number() << " " << names[0] << " (clause" << clause << ")\n";
+      } else if ((rule == InferenceRule::AVATAR_SPLIT_CLAUSE || rule == InferenceRule::AVATAR_CONTRADICTION_CLAUSE)
+                 && clausePremise && namesOf(formula, names)) {
+        out << (rule == InferenceRule::AVATAR_SPLIT_CLAUSE ? "split " : "contradiction ") << unit->number() << " "
+            << clausePremise->number() << " " << names.size();
+        for (int name : names) out << " " << name;
+        out << "\n";
+      } else {
+        unknown();
+      }
+      continue;
+    }
+
+    Clause* clause = unit->asClause();
+    std::vector<unsigned> levels;
+    if (clause->splits()) {
+      auto assumed = clause->splits()->iter();
+      while (assumed.hasNext()) levels.push_back(assumed.next());
+    }
+    if (rule == InferenceRule::AVATAR_COMPONENT && levels.size() == 1) {
+      out << "component " << unit->number() << " " << levels[0] << "\n";
+      continue;
+    }
+    if (rule == InferenceRule::AVATAR_REFUTATION && clause->isEmpty() && levels.empty()) {
+      out << "propositional " << unit->number() << " " << premises.size();
+      for (unsigned premise : premises) out << " " << premise;
+      out << "\n";
+      continue;
+    }
+
+    std::string written = "(clause";
+    bool known = true;
+    for (unsigned i = 0; known && i < clause->length(); i++) {
+      std::string literal = checkerLiteral((*clause)[i]);
+      known = !literal.empty();
+      written += literal;
+    }
+    if (!known) { unknown(); continue; }
+    out << "unit " << unit->number() << " " << premises.size();
+    for (unsigned premise : premises) out << " " << premise;
+    out << " " << ruleName(rule) << " " << levels.size();
+    for (unsigned level : levels) out << " " << level;
+    out << " " << written << ")\n";
+  }
+  return out.str();
+}
+
 void LogicProblem::send() const
 {
   if (!_settings.answerPath.empty()) _answer.write(_settings.answerPath);
@@ -142,8 +393,9 @@ void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
 {
   /* With a set of parts or of maps a model of the translation is not a
    * model of the statement: it may lack parts or maps that really exist
-   * (LogicTranslator.hpp). There is nothing to pass on. */
-  if (!_statement.plainOnly()) return;
+   * (LogicTranslator.hpp). There is nothing to pass on. The same when the
+   * problem is the checker's clauses: only their refutation is of use. */
+  if (!_translator || !_statement.plainOnly()) return;
 
   const std::vector<LogicStatement::Sort>& sorts = _statement.sorts();
   const std::vector<LogicStatement::Symbol>& symbols = _statement.symbols();
@@ -243,6 +495,7 @@ void LogicProblem::onFiniteModel(FMB::FiniteModelMultiSorted& model)
  */
 void LogicProblem::onNoClauses()
 {
+  if (!_translator) return;
   try {
     Lib::DArray<unsigned> sizes(env.signature->typeCons());
     for (unsigned sort = 0; sort < env.signature->typeCons(); sort++)
@@ -270,6 +523,13 @@ void LogicProblem::onRefutation(Unit* refutation)
   _answer = VampireAnswer();
   _answer.kind = VampireAnswer::Kind::REFUTATION;
   _answer.goalUsed = refutation->derivedFromGoal();
+
+  /* The checker's clauses: what is wanted is the refutation itself, to be rechecked. */
+  if (!_translator) {
+    _answer.inferences = inferencesOf(refutation);
+    send();
+    return;
+  }
 
   if (_settings.explain) {
     Humanizer::ProofNarrator narrator(_settings.language);

@@ -75,6 +75,7 @@ LaTeX::Statement LaTeX::read(const Item& item)
     statement.notTranslated = "the statement cannot be written in the language of the certificates";
   }
   bool conditional = statement.verdict.conditional != 0;
+  statement.wantsExample = statement.verdict.wants_example != 0;
   if (statement.notTranslated.empty() && statement.logic.plainOnly()) {
     statement.kind = Kind::LOGIC;
     statement.conditional = conditional;
@@ -84,10 +85,14 @@ LaTeX::Statement LaTeX::read(const Item& item)
   /* The engine's turn: the only one, if the statement has no first-order
    * form, and the first one otherwise (see the header). */
   statement.verdict = qr_decide_item(begin, end, 0);
-  if (statement.notTranslated.empty() && statement.verdict.outcome == QR_NOT_PROVED) {
-    statement.kind = Kind::LOGIC;
-    statement.conditional = conditional;
-    statement.engineHadNoAnswer = true;
+  if (statement.verdict.outcome == QR_NOT_PROVED) {
+    if (statement.notTranslated.empty()) {
+      statement.kind = Kind::LOGIC;
+      statement.conditional = conditional;
+      statement.engineHadNoAnswer = true;
+    } else {
+      statement.clausesOnly = true;
+    }
   }
   return statement;
 }

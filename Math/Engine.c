@@ -195,6 +195,19 @@ QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model
   return verdict;
 }
 
+QrVerdict qr_clauses_item(const char* item, const char* end)
+{
+  QrVerdict verdict = decide_item(item, end, LOGIC_CLAUSES);
+
+  /* "No translation into clauses" comes back as a plain "not proved": for
+   * the caller it is a statement handed over with nothing in hand. */
+  if (verdict.outcome != QR_LOGIC) {
+    verdict.outcome = QR_LOGIC;
+    verdict.logic = NULL;
+  }
+  return verdict;
+}
+
 QrVerdict qr_certify_item(const char* item, const char* end)
 {
   return decide_item(item, end, LOGIC_CERTIFY);

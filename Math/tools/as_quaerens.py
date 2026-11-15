@@ -11,13 +11,17 @@ the words of Quaerens. This script runs Vampire on the file and writes those
 lines:
 
   - a statement decided by the mathematical engine keeps the engine's own line;
-  - a theorem found by Vampire is "DIMOSTRATO", without certificate;
+  - a theorem found by Vampire is "DIMOSTRATO", with "certificato verificato"
+    if the independent checker accepted a certificate for it (an example, or
+    Vampire's inferences rechecked one by one) and without certificate otherwise;
   - a counterexample found by Vampire and accepted by the independent checker
     is "FALSO: controesempio ...", with the model, which the oracle reads back
     and recomputes with its own evaluator;
   - "not a theorem" reported by Vampire without a model is "NON DIMOSTRATO":
     there is nothing the oracle could recompute, and a refutation that cannot
-    be checked is not presented to it as one.
+    be checked is not presented to it as one. The same for a request for an
+    example that Vampire refutes, certified or not: Quaerens has no verdict
+    that says "there is no example", and the scripts read none.
 
 It is a tool for testing, like the fuzz scripts themselves: only the Python 3
 standard library, nothing of it is part of the program or of its checks.
@@ -50,13 +54,15 @@ def main():
             elif result.group(1) == "TheoremUnverified":
                 line = "DIMOSTRATO da Vampire, per refutazione; senza certificato (la prova di Vampire non è ricontrollata dal verificatore indipendente)"
             elif result.group(1) == "TheoremCertified":
-                line = "DIMOSTRATO con un esempio trovato da Vampire; certificato verificato"
+                line = "DIMOSTRATO da Vampire; certificato verificato"
             elif result.group(1) == "CounterexampleVerified" and model:
                 line = "FALSO: controesempio %s; certificato verificato" % model.group(1)
             elif result.group(1) == "Unsupported":
                 line = "NON SUPPORTATO: fuori dal frammento letto"
             elif result.group(1) == "CounterexampleUnverified":
                 line = "NON DIMOSTRATO: Vampire riporta che non è un teorema, senza un modello finito da ricontrollare"
+            elif result.group(1) == "RefutationCertified":
+                line = "NON DIMOSTRATO: Vampire ha refutato la richiesta di un esempio, e il verificatore ha seguito la refutazione"
             else:
                 line = "NON DIMOSTRATO: Vampire non ha deciso l'enunciato entro i limiti dati"
             print("%4d. %s" % (number, line))

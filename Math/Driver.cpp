@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <unistd.h>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "Engine.h"
 #include "LogicProblem.hpp"
 #include "Proof/IndependentChecker.h"
+#include "Proof/Replay.hpp"
 #include "Verification.hpp"
 
 namespace Math {
@@ -205,6 +207,8 @@ struct LogicOutcome {
   std::string proof;        // what goes on the page of the document, as LaTeX text
   std::string certificate;  // the certificate the independent checker accepted
   bool byEngine = false;    // what stands is the engine's "not proved": Vampire, asked after it, had no proof either
+  unsigned rechecked = 0;   // how many steps of Vampire's refutation the independent checker followed, if it did
+  std::string notRechecked; // if it did not, and the theorem is certified another way: where the recheck stopped
 };
 
 /**
@@ -361,6 +365,228 @@ bool searchWithVampire(const LogicStatement& statement, const Parse::LaTeX::Item
 }
 
 /**
+ * Feeds a refutation by Vampire to the replay, unit by unit in the order
+ * of derivation (the lines of VampireAnswer::inferences); the last unit is
+ * the empty clause. Returns true if every inference was rebuilt as steps
+ * of the checker and the last one is the empty clause; otherwise
+ * @b problem says where it stopped.
+ */
+bool followRefutation(const std::string& inferences, Proof::Replay& replay, std::string& problem)
+{
+  std::istringstream lines(inferences);
+  std::string line;
+  std::map<unsigned, std::string> writtenAs;  // each unit's clause as Vampire wrote it, for the diagnosis
+  unsigned last = 0;
+  bool any = false;
+  while (std::getline(lines, line)) {
+    std::istringstream words(line);
+    std::string kind;
+    unsigned unit, count;
+    problem = "the refutation of Vampire could not be read back";
+    if (!(words >> kind >> unit)) return false;
+    last = unit;
+    any = true;
+    problem = "an inference of Vampire is not one the checker's steps can rebuild: " + line;
+    if (kind == "input") {
+      int index;
+      if (!(words >> index) || index < 0 || index >= replay.initialClauses()) return false;
+      replay.input(unit, index);
+      writtenAs[unit] = "initial clause " + std::to_string(index);
+      continue;
+    }
+
+    /* Splitting (VampireAnswer::inferences): the definition of a name, its
+     * component clause, a clause of names, the verdict of the SAT solver. */
+    if (kind == "definition") {
+      unsigned variable;
+      std::string written;
+      Proof::Replay::Clause clause;
+      if (!(words >> variable) || !std::getline(words, written) || !replay.parseClause(written, clause)) return false;
+      replay.definition(variable, clause);
+      continue;
+    }
+    if (kind == "component") {
+      unsigned level;
+      if (!(words >> level)) return false;
+      replay.component(unit, level);
+      writtenAs[unit] = "the component clause of the split level " + std::to_string(level);
+      continue;
+    }
+    if (kind == "split" || kind == "contradiction") {
+      unsigned parent;
+      if (!(words >> parent >> count)) return false;
+      std::vector<int> names(count);
+      for (int& name : names) if (!(words >> name)) return false;
+      if (!(kind == "split" ? replay.split(unit, parent, names) : replay.contradiction(unit, parent, names))) {
+        problem += "; split clause " + std::to_string(parent) + ": " + writtenAs[parent];
+        return false;
+      }
+      writtenAs[unit] = "a clause of names";
+      continue;
+    }
+    if (kind == "propositional") {
+      if (!(words >> count)) return false;
+      std::vector<unsigned> premises(count);
+      for (unsigned& premise : premises) if (!(words >> premise)) return false;
+      if (!replay.propositional(unit, premises)) return false;
+      continue;
+    }
+
+    if (kind != "unit" || !(words >> count)) return false;  // also "unit N unknown"
+    std::vector<unsigned> premises(count);
+    for (unsigned& premise : premises) if (!(words >> premise)) return false;
+    std::string rule, written;
+    unsigned assumed;
+    if (!(words >> rule >> assumed)) return false;
+    std::vector<unsigned> levels(assumed);
+    for (unsigned& level : levels) if (!(words >> level)) return false;
+    std::getline(words, written);
+    Proof::Replay::Clause clause;
+    if (!replay.parseClause(written, clause) || !replay.derive(unit, premises, clause, levels)) {
+      /* The inference in full, for whoever wants to see why: its premises as Vampire wrote them. */
+      for (unsigned premise : premises) problem += "; premise " + std::to_string(premise) + ": " + writtenAs[premise];
+      return false;
+    }
+    writtenAs[unit] = written;
+  }
+  problem = "the refutation of Vampire does not end in the empty clause";
+  return any && replay.refutes(last);
+}
+
+/** What a refutation by Vampire of the checker's clauses gave. */
+struct Recheck {
+  bool certified = false;   // the independent checker accepted the certificate
+  std::string certificate;
+  unsigned steps = 0;       // how many steps the checker followed
+  std::string problem;      // if not certified: where it stopped, for a reader
+};
+
+/**
+ * Has Vampire refute the clauses that the independent checker builds from
+ * the statement of the item, and has the checker follow that refutation
+ * inference by inference.
+ *
+ * It serves two purposes. When Vampire has already proved the statement
+ * (@b proved), this is the recheck of its proof: the first search worked on
+ * Vampire's own translation, which the checker does not know. When nobody
+ * has proved it and the statement has no first-order form of its own (it
+ * quantifies over the parts of a set), this is the proof search itself:
+ * the checker's clauses are first-order, with the instances of the
+ * formulas on parts that the engine can propose (Engine.h,
+ * qr_clauses_item()), and what Vampire refutes there is a certificate at
+ * once. Finding no refutation says nothing about the statement.
+ *
+ * The checker checks a proof by saturation that starts from clauses it
+ * builds itself from the statement (Proof/Replay.hpp). So Vampire is run
+ * once more, in a child process, on those very clauses, which the engine
+ * hands over with the checker's numbers; its refutation comes back as
+ * data, each inference with its premises and its clause; Proof::Replay
+ * rebuilds each inference as explicit steps of the checker; and the checker
+ * reads the finished certificate. Nothing but its acceptance counts: an
+ * inference that cannot be rebuilt, or a step rebuilt wrongly, only means
+ * that the theorem is not certified this way.
+ *
+ * That run is Vampire's usual saturation, splitting included (the checker
+ * has splitting too: Proof/Replay.hpp), without the parts whose inferences
+ * are not instances of the checker's steps: the simplifications that work
+ * on several clauses at once or ask a SAT solver, and the eliminations of
+ * definitions. What is wanted from it is a refutation that can be
+ * followed. A recheck has its own time limit (math_recheck_time): the
+ * statement is already proved, and a recheck that does not come soon is
+ * given up, not waited for. A proof search has the whole time limit.
+ *
+ * Returns false in the child process, with the clauses loaded: the caller
+ * must return at once so that the process goes on to refute them.
+ */
+bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, bool proved, Recheck& recheck)
+{
+  Options& options = *env.options;
+  recheck.problem = "no time was given to it (math_recheck_time 0)";
+  if (proved && !options.mathRecheckTime()) return true;
+
+  QrVerdict handed = qr_clauses_item(item.text.c_str(), item.text.c_str() + item.text.size());
+  Proof::Replay replay;
+  recheck.problem = "the statement has no translation into the clauses of the checker";
+  if (!handed.logic || !replay.start(handed.logic)) return true;
+
+  std::string base = (std::filesystem::temp_directory_path()
+    / ("vampire-latex-" + std::to_string(getpid()) + "-" + std::to_string(run.statements) + "-recheck")).string();
+  std::string answerPath = base + ".answer", outputPath = base + ".out";
+
+  /* Nothing buffered may cross the fork (see searchWithVampire()). */
+  std::cout.flush();
+  if (run.certificates.is_open()) run.certificates.flush();
+  fflush(nullptr);
+
+  pid_t child = Lib::Sys::fork();
+  if (child == 0) {
+    Lib::System::registerForSIGHUPOnParentDeath();
+    int file = open(outputPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (file < 0 || dup2(file, STDOUT_FILENO) < 0) _exit(1);
+    close(file);
+
+    options.problemName = problemName;
+    options.setMode(Options::Mode::VAMPIRE);
+    int total = options.timeLimitInDeciseconds();
+    if (proved) options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathRecheckTime()) : options.mathRecheckTime());
+    static const char* const FOLLOWABLE[][2] = {
+      {"sat_solver", "minisat"}, {"splitting_congruence_closure", "off"}, {"function_definition_elimination", "none"},
+      {"unused_predicate_definition_removal", "off"}, {"blocked_clause_elimination", "off"}, {"equality_proxy", "off"},
+      {"general_splitting", "off"}, {"inequality_splitting", "0"}, {"sine_selection", "off"},
+      {"simultaneous_superposition", "off"}, {"unit_resulting_resolution", "off"}, {"global_subsumption", "off"},
+      {"condensation", "off"}, {"inner_rewriting", "off"}, {"forward_literal_rewriting", "off"},
+      {"extensionality_resolution", "off"}, {"induction", "none"}, {"theory_axioms", "off"},
+      {"superposition_from_variables", "off"}, {"forward_subsumption_demodulation", "off"},
+      {"backward_subsumption_demodulation", "off"}, {"newcnf", "off"},
+    };
+    for (const auto& option : FOLLOWABLE) {
+      try {
+        options.set(option[0], option[1]);
+      } catch (Lib::Exception&) {
+        /* An option this Vampire does not have, or not with this value: the
+         * run goes on, and an inference that cannot be followed will show. */
+      }
+    }
+
+    LogicProblem::Settings settings;
+    settings.explain = false;
+    settings.answerPath = answerPath;
+    UIHelper::loadUnits(LogicProblem::installClauses(replay, settings), false);
+    return false;
+  }
+
+  Lib::Sys::waitForChildTermination(child);
+  VampireAnswer answer;
+  VampireAnswer::read(answerPath, answer);
+  std::remove(answerPath.c_str());
+  std::remove(outputPath.c_str());
+  recheck.problem = "Vampire found no refutation of the checker's clauses within the limits";
+  if (answer.kind != VampireAnswer::Kind::REFUTATION) return true;
+
+  /* A splitting may ask for a second attempt, with a name given to its
+   * clause the way that splitting has it written (Replay::restart()).
+   * Each attempt settles at least one more name, and they are few. */
+  bool followed = followRefutation(answer.inferences, replay, recheck.problem);
+  for (int attempt = 0; !followed && replay.worthAnotherAttempt() && attempt < 8; attempt++) {
+    replay.restart();
+    followed = followRefutation(answer.inferences, replay, recheck.problem);
+  }
+  if (!followed) return true;
+
+  std::string certificate = replay.certificate();
+  const char* why = "";
+  if (proof_check_certificate(certificate.c_str(), &why) != PROOF_CHECK_ACCEPTED) {
+    recheck.problem = std::string("the independent checker did not accept the rebuilt steps: ") + why;
+    return true;
+  }
+  recheck.problem.clear();
+  recheck.certified = true;
+  recheck.certificate = certificate;
+  recheck.steps = replay.steps();
+  return true;
+}
+
+/**
  * Decides a statement of first-order logic, the two parts of the program
  * working on it together.
  *
@@ -370,11 +596,12 @@ bool searchWithVampire(const LogicStatement& statement, const Parse::LaTeX::Item
  *      for models, recomputes the statement in it (also as it was written,
  *      before the notation was unfolded) and writes the certificate; the
  *      independent checker judges it. Only then is it a counterexample.
- *   3. A proof goes to the engine too: knowing from Vampire that the
- *      statement is a theorem, the engine rebuilds a proof in a form that
- *      the independent checker can recheck (qr_certify_item()). If it
- *      succeeds the theorem is certified; if it cannot, the theorem stands
- *      on Vampire's proof alone and is reported as not verified.
+ *   3. A proof is rechecked. First Vampire's own inferences, one by one,
+ *      by the independent checker (refuteCheckerClauses()). If they cannot
+ *      be followed, the engine, knowing from Vampire that the statement is
+ *      a theorem, rebuilds a proof in a form the checker can recheck
+ *      (qr_certify_item()). If neither succeeds the theorem stands on
+ *      Vampire's proof alone and is reported as not verified.
  *   4. With sets of parts or of maps the turns are the other way round:
  *      the engine has gone first (Parse/LaTeX.hpp) and had no answer, and
  *      what it said comes in as engineSaid. Vampire is asked only for
@@ -432,10 +659,36 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
   if (answer.kind == VampireAnswer::Kind::REFUTATION) {
     outcome.account = answer.account;
     if (statement.wantsExample()) {
+      /* The statement asks for an example and Vampire refuted it: there
+       * is none. That is a theorem too ("the condition never holds"), and
+       * the checker can follow its proof like any other. */
+      Recheck recheck;
+      if (!refuteCheckerClauses(item, problemName, run, /* proved */ true, recheck)) return false;
+      outcome.reason = italian ? "Vampire ha refutato l'enunciato stesso: nessuna interpretazione lo rende vero."
+                               : "Vampire refuted the statement itself: no interpretation makes it true.";
+      if (recheck.certified) {
+        outcome.status = Status::REFUTATION_CERTIFIED;
+        outcome.certificate = recheck.certificate;
+        outcome.rechecked = recheck.steps;
+        return true;
+      }
       outcome.status = Status::COUNTEREXAMPLE_UNVERIFIED;
-      outcome.reason = italian
-        ? "Vampire ha refutato l'enunciato stesso: nessuna interpretazione lo rende vero. La refutazione non è ricontrollata dal verificatore indipendente."
-        : "Vampire refuted the statement itself: no interpretation makes it true. The refutation is not rechecked by the independent checker.";
+      outcome.reason += (italian ? " La refutazione non è ricontrollata dal verificatore indipendente: "
+                                 : " The refutation is not rechecked by the independent checker: ") + recheck.problem + ".";
+      return true;
+    }
+
+    /* A theorem, by Vampire. First its own inferences, rechecked one by
+     * one by the independent checker. */
+    Recheck recheck;
+    if (!refuteCheckerClauses(item, problemName, run, /* proved */ true, recheck)) return false;
+    if (recheck.certified) {
+      outcome.status = Status::THEOREM_CERTIFIED;
+      outcome.certificate = recheck.certificate;
+      outcome.rechecked = recheck.steps;
+      if (!answer.goalUsed)
+        outcome.reason = italian ? "Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
+                                 : "The hypotheses are contradictory by themselves: the claim was not used.";
       return true;
     }
 
@@ -446,16 +699,20 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
       outcome.reason = (italian
         ? "Il motore matematico non aveva né una dimostrazione né un controesempio; Vampire ha dimostrato l'enunciato dalle leggi degli insiemi di parti e di applicazioni che il motore gli ha dato. La prova non è ricontrollata dal verificatore indipendente."
         : "The mathematical engine had neither a proof nor a counterexample; Vampire proved the statement from the laws of the sets of parts and of maps that the engine gave it. The proof is not rechecked by the independent checker.");
+      outcome.reason += (italian ? " Il ricontrollo delle inferenze di Vampire si è fermato: " : " The recheck of Vampire's inferences stopped: ") + recheck.problem + ".";
       if (!answer.goalUsed)
         outcome.reason += italian ? " Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
                                   : " The hypotheses are contradictory by themselves: the claim was not used.";
       return true;
     }
 
-    /* A theorem, by Vampire. Now a proof the checker can recheck. */
+    /* Vampire's inferences could not be followed by the checker. The
+     * engine, knowing that the statement is a theorem, writes a proof of
+     * its own that the checker can recheck. */
     EngineVerdict rebuilt = keep(qr_certify_item(begin, end));
     if (rebuilt.outcome == QR_PROVED && certifiedIndependently(rebuilt)) {
       outcome.status = Status::THEOREM_CERTIFIED;
+      outcome.notRechecked = recheck.problem;
       outcome.engineLine = rebuilt.line;
       outcome.certificate = rebuilt.certificate;
       outcome.proof = rebuilt.proof;
@@ -473,7 +730,8 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
       outcome.reason = (italian
         ? "Vampire ha trovato una refutazione; il motore matematico non è riuscito a riscriverla in una forma che il verificatore indipendente sa ricontrollare ("
         : "Vampire found a refutation; the mathematical engine could not rebuild it in a form that the independent checker can recheck (")
-        + (rebuilt.reason.empty() ? rebuilt.line : rebuilt.reason) + ").";
+        + (rebuilt.reason.empty() ? rebuilt.line : rebuilt.reason) + ")."
+        + (italian ? " Il ricontrollo delle inferenze di Vampire si è fermato: " : " The recheck of Vampire's inferences stopped: ") + recheck.problem + ".";
     }
     if (!answer.goalUsed && outcome.status != Status::UNSOLVED)
       outcome.reason += italian ? " Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
@@ -526,6 +784,18 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
 
   switch (outcome.status) {
     case Status::THEOREM_CERTIFIED:
+      /* Vampire's inferences rechecked: the account, and what the checker did. */
+      if (outcome.rechecked) {
+        page = outcome.account + (outcome.account.empty() ? "" : "\n") + verification
+             + (italian ? " Il verificatore indipendente ha ricontrollato, uno per uno, i " + std::to_string(outcome.rechecked)
+                          + " passi di una refutazione trovata da Vampire sulle clausole che il verificatore stesso ricava dall'enunciato."
+                        : " The independent checker rechecked, one by one, the " + std::to_string(outcome.rechecked)
+                          + " steps of a refutation found by Vampire on the clauses that the checker itself builds from the statement.");
+        if (!outcome.reason.empty()) page += " " + outcome.reason;
+        qr_document_external_item(begin, end, QR_PROVED, "da Vampire, con le inferenze ricontrollate dal verificatore", nullptr, nullptr, page.c_str(), certificate);
+        return;
+      }
+
       /* Vampire's account, if there is one (a theorem by example has none),
        * then the proof the checker accepted, as the engine wrote it. */
       if (!outcome.account.empty())
@@ -540,6 +810,16 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
 
     case Status::COUNTEREXAMPLE_VERIFIED:
       qr_document_external_item(begin, end, QR_REFUTED, nullptr, nullptr, outcome.detail.c_str(), outcome.proof.c_str(), certificate);
+      return;
+
+    case Status::REFUTATION_CERTIFIED:
+      /* No example exists: Vampire's account, and what the checker did. */
+      page = outcome.account + (outcome.account.empty() ? "" : "\n") + verification + " " + outcome.reason
+           + (italian ? " Il verificatore indipendente ha ricontrollato, uno per uno, i " + std::to_string(outcome.rechecked)
+                        + " passi di una refutazione trovata da Vampire sulle clausole che il verificatore stesso ricava dalla condizione: non c'\\`e nessun esempio."
+                      : " The independent checker rechecked, one by one, the " + std::to_string(outcome.rechecked)
+                        + " steps of a refutation found by Vampire on the clauses that the checker itself builds from the condition: there is no example.");
+      qr_document_external_item(begin, end, QR_REFUTED, nullptr, nullptr, nullptr, page.c_str(), certificate);
       return;
 
     case Status::THEOREM_UNVERIFIED:
@@ -607,6 +887,30 @@ std::optional<int> Driver::run()
     Status status;
     const char* decidedBy;
 
+    /* Reports what was established about a statement of logic: the status,
+     * who confirmed it and how, the counterexample, the account of the
+     * proof, the certificate, the page of the document. */
+    auto reportLogic = [&](const LogicOutcome& outcome) {
+      Status status = outcome.status;
+      addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
+                                      << " [" << statusCode(status) << "]" << std::endl;
+      if (!outcome.reason.empty()) addCommentSignForSZS(std::cout) << outcome.reason << std::endl;
+      if (outcome.rechecked)
+        addCommentSignForSZS(std::cout) << "Vampire's inferences rechecked by the independent checker: " << outcome.rechecked << " steps" << std::endl;
+      if (!outcome.notRechecked.empty())
+        addCommentSignForSZS(std::cout) << "Vampire's inferences were not rechecked (" << outcome.notRechecked
+                                        << "); the certificate is of the proof rebuilt by the engine" << std::endl;
+      if (!outcome.engineLine.empty()) addCommentSignForSZS(std::cout) << "Engine verdict: " << outcome.engineLine << std::endl;
+      if (!outcome.detail.empty()) addCommentSignForSZS(std::cout) << "Counterexample (LaTeX): " << outcome.detail << std::endl;
+      if (run.printAccount && !outcome.account.empty()) {
+        addCommentSignForSZS(std::cout) << "Explanation (LaTeX) start" << std::endl;
+        std::cout << outcome.account;
+        addCommentSignForSZS(std::cout) << "Explanation (LaTeX) end" << std::endl;
+      }
+      if (!outcome.certificate.empty() && run.certificates.is_open()) run.certificates << outcome.certificate << "\n";
+      if (run.document) documentLogicItem(item, outcome, run.language);
+    };
+
     if (statement.kind == Parse::LaTeX::Kind::LOGIC) {
       /* First-order logic: Vampire searches, the engine and the checker
        * judge what it finds (decideLogic()). Vampire's own report, with the
@@ -620,7 +924,8 @@ std::optional<int> Driver::run()
       /* The caution the engine applies to its own counterexamples: after
        * the formula there was a condition nobody read, and the
        * counterexample may be one of the cases it excludes. */
-      bool refuted = outcome.status == Status::COUNTEREXAMPLE_VERIFIED || outcome.status == Status::COUNTEREXAMPLE_UNVERIFIED;
+      bool refuted = outcome.status == Status::COUNTEREXAMPLE_VERIFIED || outcome.status == Status::COUNTEREXAMPLE_UNVERIFIED
+                  || outcome.status == Status::REFUTATION_CERTIFIED;
       if (statement.conditional && refuted) {
         outcome = LogicOutcome();
         outcome.reason = run.language == Language::ITALIAN
@@ -629,32 +934,52 @@ std::optional<int> Driver::run()
       }
       status = outcome.status;
 
-      addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
-                                      << " [" << statusCode(status) << "]" << std::endl;
-      if (!outcome.reason.empty()) addCommentSignForSZS(std::cout) << outcome.reason << std::endl;
-      if (!outcome.engineLine.empty()) addCommentSignForSZS(std::cout) << "Engine verdict: " << outcome.engineLine << std::endl;
-      if (!outcome.detail.empty()) addCommentSignForSZS(std::cout) << "Counterexample (LaTeX): " << outcome.detail << std::endl;
-      if (run.printAccount && !outcome.account.empty()) {
-        addCommentSignForSZS(std::cout) << "Explanation (LaTeX) start" << std::endl;
-        std::cout << outcome.account;
-        addCommentSignForSZS(std::cout) << "Explanation (LaTeX) end" << std::endl;
-      }
-      if (!outcome.certificate.empty() && run.certificates.is_open()) run.certificates << outcome.certificate << "\n";
-      if (run.document) documentLogicItem(item, outcome, run.language);
+      reportLogic(outcome);
     } else {
       /* Mathematics proper, or logic that has no first-order translation:
-       * the engine decided it, and its verdict is reported in its own words. */
-      const QrVerdict& verdict = statement.verdict;
-      status = engineStatus(verdict);
+       * the engine decided it, and its verdict is reported in its own
+       * words. (A copy: the engine's strings last until it is asked again.) */
+      EngineVerdict verdict = keep(statement.verdict);
+      status = engineStatus(statement.verdict);
       decidedBy = "engine";
-      addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
-      addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
-                                      << " [" << statusCode(status) << "]" << std::endl;
-      if (verdict.line) addCommentSignForSZS(std::cout) << "Engine verdict: " << verdict.line << std::endl;
-      if (!statement.notTranslated.empty())
-        addCommentSignForSZS(std::cout) << "Not given to Vampire: " << statement.notTranslated << std::endl;
-      if (verdict.certificate && run.certificates.is_open()) run.certificates << verdict.certificate << "\n";
-      if (run.document) qr_document_item(item.text.c_str(), item.text.c_str() + item.text.size());
+
+      /* Logic with no first-order form of its own, a quantifier over the
+       * parts of a set, that the engine neither proved nor refuted: Vampire
+       * looks for a refutation of the clauses of the independent checker,
+       * which are first-order. Found and followed by the checker, it is a
+       * certified theorem (or, for a statement that wants an example, the
+       * certified proof that there is none). */
+      Recheck onClauses;
+      if (statement.clausesOnly) {
+        if (!refuteCheckerClauses(item, problemName, run, /* proved */ false, onClauses)) return std::nullopt;
+      }
+      if (onClauses.certified) {
+        bool italian = run.language == Language::ITALIAN;
+        LogicOutcome outcome;
+        outcome.status = statement.wantsExample ? Status::REFUTATION_CERTIFIED : Status::THEOREM_CERTIFIED;
+        outcome.certificate = onClauses.certificate;
+        outcome.rechecked = onClauses.steps;
+        outcome.reason = italian
+          ? "Il motore matematico non aveva né una dimostrazione né un controesempio; Vampire ha refutato le clausole che il verificatore indipendente ricava dall'enunciato."
+          : "The mathematical engine had neither a proof nor a counterexample; Vampire refuted the clauses that the independent checker builds from the statement.";
+        if (statement.wantsExample)
+          outcome.reason += italian ? " Nessuna interpretazione rende vero l'enunciato." : " No interpretation makes the statement true.";
+        status = outcome.status;
+        decidedBy = "vampire";
+        addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
+        reportLogic(outcome);
+      } else {
+        addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
+        addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
+                                        << " [" << statusCode(status) << "]" << std::endl;
+        if (!verdict.line.empty()) addCommentSignForSZS(std::cout) << "Engine verdict: " << verdict.line << std::endl;
+        if (!statement.notTranslated.empty())
+          addCommentSignForSZS(std::cout) << "Not given to Vampire as a first-order problem: " << statement.notTranslated << std::endl;
+        if (statement.clausesOnly)
+          addCommentSignForSZS(std::cout) << "Vampire, asked for a refutation of the checker's clauses: " << onClauses.problem << std::endl;
+        if (!verdict.certificate.empty() && run.certificates.is_open()) run.certificates << verdict.certificate << "\n";
+        if (run.document) qr_document_item(item.text.c_str(), item.text.c_str() + item.text.size());
+      }
     }
 
     run.counts[static_cast<int>(status)]++;
