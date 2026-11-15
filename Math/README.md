@@ -143,9 +143,16 @@ what the statement is, by measurement (see "Measures").
   the statement over as it read it (`qr_numbers_item`),
   `Math/NumberStatement` writes it as a TPTP problem over `$int`, `$rat` or
   `$real`, which Vampire's own parser reads, and two searches run together,
-  for a proof of the statement and for a proof of its negation. What is
-  proved there is found, not verified: the checker has no language for
-  arithmetic with quantifiers. Variables of two kinds, exponents that are
+  for a proof of the statement and for a proof of its negation. Where
+  numbers settle the statement (a "for all" refuted by a counterexample, a
+  "there is" proved by an example, with the values of the quantifiers they
+  go through), Vampire is asked for the numbers too, by question
+  answering, and the checker recomputes the statement on them
+  ("certificate numbers", chapter 20 of `checker.c`): the answer is then
+  verified. A "for all" that is true, and a "there is" that is false, need
+  a proof for every value: what Vampire proves of those is found, not
+  verified, since the checker has no steps for arithmetic. Variables of two
+  kinds, exponents that are
   letters, divisions by an expression, functions and roots are not handed
   over: they would need a choice the translation must not make.
 - **Not a statement.** An ambiguous or invalid writing is refused with the
@@ -201,14 +208,17 @@ Rules that are not negotiable:
   the output says `CONTRADICTION`. None has occurred in any test.
 - **No numerical test makes a theorem.** The engine never reports one on such
   grounds, and nothing in this module upgrades a status.
-- **A proof by Vampire's arithmetic theories is never certified.** It is
-  `TheoremUnverified`, or `CounterexampleUnverified` when what was proved
-  is the negation, and the output says which. That is where the engine's
-  own proofs of such statements stand too ("proved with the rules for
-  quantifiers; no certificate"): the checker has a language for one real
-  variable (sign tables), and none for integers or for several variables
-  with quantifiers. On these statements nothing is lost by asking Vampire,
-  and nothing is certified by either.
+- **A proof by Vampire's arithmetic theories is certified only by numbers.**
+  If the statement is one that values settle and Vampire gives them, the
+  checker recomputes the statement on them: `CounterexampleVerified`, or
+  `TheoremCertified` for an example. The numbers are Vampire's; that they
+  do what is claimed is the checker's count, and nothing else is believed.
+  Otherwise the answer is `TheoremUnverified`, or `CounterexampleUnverified`
+  when what was proved is the negation, and the output says which. That is
+  where the engine's own proofs of such statements stand too ("proved with
+  the rules for quantifiers; no certificate"): for a statement that is true
+  for every value the checker has a language with one real variable (sign
+  tables), and none for integers or for several variables.
 
 ## The account of a proof
 
@@ -252,7 +262,7 @@ prints a statement as TPTP.
 | `Math/quaerens/` | the engine's sources: `main.c` (its design, the index of its chapters, and one include per volume), the volumes `engine_*.c` (see below), `parser.c` (LaTeX), `output.c` (document), `plot.c` (plots), `checker.c` (checker) |
 | `Math/LogicStatement` | a statement of logic as a typed tree: sorts, symbols with signatures, formulas |
 | `Math/LogicTranslator` | that tree into Vampire units; possibly empty sorts |
-| `Math/NumberStatement` | a statement with quantifiers over numbers, as the engine hands it over, into a TPTP problem for Vampire's arithmetic |
+| `Math/NumberStatement` | a statement with quantifiers over numbers, as the engine hands it over, into a TPTP problem for Vampire's arithmetic; the form of the problem whose proof comes with numbers, and the certificate written with them |
 | `Math/LogicProblem` | the statement of the running process: what Vampire found (a refutation, a model), written down as data |
 | `Math/Driver` | the run over the statements of an input; the searches of Vampire in child processes; models and proofs back to the engine |
 | `Math/Verification.hpp` | the statuses |
@@ -323,9 +333,11 @@ A third is two lines of `engine_foundations.c`: the engine includes
 `checker.c` and `plot.c` only when it is built alone; here it is given
 their interfaces instead. The other four files, the checker among them, are
 byte for byte those of Quaerens. Vampire's proofs are written in the steps
-the checker already had; one rule was added to it, in Quaerens too, with
-its justification and its tests: an equipotence among the clauses of a
-proof by saturation (11m-e in `checker.c`).
+the checker already had. Two things were added to the checker, in Quaerens
+too, each with its justification and its tests: a rule for an equipotence
+among the clauses of a proof by saturation (11m-e in `checker.c`), and a
+kind of certificate for a statement about numbers that a few numbers settle
+(chapter 20).
 
 ## Migration: what is where, and what is not done
 
@@ -342,7 +354,7 @@ proof by saturation (11m-e in `checker.c`).
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |
 | Sign tables: equations, inequalities, solving, parameters, congruences | engine | in use |
-| Quantifiers over integers, rationals, reals | engine first, then **Vampire** | the engine's rules and sign tables lead; what they do not decide goes to Vampire's arithmetic theories, when every variable is of one kind |
+| Quantifiers over integers, rationals, reals | engine first, then **Vampire** | the engine's rules and sign tables lead; what they do not decide goes to Vampire's arithmetic theories, when every variable is of one kind; a counterexample or an example found there is recomputed by the checker |
 | Limits, derivatives, integrals | engine | in use |
 | Matrices, determinants, linear systems, discussion by a parameter | engine | in use |
 | Partial derivatives, gradients, Hessians, critical points | engine | in use |
@@ -386,8 +398,9 @@ Not done, and not claimed:
 - **Vampire's arithmetic gets only statements about numbers of one kind**,
   with polynomial expressions. A statement that mixes integers and
   rationals, or has a declared map, an exponent that is a letter, a
-  function or a root, stays with the engine; and what Vampire proves about
-  numbers is not rechecked by anything.
+  function or a root, stays with the engine. What Vampire proves about
+  numbers is verified when numbers settle it, and not otherwise: a
+  statement that holds for every value has no certificate.
 - **A bijection can be used by Vampire, not proved.** To prove that two
   sets are equipotent is to build a bijection: the engine's search for
   witnesses does that, and it stays the only way. Among the clauses an
@@ -414,6 +427,13 @@ Not done, and not claimed:
   once its statement is denied or its last step removed; a refuted request
   for an example is certified as the negation; a statement on the parts of
   a set is handed over with the parts to try.
+- `UnitTests/tMathNumbers.cpp` also: a statement that numbers settle asked
+  with its quantifiers in front; none for a statement that needs a proof
+  for every value, or under an "if and only if"; the certificate written
+  with Vampire's numbers accepted by the checker, and not with other
+  numbers or for the opposite claim; an answer of Vampire is a witness
+  only if it is a number. (The checker's chapter is tested in the Quaerens
+  repository, `tests/checker/test_number_witnesses.c`, against an oracle.)
 - `UnitTests/tMathNumbers.cpp` (ctest `MathNumbers`): what the engine hands
   over of a statement on numbers (the sets with their bounds and removed
   points, divisibility, the three sorts) and the TPTP problem written from
@@ -478,16 +498,16 @@ answer through Vampire.
 | | The engine alone | Together |
 |---|---|---|
 | Theorems certified | 141 | 143 |
-| Counterexamples verified | 88 | 89 |
+| Counterexamples verified | 88 | 94 |
 | Requests for an example refuted, certified | 0 | 7 |
 | Theorems found, not verified | 0 | 4 |
-| Refutations found, not verified | 0 | 15 |
+| Refutations found, not verified | 0 | 10 |
 | No answer, or no method | 30 | 1 |
 
 Every certified answer of the engine is still certified, by the same checker;
 Vampire adds answers the engine did not have, and they are labelled for what
 they are. No statement is answered one way by one and the other way by the
-other. The run writes 3454 certificates, and `certificate-checker`, the
+other. The run writes 3459 certificates, and `certificate-checker`, the
 checker as a program of its own, accepts all of them.
 
 **Size.** With the checker compiled once, and not also inside the engine,
@@ -522,13 +542,16 @@ The 29 answers that are new were looked at one by one, and all are right:
   induction principle written as a hypothesis on all the parts of S, which
   Vampire proves on the checker's clauses with the part of the x with
   f(x) = x;
-- 10 statements on numbers, by Vampire's arithmetic theories, not verified
-  (24 statements of the corpus reach them): 3 theorems on integers,
-  "(ab - 2)(a - b) = 0 and (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and
-  two on divisibility; and 7 false statements refuted by a proof of their
-  negation, all seven from the documents of false statements ("if
-  x = k^2 + 7 and y = j^2 + 7 then x = y" on integers, "x^2 + a^2 + b^2 > 0
-  for all reals").
+- 10 statements on numbers, by Vampire's arithmetic theories (24 statements
+  of the corpus reach them). 7 are false statements, all seven from the
+  documents of false statements, refuted by a proof of their negation: for
+  5 of them Vampire gives the numbers and the checker recomputes the
+  statement on them, a counterexample verified ("if x = k^2 + 7 and
+  y = j^2 + 7 then x = y" with x = 7, y = 8, k = 0, j = 1; "x^2 + a^2 + b^2
+  > 0 for all reals" with three zeros); the other 2 are of the kind "for
+  every m there is x", which no numbers refute, and stay not verified. 3
+  are theorems on integers, not verified: "(ab - 2)(a - b) = 0 and
+  (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and two on divisibility.
 
 No statement of the corpus speaks of two equipotent sets and is left without
 an answer by the engine, so what Vampire proves with an equipotence adds
@@ -573,10 +596,11 @@ options, the untouched and the integrated executable print the same output
 **Fuzz and sanitizers**, on the last version. The scripts of the Quaerens
 repository, each with an oracle of its own: 22 scripts, 1220 statements, no
 `BUG` (one `SUSPECT`, looked at: a correct proof of the engine about x = 4/5,
-outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 500
-statements on integers with five seeds, no `BUG`; Vampire's arithmetic
-decides 413 of them, 245 true ones proved and 168 false ones refuted, all as
-the counting oracle says. `Math/tools/fuzz_equipotence.py`: 500 statements
+outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 800
+statements on integers with eight seeds, no `BUG`; Vampire's arithmetic
+decides 661 of them, 393 true ones proved and 268 false ones refuted, all as
+the counting oracle says; in the three seeds run with the witnesses, 143 of
+the 248 answers came with numbers that the checker recomputed. `Math/tools/fuzz_equipotence.py`: 500 statements
 with five seeds, the equipotence in every place a statement can have it (a
 hypothesis, a hypothesis denied, something to prove or to refute, one side
 of an "if and only if"), no `BUG`; the engine decides 433, Vampire proves 41
@@ -587,9 +611,11 @@ proved). This run is the adversary of the checker's rule for equipotence.
 AddressSanitizer and UndefinedBehaviorSanitizer:
 no report on 386 statements of 15 documents that use every path (161
 refutations rechecked, 97 answers of the arithmetic theories), with the
-document and the certificates written, and none on 145 statements of 6
+document and the certificates written; none on 145 statements of 6
 documents run again with the checker and the plots as modules and the rule
-for equipotence.
+for equipotence; and none on 149 statements of 5 documents with the
+numbers asked of Vampire and recomputed by the checker (50 certificates
+"numbers").
 
 ## Licences
 

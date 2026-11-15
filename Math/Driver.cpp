@@ -211,6 +211,7 @@ struct LogicOutcome {
   int rechecked = -1;       // how many steps of Vampire's refutation the independent checker followed, or -1 if it
                             // did not (0 is a refutation without a step: the checker's clauses hold the empty one)
   std::string notRechecked; // if it did not, and the theorem is certified another way: where the recheck stopped
+  bool byNumbers = false;   // a statement about numbers settled by numbers that the checker recomputed (askArithmetic())
 };
 
 /**
@@ -590,11 +591,77 @@ bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& pro
 
 /** What Vampire's arithmetic theories said of a statement about numbers. */
 struct ArithmeticAnswer {
-  bool asked = false;   // the statement was one that can be given to them
-  bool found = false;   // a proof was found ...
-  bool denied = false;  // ... of the negation of the statement, rather than of the statement
-  std::string sort;     // the sort of the problem: $int, $rat or $real
+  bool asked = false;      // the statement was one that can be given to them
+  bool found = false;      // a proof was found ...
+  bool denied = false;     // ... of the negation of the statement, rather than of the statement
+  std::string sort;        // the sort of the problem: $int, $rat or $real
+  bool certified = false;  // Vampire also gave numbers that settle the statement, and the independent
+                           // checker recomputed the statement on them
+  std::string certificate; // the certificate the checker accepted
+  std::string numbers;     // those numbers, as LaTeX: "$x = 7$, $y = 8$"
 };
+
+/** A number as the checker writes it ("7", "-1/2"), in LaTeX. */
+std::string numberLatex(const std::string& value)
+{
+  size_t bar = value.find('/');
+  if (bar == std::string::npos) return value;
+  if (value.substr(bar + 1) == "1") return value.substr(0, bar);  // 0/1, as Vampire writes a whole number among rationals
+  bool negative = !value.empty() && value[0] == '-';
+  return std::string(negative ? "-" : "") + "\\frac{" + value.substr(negative ? 1 : 0, bar - (negative ? 1 : 0)) + "}{" + value.substr(bar + 1) + "}";
+}
+
+/** The letter number @b code of the engine, in LaTeX: a letter of the alphabet as it is, anything else by its number. */
+std::string letterLatex(const std::string& code)
+{
+  int letter = code.size() <= 3 ? std::stoi(code) : 0;
+  if ((letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z')) return std::string(1, (char)letter);
+  return "v_{" + code + "}";
+}
+
+/**
+ * The values of an answer of Vampire, "% SZS answers Tuple [[7,8,0,1]|_] for ...",
+ * in the output written to the file at @b path: one per variable of the
+ * conjecture, as the checker writes numbers. Returns false if there is no
+ * such line, or a value is not a number (it may be a term that Vampire did
+ * not compute, or a variable when any value would do): then there are no
+ * witnesses to give to the checker.
+ */
+bool answeredValues(const std::string& path, std::vector<std::string>& values)
+{
+  std::ifstream output(path);
+  std::string line;
+  static const std::string MARK = "SZS answers Tuple [[";
+  while (std::getline(output, line)) {
+    size_t at = line.find(MARK);
+    if (at == std::string::npos) continue;
+    at += MARK.size();
+    size_t end = line.find("]|", at);
+    if (end == std::string::npos) end = line.find("]]", at);
+    if (end == std::string::npos) return false;
+
+    /* The elements, separated by the commas that are not inside a term. */
+    std::string element;
+    int depth = 0;
+    values.clear();
+    auto finish = [&]() {
+      std::string value;
+      bool number = NumberStatement::answerValue(element, value);
+      values.push_back(value);
+      element.clear();
+      return number;
+    };
+    for (size_t i = at; i < end; i++) {
+      char c = line[i];
+      if (c == '(') depth++;
+      if (c == ')') depth--;
+      if (c == ',' && depth == 0) { if (!finish()) return false; }
+      else element += c;
+    }
+    return finish();
+  }
+  return false;
+}
 
 /**
  * Gives a statement with quantifiers over numbers, which the engine read
@@ -618,8 +685,13 @@ struct ArithmeticAnswer {
  * about numbers that Vampire does not decide soon is usually one it does
  * not decide, and a document may hold many.
  *
- * Nothing rechecks what is found: the caller must report it as found, not
- * verified (NumberStatement.hpp).
+ * Where numbers can settle the statement (a "for all" to be refuted, a
+ * "there is" to be proved: NumberStatement::witnessProblem()), the search
+ * is given the problem in that form and Vampire is asked for the numbers
+ * too, by question answering. With them a certificate is written, and the
+ * independent checker recomputes the statement on them: then, and only
+ * then, what was found is verified. Otherwise the caller must report it as
+ * found, not verified (NumberStatement.hpp).
  *
  * Returns false in a child process, with the problem loaded: the caller
  * must return at once so that the process goes on to prove it.
@@ -640,11 +712,13 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
   struct Search {
     bool denied;
     std::string answerPath, outputPath;
+    NumberStatement::WitnessProblem witnesses;  // the problem in the form whose proof comes with numbers, if there is one
     pid_t process = -1;
     bool running = false;
     VampireAnswer found;
   };
-  Search searches[2] = {{false, base + "-0.answer", base + "-0.out"}, {true, base + "-1.answer", base + "-1.out"}};
+  Search searches[2] = {{false, base + "-0.answer", base + "-0.out", statement.witnessProblem(false)},
+                        {true, base + "-1.answer", base + "-1.out", statement.witnessProblem(true)}};
 
   /* Nothing buffered may cross the fork (see searchWithVampire()). */
   std::cout.flush();
@@ -666,7 +740,17 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     options.problemName = (search.denied ? "the negation of " : "") + problemName;
     int total = options.timeLimitInDeciseconds();
     options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathNumbersTime()) : options.mathNumbersTime());
-    std::istringstream problem(statement.tptp(search.denied));
+    /* With numbers to ask for: the same problem, written so that a proof
+     * names them, and the request for the answer. */
+    bool numbers = !search.witnesses.quantifiers.empty();
+    if (numbers) {
+      try {
+        options.set("question_answering", "plain");
+      } catch (Lib::Exception&) {
+        numbers = false;
+      }
+    }
+    std::istringstream problem(numbers ? search.witnesses.tptp : statement.tptp(search.denied));
     UIHelper::parseStream(problem, "", Options::InputSyntax::TPTP, /* verbose */ false, /* preferSMTonAuto */ false);
     LogicProblem::Settings settings;
     settings.explain = false;
@@ -696,6 +780,23 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     answer.found = true;
     answer.denied = settled->denied;
     copyToOutput(settled->outputPath);
+
+    /* The numbers Vampire gave, if the statement is one that numbers
+     * settle: the checker recomputes it on them, and nothing else makes
+     * the answer a verified one. */
+    std::vector<std::string> values;
+    const NumberStatement::WitnessProblem& witnesses = settled->witnesses;
+    if (!witnesses.tptp.empty() && (witnesses.quantifiers.empty() || answeredValues(settled->outputPath, values))
+        && values.size() == witnesses.quantifiers.size()) {
+      std::string certificate = statement.certificate(settled->denied, witnesses, values);
+      const char* why = "";
+      if (proof_check_certificate(certificate.c_str(), &why) == PROOF_CHECK_ACCEPTED) {
+        answer.certified = true;
+        answer.certificate = certificate;
+        for (size_t i = 0; i < values.size(); i++)
+          answer.numbers += std::string(i ? ", " : "") + "$" + letterLatex(witnesses.letters[i]) + " = " + numberLatex(values[i]) + "$";
+      }
+    }
   }
   for (const Search& search : searches) {
     std::remove(search.answerPath.c_str());
@@ -932,7 +1033,9 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
              + outcome.proof + "\\par}";
       else
         page = outcome.proof;
-      qr_document_external_item(begin, end, QR_PROVED, "da Vampire, con la prova riscritta dal motore", nullptr, nullptr, page.c_str(), certificate);
+      qr_document_external_item(begin, end, QR_PROVED, outcome.byNumbers ? "da Vampire, con i numeri ricalcolati dal verificatore"
+                                                                           : "da Vampire, con la prova riscritta dal motore",
+                                nullptr, nullptr, page.c_str(), certificate);
       return;
 
     case Status::COUNTEREXAMPLE_VERIFIED:
@@ -1097,12 +1200,33 @@ std::optional<int> Driver::run()
       if (arithmetic.found) {
         bool italian = run.language == Language::ITALIAN;
         LogicOutcome outcome;
-        outcome.status = arithmetic.denied ? Status::COUNTEREXAMPLE_UNVERIFIED : Status::THEOREM_UNVERIFIED;
+        outcome.status = arithmetic.certified ? (arithmetic.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED)
+                                              : (arithmetic.denied ? Status::COUNTEREXAMPLE_UNVERIFIED : Status::THEOREM_UNVERIFIED);
         outcome.reason = italian
           ? "Il motore matematico non aveva né una dimostrazione né una confutazione; l'enunciato è stato dato alle teorie aritmetiche di Vampire come problema su " + arithmetic.sort + ", e Vampire ha dimostrato "
-            + (arithmetic.denied ? "la sua negazione" : "l'enunciato") + ". La prova non è ricontrollata dal verificatore indipendente."
+            + (arithmetic.denied ? "la sua negazione" : "l'enunciato")
           : "The mathematical engine had neither a proof nor a refutation; the statement was given to Vampire's arithmetic theories as a problem over " + arithmetic.sort + ", and Vampire proved "
-            + (arithmetic.denied ? "its negation" : "the statement") + ". The proof is not rechecked by the independent checker.";
+            + (arithmetic.denied ? "its negation" : "the statement");
+        if (arithmetic.certified) {
+          /* With the numbers: the checker has recomputed the statement on them. */
+          std::string with = arithmetic.numbers.empty() ? "" : (italian ? " (" : " (") + arithmetic.numbers + ")";
+          outcome.reason += italian
+            ? ", con i numeri che lo mostrano" + with + ". Il verificatore indipendente ha ricalcolato l'enunciato su quei numeri."
+            : ", with the numbers that show it" + with + ". The independent checker recomputed the statement on those numbers.";
+          outcome.certificate = arithmetic.certificate;
+          outcome.byNumbers = true;
+          if (arithmetic.denied) outcome.detail = arithmetic.numbers;
+          outcome.proof = (arithmetic.denied
+              ? (italian ? "\\textbf{L'enunciato \\`e falso.} Un controesempio: " : "\\textbf{The statement is false.} A counterexample: ")
+              : (italian ? "\\textbf{Dimostrazione.} Un esempio: " : "\\textbf{Proof.} An example: "))
+            + (arithmetic.numbers.empty() ? (italian ? "il conto diretto" : "the direct computation") : arithmetic.numbers)
+            + (italian ? ". I numeri sono stati trovati dalle teorie aritmetiche di Vampire, e il verificatore indipendente ha ricalcolato l'enunciato su di essi."
+                       : ". The numbers were found by Vampire's arithmetic theories, and the independent checker recomputed the statement on them.")
+            + (arithmetic.denied ? "" : " $\\Box$");
+        } else {
+          outcome.reason += italian ? ". La prova non è ricontrollata dal verificatore indipendente."
+                                    : ". The proof is not rechecked by the independent checker.";
+        }
         status = outcome.status;
         decidedBy = "vampire";
         reportLogic(outcome);

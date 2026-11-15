@@ -15,6 +15,7 @@
 
 #include "NumberStatement.hpp"
 
+#include <utility>
 #include <vector>
 
 namespace Math {
@@ -29,29 +30,59 @@ namespace {
  */
 class Reader {
 public:
-  Reader(const std::string& text, size_t at, int kind) : _text(text), _at(at), _kind(kind) {}
+  /**
+   * @param lift moves to the front the quantifiers that values can settle
+   *   (see condition()): the formula returned then has their variables
+   *   free, named W0, W1, ... by the number of the quantifier.
+   */
+  Reader(const std::string& text, size_t at, int kind, bool lift = false) : _text(text), _at(at), _kind(kind), _lift(lift) {}
 
   bool failed() const { return _failed; }
   bool atEnd() { skip(); return _at == _text.size(); }
 
-  /** A condition. */
-  std::string condition(unsigned depth)
+  /** With lift: false if some quantifier that has to be used cannot be settled by a value. */
+  bool settled() const { return _settled; }
+  /** With lift: the quantifiers moved to the front, outermost first, and the letters they bind. */
+  const std::vector<unsigned>& lifted() const { return _lifted; }
+  const std::vector<std::string>& liftedLetters() const { return _liftedLetters; }
+
+  /** The truth value to be shown of a condition: true, false, or either (under an "if and only if"). */
+  enum Want { FALSE = 0, TRUE = 1, EITHER = -1 };
+
+  /**
+   * A condition. @b want matters only with lift: it is the truth value
+   * that has to be shown of this condition for the whole statement to get
+   * the one wanted of it. A "for all" to be shown false and a "there is"
+   * to be shown true need one value each: those are lifted. The other two
+   * cases need a proof for every value, which no value gives: the
+   * statement is then not settled by values.
+   */
+  std::string condition(unsigned depth, Want want = EITHER)
   {
     if (depth > MAX_DEPTH || !open()) return fail();
     std::string head = word();
     std::string result;
+    Want opposite = want == EITHER ? EITHER : want == TRUE ? FALSE : TRUE;
     if (head == "forall" || head == "exists") {
-      std::string variable = this->variable();
-      std::string guard = set(variable);
-      std::string body = condition(depth + 1);
       bool universal = head == "forall";
+      unsigned number = _quantifiers++;
+      std::string letter = this->letter();
+      bool lifted = _lift && want == (universal ? FALSE : TRUE);
+      if (_lift && !lifted) _settled = false;
+      std::string variable = lifted ? "W" + std::to_string(number) : "X" + letter;
+      if (lifted) { _lifted.push_back(number); _liftedLetters.push_back(letter); }
+      std::string guard = set(variable);
+      _scope.push_back({letter, variable});
+      std::string body = condition(depth + 1, want);
+      _scope.pop_back();
       if (!guard.empty()) body = "(" + guard + (universal ? " => " : " & ") + body + ")";
-      result = std::string(universal ? "(![" : "(?[") + variable + ":" + sort() + "]: " + body + ")";
+      result = lifted ? body : std::string(universal ? "(![" : "(?[") + variable + ":" + sort() + "]: " + body + ")";
     } else if (head == "and" || head == "or" || head == "implies" || head == "iff") {
-      std::string first = condition(depth + 1), second = condition(depth + 1);
+      std::string first = condition(depth + 1, head == "iff" ? EITHER : head == "implies" ? opposite : want);
+      std::string second = condition(depth + 1, head == "iff" ? EITHER : want);
       result = "(" + first + (head == "and" ? " & " : head == "or" ? " | " : head == "implies" ? " => " : " <=> ") + second + ")";
     } else if (head == "not") {
-      result = "~(" + condition(depth + 1) + ")";
+      result = "~(" + condition(depth + 1, opposite) + ")";
     } else if (head == "=" || head == "neq") {
       std::string left = term(depth + 1), right = term(depth + 1);
       result = "(" + left + (head == "=" ? " = " : " != ") + right + ")";
@@ -83,8 +114,14 @@ private:
   const std::string& _text;
   size_t _at;
   int _kind;
+  bool _lift;
   bool _failed = false;
-  unsigned _fresh = 0;  // names for the factors of "divides"
+  bool _settled = true;
+  unsigned _fresh = 0;        // names for the factors of "divides"
+  unsigned _quantifiers = 0;  // how many quantifiers were met: the next one's number
+  std::vector<unsigned> _lifted;
+  std::vector<std::string> _liftedLetters;
+  std::vector<std::pair<std::string, std::string>> _scope;  // the letters bound here, each with its variable
 
   std::string fail() { _failed = true; return ""; }
 
@@ -128,13 +165,21 @@ private:
     return "$quotient(" + numerator + ".0," + denominator + ".0)";
   }
 
-  /** (var N): the variable of the letter number N. */
-  std::string variable()
+  /** (var N): the letter number N. */
+  std::string letter()
   {
     if (!open() || word() != "var") return fail();
     std::string letter = word();
     if (!whole(letter, false) || !close()) return fail();
-    return "X" + letter;
+    return letter;
+  }
+
+  /** (var N) in an expression: the variable of the innermost quantifier that binds the letter. */
+  std::string variable()
+  {
+    std::string letter = this->letter();
+    for (size_t i = _scope.size(); i > 0; i--) if (_scope[i - 1].first == letter) return _scope[i - 1].second;
+    return fail();
   }
 
   /**
@@ -228,6 +273,11 @@ NumberStatement NumberStatement::read(const std::string& handedOver)
     if (reader.failed() || !reader.atEnd()) return statement;
     statement._sort = SORTS[kind];
     statement._formula = formula;
+    statement._kind = kind + 1;
+
+    /* The statement alone, on one line, as the checker reads it. */
+    statement._text = handedOver.substr(line + 1);
+    while (!statement._text.empty() && (statement._text.back() == '\n' || statement._text.back() == ' ')) statement._text.pop_back();
   }
   return statement;
 }
@@ -235,6 +285,82 @@ NumberStatement NumberStatement::read(const std::string& handedOver)
 std::string NumberStatement::tptp(bool denied) const
 {
   return "tff(statement, conjecture, " + (denied ? "~(" + _formula + ")" : _formula) + ").\n";
+}
+
+NumberStatement::WitnessProblem NumberStatement::witnessProblem(bool denied) const
+{
+  WitnessProblem problem;
+  if (!ok()) return problem;
+  Reader reader(_text, 0, _kind, /* lift */ true);
+  std::string formula = reader.condition(0, denied ? Reader::FALSE : Reader::TRUE);
+  if (reader.failed() || !reader.atEnd() || !reader.settled()) return problem;
+
+  /* "There are W0, W1, ... such that the statement holds (or fails)":
+   * the same as the statement, or its negation, because each of those
+   * quantifiers stood where one value of it is what counts, and a sort of
+   * numbers is never empty. */
+  std::string variables;
+  for (unsigned number : reader.lifted()) variables += (variables.empty() ? "" : ", ") + ("W" + std::to_string(number)) + ":" + _sort;
+  std::string matrix = denied ? "~(" + formula + ")" : formula;
+  problem.tptp = "tff(statement, conjecture, " + (variables.empty() ? matrix : "?[" + variables + "]: (" + matrix + ")") + ").\n";
+  problem.quantifiers = reader.lifted();
+  problem.letters = reader.liftedLetters();
+  return problem;
+}
+
+std::string NumberStatement::certificate(bool denied, const WitnessProblem& problem, const std::vector<std::string>& values) const
+{
+  static const char* const KINDS[] = {"", "int", "rat", "real"};
+  std::string text = std::string("certificate numbers\nkind ") + KINDS[_kind] + "\nstatement " + _text + "\n" + (denied ? "fails\n" : "holds\n");
+  for (size_t i = 0; i < problem.quantifiers.size() && i < values.size(); i++)
+    text += "witness " + std::to_string(problem.quantifiers[i]) + " " + values[i] + "\n";
+  return text + "end\n";
+}
+
+bool NumberStatement::answerValue(const std::string& answer, std::string& value)
+{
+  std::string text = answer;
+  auto trim = [&]() {
+    while (!text.empty() && text.front() == ' ') text.erase(text.begin());
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+  };
+  trim();
+
+  /* A number of one sort seen from another, and parentheses, change nothing. */
+  for (bool unwrapped = true; unwrapped;) {
+    unwrapped = false;
+    for (const char* wrapper : {"$to_real(", "$to_rat(", "$to_int(", "("}) {
+      size_t length = std::string(wrapper).size();
+      if (text.size() > length && text.compare(0, length, wrapper) == 0 && text.back() == ')') {
+        text = text.substr(length, text.size() - length - 1);
+        trim();
+        unwrapped = true;
+      }
+    }
+  }
+
+  /* An integer, a fraction, or a number with a point: digits, at most 18 of them each. */
+  size_t at = !text.empty() && text[0] == '-' ? 1 : 0;
+  auto digits = [&](std::string& into) {
+    size_t start = at;
+    while (at < text.size() && text[at] >= '0' && text[at] <= '9') at++;
+    into = text.substr(start, at - start);
+    return !into.empty() && into.size() <= 18;
+  };
+  std::string whole, rest;
+  if (!digits(whole)) return false;
+  std::string sign = text[0] == '-' ? "-" : "";
+  if (at == text.size()) { value = sign + whole; return true; }
+  char between = text[at++];
+  if (!digits(rest) || at != text.size()) return false;
+  if (between == '/') {
+    if (rest.find_first_not_of('0') == std::string::npos) return false;
+    value = sign + whole + "/" + rest;
+    return true;
+  }
+  if (between != '.' || whole.size() + rest.size() > 18) return false;
+  value = sign + whole + rest + "/1" + std::string(rest.size(), '0');
+  return true;
 }
 
 } // namespace Math

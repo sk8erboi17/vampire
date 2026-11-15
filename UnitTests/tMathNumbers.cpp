@@ -19,9 +19,11 @@
  */
 
 #include <string>
+#include <vector>
 
 #include "Math/Engine.h"
 #include "Math/NumberStatement.hpp"
+#include "Proof/IndependentChecker.h"
 #include "Test/UnitTesting.hpp"
 
 using namespace Math;
@@ -149,4 +151,85 @@ TEST_FUN(a_statement_the_engine_reads_and_has_no_method_for_is_handed_over)
   ASS_EQ(text, "numbers int \n(forall (var 110) (set ge 1) (lesseq (var 110) (pow (var 110) 2)))\n");
   ASS_EQ(NumberStatement::read(text).tptp(false),
          "tff(statement, conjecture, (![X110:$int]: ($greatereq(X110,1) => $lesseq(X110,$product(X110,X110))))).\n");
+}
+
+TEST_FUN(a_statement_that_numbers_settle_is_asked_with_its_quantifiers_in_front)
+{
+  qr_init();
+
+  /* "If x = k^2 + 7 and y = j^2 + 7 then x = y": false, and four numbers show it. */
+  NumberStatement statement = NumberStatement::read(handedOver(
+    "\\forall x, y \\in \\mathbb{Z}\\ ((\\exists k \\in \\mathbb{Z}\\ (x = k^{2} + 7) \\land \\exists k \\in \\mathbb{Z}\\ (y = k^{2} + 7)) \\implies x = y)"));
+  ASS(statement.ok());
+
+  /* To refute it: the two "for all" and the two "there is" of the hypothesis each need one value. */
+  NumberStatement::WitnessProblem refuting = statement.witnessProblem(true);
+  ASS(refuting.tptp.compare(0, 59, "tff(statement, conjecture, ?[W0:$int, W1:$int, W2:$int, W3:") == 0);
+  ASS(refuting.tptp.find("]: (~(") != std::string::npos);
+  ASS(refuting.tptp.find("![") == std::string::npos);     // no quantifier is left inside
+  ASS_EQ(refuting.quantifiers.size(), 4u);
+  ASS_EQ(refuting.quantifiers[0], 0u);
+  ASS_EQ(refuting.quantifiers[3], 3u);
+  ASS_EQ(refuting.letters[0], "120");                     // x
+  ASS_EQ(refuting.letters[2], "107");                     // k
+
+  /* To prove it would take a proof for every x and y: no numbers do that. */
+  ASS(statement.witnessProblem(false).tptp.empty());
+
+  /* The certificate with the numbers Vampire gives, and the checker's verdict on it. */
+  std::string certificate = statement.certificate(true, refuting, {"7", "8", "0", "1"});
+  ASS(certificate.find("certificate numbers\nkind int\nstatement (forall ") == 0);
+  ASS(certificate.find("\nfails\nwitness 0 7\nwitness 1 8\nwitness 2 0\nwitness 3 1\nend\n") != std::string::npos);
+  const char* why = "";
+  ASS(proof_check_certificate(certificate.c_str(), &why) == PROOF_CHECK_ACCEPTED);
+
+  /* Numbers that are not a counterexample, and the claim that the statement holds, are not accepted. */
+  ASS(proof_check_certificate(statement.certificate(true, refuting, {"7", "7", "0", "0"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(statement.certificate(false, refuting, {"7", "8", "0", "1"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(a_statement_that_needs_a_proof_for_every_value_has_no_witness_problem)
+{
+  qr_init();
+
+  /* "For every m there is x with ...": to refute it one m is not enough, the inner "there is" must fail for all x. */
+  NumberStatement alternating = NumberStatement::read(handedOver(
+    "\\forall m \\in \\mathbb{Z}\\ \\exists x \\in \\mathbb{N}\\ (x - m \\in \\mathbb{N}_{0} \\land m - x \\in \\mathbb{N}_{0})"));
+  ASS(alternating.ok());
+  ASS(alternating.witnessProblem(true).tptp.empty());
+  ASS(alternating.witnessProblem(false).tptp.empty());
+
+  /* "There is x with x^2 = 49": to prove it one value is enough; to refute it, none is. */
+  NumberStatement existential = NumberStatement::read(handedOver("\\exists x \\in \\mathbb{N}\\ (x^{2} = 49)"));
+  ASS(existential.ok());
+  NumberStatement::WitnessProblem proving = existential.witnessProblem(false);
+  ASS(proving.tptp.compare(0, 36, "tff(statement, conjecture, ?[W0:$int") == 0);
+  ASS(existential.witnessProblem(true).tptp.empty());
+  const char* why = "";
+  ASS(proof_check_certificate(existential.certificate(false, proving, {"7"}).c_str(), &why) == PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(existential.certificate(false, proving, {"6"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(existential.certificate(false, proving, {"-7"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);   // not in N
+
+  /* Under an "if and only if" a quantifier counts both ways: no witness problem. */
+  NumberStatement both = NumberStatement::read("numbers int \n(iff (exists (var 1) (set) (= (var 1) 0)) (= 0 0))\n");
+  ASS(both.ok());
+  ASS(both.witnessProblem(false).tptp.empty());
+  ASS(both.witnessProblem(true).tptp.empty());
+}
+
+TEST_FUN(an_answer_of_vampire_is_a_witness_only_if_it_is_a_number)
+{
+  std::string value;
+  ASS(NumberStatement::answerValue("7", value) && value == "7");
+  ASS(NumberStatement::answerValue(" -3 ", value) && value == "-3");
+  ASS(NumberStatement::answerValue("1/2", value) && value == "1/2");
+  ASS(NumberStatement::answerValue("$to_real(0/1)", value) && value == "0/1");
+  ASS(NumberStatement::answerValue("$to_rat(-5)", value) && value == "-5");
+  ASS(NumberStatement::answerValue("2.5", value) && value == "25/10");
+  ASS(!NumberStatement::answerValue("X0", value));
+  ASS(!NumberStatement::answerValue("$sum(1,2)", value));
+  ASS(!NumberStatement::answerValue("sK3", value));
+  ASS(!NumberStatement::answerValue("1/0", value));
+  ASS(!NumberStatement::answerValue("", value));
+  ASS(!NumberStatement::answerValue("12345678901234567890", value));
 }

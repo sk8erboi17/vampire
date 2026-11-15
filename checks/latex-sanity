@@ -160,8 +160,17 @@ check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/
 # and says which of the two was proved. Variables of two kinds are not handed over
 check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved the statement" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 5: CounterexampleUnverified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 6: CounterexampleUnverified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved its negation" --proof off -t 10 latex/numbers.tex
+
+# where numbers settle the statement Vampire is asked for them too, and the checker
+# recomputes the statement on them: statement 5 is false with x = 101, y = 102 (and the
+# two k of its hypotheses), a counterexample verified. Statement 6 is "for every m
+# there is x": no numbers refute it, and it stays not verified
+check_output_contains "% Result 5: CounterexampleVerified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% SZS answers Tuple [[" --proof off -t 10 latex/numbers.tex
+check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t 10 latex/numbers.tex
+check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/numbers.tex
 check_output_lacks "Certified" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
@@ -186,7 +195,7 @@ else
 fi
 if test -x "$scratch/checker"
 then
-	for name in logic mathematics false parts
+	for name in logic mathematics false parts numbers
 	do
 		run_vampire --proof off -t 10 --math_certificates "$scratch/$name.cert" latex/$name.tex
 		written=`grep -c '^certificate' "$scratch/$name.cert"`

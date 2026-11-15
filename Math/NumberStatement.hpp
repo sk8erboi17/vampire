@@ -41,15 +41,30 @@
  *
  * WHAT A PROOF FOUND THIS WAY IS WORTH. Vampire's theories of arithmetic are
  * sound: what it proves of $int, $rat and $real holds of the integers, the
- * rationals and the reals. But nothing rechecks such a proof here: the
- * independent checker has no language for arithmetic with quantifiers. A
- * theorem found this way is found, not verified, and the caller must say so.
+ * rationals and the reals. But the independent checker cannot follow such a
+ * proof: it has no steps for arithmetic. A theorem found this way is found,
+ * not verified, and the caller must say so, with one exception.
+ *
+ * WITNESSES. Some statements are settled by a few numbers. "For all x, y:
+ * if x = k^2 + 7 for some k and y = j^2 + 7 for some j, then x = y" is
+ * false, and x = 7, y = 8, k = 0, j = 1 show it: the checker only has to
+ * recompute the statement on them (its certificate "numbers"). That works
+ * when what has to be shown needs only values to exhibit: a "there is" to
+ * be true, a "for all" to be false, each in a place of the statement where
+ * that is what counts. Then the problem given to Vampire is written with
+ * those quantifiers moved to the front as one "there are X, Y, K, J such
+ * that ...", which says the same (the sorts are not empty), and Vampire is
+ * asked not only for a proof but for the values (question answering):
+ * witnessProblem(). With the values, certificate() writes what the checker
+ * rechecks. A "for all" that is true, or a "there is" that is false, cannot
+ * be shown by values, and for those there is no witness problem.
  */
 
 #ifndef __Math_NumberStatement__
 #define __Math_NumberStatement__
 
 #include <string>
+#include <vector>
 
 namespace Math {
 
@@ -75,9 +90,40 @@ public:
    */
   std::string tptp(bool denied) const;
 
+  /** A problem whose proof comes with numbers that settle the statement. */
+  struct WitnessProblem {
+    std::string tptp;                  // one conjecture "?[W..]: ...", or empty if values cannot settle the statement
+    std::vector<unsigned> quantifiers; // for each variable of that conjecture, in order, the quantifier of the
+                                       // statement it stands for, counted from 0 in the order they are written
+    std::vector<std::string> letters;  // and the letter that quantifier binds, for a reader
+  };
+
+  /**
+   * The statement (or, with @b denied, its negation) as a problem that
+   * values can settle, if it is one: every quantifier that has to be used
+   * is a "there is" to be made true or a "for all" to be made false.
+   */
+  WitnessProblem witnessProblem(bool denied) const;
+
+  /**
+   * The certificate "numbers" that says the statement holds (or, with
+   * @b denied, fails) and gives @b values, written as the checker reads
+   * numbers ("7", "-3", "1/2"), to the quantifiers of @b problem.
+   */
+  std::string certificate(bool denied, const WitnessProblem& problem, const std::vector<std::string>& values) const;
+
+  /**
+   * Reads a number as Vampire writes one in an answer ("7", "-3", "1/2",
+   * "$to_real(1/2)") into the checker's notation. Returns false for
+   * anything else: an answer that is not a number is not a witness.
+   */
+  static bool answerValue(const std::string& answer, std::string& value);
+
 private:
   std::string _sort;     // of every variable and term
   std::string _formula;  // the statement in TPTP syntax, without the surrounding tff(...); empty if not read
+  std::string _text;     // the statement as it was handed over, one line, for the certificate and for a second reading
+  int _kind = 0;         // 1 integers, 2 rationals, 3 reals
 };
 
 } // namespace Math
