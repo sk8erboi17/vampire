@@ -1,0 +1,8 @@
+% Result 1: CounterexampleUnverified (engine)
+% Result 2: CounterexampleVerified (engine)
+% Result 3: CounterexampleUnverified (engine)
+% Result 4: CounterexampleUnverified (engine)
+% Result 5: CounterexampleVerified (engine)
+% Result 6: CounterexampleUnverified (engine)
+% Result 7: CounterexampleVerified (vampire)
+% Summary of false.tex: 7 statements; CounterexampleVerified 3; CounterexampleUnverified 4

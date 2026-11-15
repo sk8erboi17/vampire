@@ -56,6 +56,9 @@ public:
   static void parseStandardInput(Options::InputSyntax inputSyntax);
   static void parseFile(const std::string& inputFile, Options::InputSyntax inputSyntax, bool verbose);
 
+  // for a frontend that builds its units itself instead of parsing a stream (the LaTeX one)
+  static void loadUnits(UnitList* units, bool hasConjecture);
+
   static Problem* getInputProblem();
 
   static void listLoadedPieces(std::ostream& out);

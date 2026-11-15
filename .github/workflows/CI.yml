@@ -57,3 +57,5 @@ jobs:
         CXX: clang++
     - name: Run Sanity Checks
       run: checks/sanity build/vampire
+    - name: Run LaTeX Sanity Checks
+      run: checks/latex-sanity build/vampire

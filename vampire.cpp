@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include <ostream>
+#include <optional>
 
 #if VZ3
 #include "z3++.h"
@@ -52,6 +53,8 @@
 #include "Parse/TPTP.hpp"
 #include "Shell/Statistics.hpp"
 #include "Shell/UIHelper.hpp"
+
+#include "Math/Driver.hpp"
 
 #include "Saturation/SaturationAlgorithm.hpp"
 
@@ -642,6 +645,19 @@ int main(int argc, char* argv[])
 
     Lib::setMemoryLimit(env.options->memoryLimit() * 1048576ul);
 
+    // LaTeX input is a list of statements, not one problem: Math::Driver runs
+    // them one by one. It comes back with an exit code when all are done; in a
+    // process it created for a statement of logic it comes back with nothing,
+    // the problem loaded, and that process goes on below as for any input.
+    bool latexStatementLoaded = false;
+    if (!opts.interactive() && Math::Driver::wanted()) {
+      std::optional<int> exitCode = Math::Driver::run();
+      if (exitCode) {
+        return *exitCode;
+      }
+      latexStatementLoaded = true;
+    }
+
     if (opts.interactive()) {
       interactiveMetamode();
     } else {
@@ -654,7 +670,9 @@ int main(int argc, char* argv[])
       Timer::reinitialise();
 #endif
 
-      if (opts.inputFile().empty()) {
+      if (latexStatementLoaded) {
+        // nothing to parse: the units of the statement are loaded
+      } else if (opts.inputFile().empty()) {
         UIHelper::parseStandardInput(opts.inputSyntax());
       } else {
         UIHelper::parseFile(opts.inputFile(),opts.inputSyntax(),

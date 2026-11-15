@@ -1,0 +1,169 @@
+#!/bin/sh
+# run Vampire on mathematical statements written in LaTeX and check that it
+# behaves as expected: same spirit, same helpers and same rules as checks/sanity
+# (minimal, no portfolio modes), kept apart so that checks/sanity stays what it was.
+#
+#     sh checks/latex-sanity build/vampire
+#
+# What is checked, for each document in checks/latex/:
+#   - the result of every statement ("% Result N: Code (who decided)") and the summary;
+#   - that no false statement is reported as a theorem and no invalid writing is read;
+#   - that every certificate written is accepted by the checker as a program of
+#     its own (certificate-checker), and that the same certificates, altered, are not.
+
+# where is Vampire? passed by CI
+vampire="`pwd`/$1 --traceback on"
+
+scratch=`mktemp -d "${TMPDIR:-/tmp}/vampire-latex-sanity.XXXXXX"` || exit 1
+trap 'rm -rf "$scratch"' EXIT
+trap 'rm -rf "$scratch"; exit 130' INT
+trap 'rm -rf "$scratch"; exit 143' TERM
+
+# the exit code is not checked: with LaTeX input it says whether every
+# statement was proved or solved, and the documents here have false ones
+run_vampire() {
+	echo $vampire $@
+	(cd checks; $vampire $@ > "$scratch/vampire-stdout" 2> "$scratch/vampire-stderr")
+	errors=`grep -E 'SIG|viola|error' "$scratch/vampire-stderr"`
+	if test -n "$errors"
+	then
+		echo "run failed: contains errors"
+		cat "$scratch/vampire-stderr"
+		exit 1
+	fi
+}
+
+# check the results of a document, statement by statement, against checks/latex/NAME.expected
+check_results() {
+	name=$1
+	shift
+	run_vampire --proof off -t 10 $@ latex/$name.tex
+	grep '^% Result\|^% Summary' "$scratch/vampire-stdout" > "$scratch/results"
+	diff=`diff checks/latex/$name.expected "$scratch/results"`
+	if test -n "$diff"
+	then
+		echo "check against checks/latex/$name.expected failed: diff follows"
+		echo "$diff"
+		exit 1
+	fi
+}
+
+# check that a key substring appears in the output
+check_output_contains() {
+	expected="$1"
+	shift
+	run_vampire $@
+	found=`grep -F "$expected" "$scratch/vampire-stdout"`
+	if test -z "$found"
+	then
+		echo "check failed: output should contain: $expected"
+		cat "$scratch/vampire-stdout"
+		exit 1
+	fi
+}
+
+# check that a substring does NOT appear in the output
+check_output_lacks() {
+	unexpected="$1"
+	shift
+	run_vampire $@
+	found=`grep -F "$unexpected" "$scratch/vampire-stdout"`
+	if test -n "$found"
+	then
+		echo "check failed: output should not contain: $unexpected"
+		cat "$scratch/vampire-stdout"
+		exit 1
+	fi
+}
+
+# the four documents, statement by statement
+check_results logic
+check_results mathematics
+check_results false
+check_results invalid
+
+# no false statement is a theorem, however it is decided, and no invalid writing is read
+check_output_lacks "Theorem" --proof off -t 10 latex/false.tex
+check_output_lacks "Theorem" --proof off -t 10 --math_logic engine latex/false.tex
+check_output_lacks "Theorem" --proof off -t 10 latex/invalid.tex
+check_output_lacks "CounterSatisfiable" --proof off -t 10 latex/invalid.tex
+
+# the engine deciding the logic too: certified proofs where Vampire's are not
+check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 --math_logic engine latex/logic.tex
+
+# a statement of logic is Vampire's problem in every mode: here it is only printed, as TPTP
+check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax latex latex/logic.tex
+
+# a proof found by Vampire is never called certified, and it is explained, in both languages
+check_output_contains "proof found but not independently verified" -t 10 latex/logic.tex
+check_output_contains "Superposition: an equation of one clause" -t 10 latex/logic.tex
+check_output_contains "prova trovata ma non verificata indipendentemente" -t 10 --math_language it latex/logic.tex
+check_output_contains "Superposizione: un'equazione di una clausola" -t 10 --math_language it latex/logic.tex
+
+# a counterexample is called verified only with a certificate, and the empty set is a set
+check_output_contains '% Counterexample (LaTeX): $S = \{\}$; $f = \emptyset$' --proof off -t 10 latex/logic.tex
+
+# TPTP input is untouched by all this: no verification line, the usual status
+check_output_lacks "Verification status" -t 10 Problems/PUZ/PUZ001+1.p
+check_output_contains "% SZS status Theorem for PUZ001+1" -t 10 Problems/PUZ/PUZ001+1.p
+
+# the certificates: accepted by the checker on its own, rejected once altered.
+# The checker is the program built next to Vampire (target certificate-checker);
+# if it is not there it is compiled here, from its one source file
+checker="`dirname $1`/certificate-checker"
+if test -x "$checker"
+then
+	cp "$checker" "$scratch/checker"
+else
+	cc -std=c11 -O2 -o "$scratch/checker" Math/quaerens/checker.c 2> "$scratch/checker-build"
+fi
+if test -x "$scratch/checker"
+then
+	for name in logic mathematics false
+	do
+		run_vampire --proof off -t 10 --math_certificates "$scratch/$name.cert" latex/$name.tex
+		written=`grep -c '^certificate' "$scratch/$name.cert"`
+		accepted=`"$scratch/checker" "$scratch/$name.cert" | grep -c 'ACCETTATO'`
+		if test "$written" -eq 0 || test "$written" -ne "$accepted"
+		then
+			echo "check failed: $written certificates written for $name.tex, $accepted accepted by the checker"
+			exit 1
+		fi
+
+		# every certificate altered where it says what is claimed: the statement
+		# denied, the truth of every row of a sign table swapped, a derivative
+		# with 1 added. None may be accepted any more.
+		# (one rule per kind of certificate in these documents: a new kind needs its own)
+		sed -e 's/^statement \(.*\)$/statement (not \1)/' \
+		    -e 's/^\(interval .*\) true$/\1 SWAPPED/' -e 's/^\(interval .*\) false$/\1 true/' -e 's/^\(interval .*\) SWAPPED$/\1 false/' \
+		    -e 's/^\(point .*\) true$/\1 SWAPPED/' -e 's/^\(point .*\) false$/\1 true/' -e 's/^\(point .*\) SWAPPED$/\1 false/' \
+		    -e 's/^derivative \(.*\)$/derivative (+ \1 1)/' \
+		    "$scratch/$name.cert" > "$scratch/$name.altered"
+		if cmp -s "$scratch/$name.cert" "$scratch/$name.altered"
+		then
+			echo "check failed: the certificates of $name.tex were not altered at all"
+			exit 1
+		fi
+		accepted=`"$scratch/checker" "$scratch/$name.altered" | grep -c 'ACCETTATO'`
+		if test "$accepted" -ne 0
+		then
+			echo "check failed: $accepted altered certificates of $name.tex accepted"
+			exit 1
+		fi
+	done
+
+	# a model with one value changed is another model: the checker must not accept it for the statement
+	run_vampire --proof off -t 10 --math_certificates "$scratch/logic.cert" latex/logic.tex
+	sed 's/^sort \([A-Za-z0-9]*\) 2$/sort \1 1/' "$scratch/logic.cert" > "$scratch/logic.resized"
+	before=`"$scratch/checker" "$scratch/logic.cert" | grep -c 'ACCETTATO'`
+	after=`"$scratch/checker" "$scratch/logic.resized" | grep -c 'ACCETTATO'`
+	if test "$after" -ge "$before"
+	then
+		echo "check failed: a certificate with a set made smaller is still accepted ($before before, $after after)"
+		exit 1
+	fi
+else
+	echo "no certificate-checker next to Vampire and no C compiler: the certificates were not rechecked"
+	cat "$scratch/checker-build"
+	exit 1
+fi

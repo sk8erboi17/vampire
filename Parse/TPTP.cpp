@@ -5194,6 +5194,16 @@ bool TPTP::findAxiomName(const Unit* unit, std::string& name, std::filesystem::p
 } // TPTP::findAxiomName
 
 /**
+ * Record @b name as the name of the input unit @b unit, as the parser does
+ * for the formulas of a TPTP file. For frontends that build their units
+ * directly (the LaTeX one), so that proofs cite their inputs by name.
+ */
+void TPTP::assignAxiomName(const Unit* unit, const std::string& name, const std::filesystem::path& path)
+{
+  ALWAYS(_axiomNames.insert(unit->number(), {name, path}));
+} // TPTP::assignAxiomName
+
+/**
  * Process vampire() declaration
  * @since 25/08/2009 Redmond
  */

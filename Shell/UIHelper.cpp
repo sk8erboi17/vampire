@@ -45,6 +45,8 @@
 #include "TPTPPrinter.hpp"
 #include "UIHelper.hpp"
 
+#include "Math/LogicProblem.hpp"
+
 #include "SAT/Z3Interfacing.hpp"
 
 #include "Lib/List.hpp"
@@ -262,6 +264,8 @@ void UIHelper::parseSingleLine(const std::string& lineToParse, Options::InputSyn
       case Options::InputSyntax::AUTO:
         ASSERTION_VIOLATION;
         break;
+      case Options::InputSyntax::LATEX:
+        USER_ERROR("LaTeX input is read by the mathematical frontend and cannot be mixed with other input");
     }
   } catch (ParsingRelatedException& exception) {
     _loadedPieces.pop();
@@ -319,6 +323,9 @@ void UIHelper::parseStream(std::istream& input, std::filesystem::path path, Opti
   case Options::InputSyntax::SMTLIB2:
     tryParseSMTLIB2(input);
     break;
+  case Options::InputSyntax::LATEX:
+    // LaTeX is not parsed into one list of units: see Math::Driver, which runs before any parsing here
+    USER_ERROR("LaTeX input is read by the mathematical frontend and cannot be mixed with other input");
   }
 }
 
@@ -362,6 +369,26 @@ void UIHelper::parseFile(const std::string& inputFile, Options::InputSyntax inpu
     _loadedPieces.pop();
     throw;
   }
+}
+
+/**
+ * Make @b units the input, as if they had been parsed from a file.
+ *
+ * For a frontend that does not parse a stream into units but builds them
+ * itself: the LaTeX one, where a statement is typed and translated first.
+ */
+void UIHelper::loadUnits(UnitList* units, bool hasConjecture)
+{
+  LoadedPiece newPiece = _loadedPieces.top();  // copy everything
+  newPiece._id = "<latex>";
+  _loadedPieces.push(std::move(newPiece));
+
+  LoadedPiece& curPiece = _loadedPieces.top();
+  UnitList::Iterator it(units);
+  while (it.hasNext()) {
+    curPiece._units.pushBack(it.next());
+  }
+  curPiece._hasConjecture |= hasConjecture;
 }
 
 /**
@@ -458,6 +485,10 @@ void UIHelper::outputResult(std::ostream& out)
       if (szsOutputMode()) {
         out << "% SZS output end Proof for " << env.options->problemName << endl << flush;
       }
+    }
+    // a statement read from LaTeX: say how far the answer was verified (no-op for any other input)
+    if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
+      statement->onRefutation(out, refutation);
     }
     if (env.options->questionAnswering()!=Options::QuestionAnsweringMode::OFF) {
       ASS(refutation->isClause());
@@ -609,6 +640,10 @@ void UIHelper::outputSatisfiableResult(std::ostream& out)
       outputSaturatedSet(out, pvi(UnitList::Iterator(env.statistics->saturatedSet)));
       outputInterferences(out,*env.getMainProblem());
     }
+  }
+  // a statement read from LaTeX: say how far the answer was verified (no-op for any other input)
+  if (Math::LogicProblem* statement = Math::LogicProblem::current()) {
+    statement->onSatisfiable(out);
   }
 }
 

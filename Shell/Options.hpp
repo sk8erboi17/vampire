@@ -538,10 +538,26 @@ public:
     SMTLIB2 = 0,
     /** syntax of the TPTP prover */
     TPTP = 1,
-    AUTO = 2
+    AUTO = 2,
+    /** mathematical statements written in LaTeX, read by the frontend in Parse/LaTeX.hpp */
+    LATEX = 3
     //HUMAN = 4,
     //MPS = 5,
     //NETLIB = 6
+  };
+
+  /** The language of the accounts of proofs and of the verification statuses (LaTeX input). */
+  enum class MathLanguage : unsigned int {
+    EN = 0,
+    IT = 1
+  };
+
+  /** Who decides a statement of first-order logic read from LaTeX. */
+  enum class MathLogic : unsigned int {
+    /** Vampire: the statement is translated and proved or refuted by the prover */
+    VAMPIRE = 0,
+    /** the mathematical engine's own procedures, whose proofs carry certificates */
+    ENGINE = 1
   };
 
   /**
@@ -1245,6 +1261,12 @@ public:
   float slowness() const {return _slowness.actualValue; }
   InputSyntax inputSyntax() const { return _inputSyntax.actualValue; }
   void setInputSyntax(InputSyntax newVal) { _inputSyntax.actualValue = newVal; }
+  std::string mathDocument() const { return _mathDocument.actualValue; }
+  std::string mathCertificates() const { return _mathCertificates.actualValue; }
+  bool mathExplanations() const { return _mathExplanations.actualValue; }
+  MathLanguage mathLanguage() const { return _mathLanguage.actualValue; }
+  MathLogic mathLogic() const { return _mathLogic.actualValue; }
+  int mathModelTime() const { return _mathModelTime.actualValue; }
   bool normalize() const { return _normalize.actualValue; }
   void setNormalize(bool normalize) { _normalize.actualValue = normalize; }
   GoalGuess guessTheGoal() const { return _guessTheGoal.actualValue; }
@@ -1759,6 +1781,12 @@ private:
 
   IntOptionValue _inequalitySplitting;
   ChoiceOptionValue<InputSyntax> _inputSyntax;
+  StringOptionValue _mathDocument;
+  StringOptionValue _mathCertificates;
+  BoolOptionValue _mathExplanations;
+  ChoiceOptionValue<MathLanguage> _mathLanguage;
+  ChoiceOptionValue<MathLogic> _mathLogic;
+  TimeLimitOptionValue _mathModelTime;
   BoolOptionValue _instantiation;
 
   ChoiceOptionValue<Induction> _induction;

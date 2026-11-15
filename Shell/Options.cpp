@@ -982,8 +982,39 @@ Options::Options ()
     "is replaced by C \\/ p(s) with the additional unit clause ~p(t) being added "
     "for fresh predicate p.",
        .tag = OptionTag::PREPROCESSING})
-  , _inputSyntax("input_syntax",this,InputSyntax::AUTO,{"smtlib2","tptp","auto"},
-      {.description = "Input syntax. Historic input syntaxes have been removed as they are not actively maintained. Contact developers for help with these.",
+  , _inputSyntax("input_syntax",this,InputSyntax::AUTO,{"smtlib2","tptp","auto","latex"},
+      {.description = "Input syntax. Historic input syntaxes have been removed as they are not actively maintained. Contact developers for help with these. "
+                      "With latex the input is a LaTeX document whose \\item entries are mathematical statements, or one bare formula; "
+                      "auto chooses latex for a file whose name ends in .tex.",
+       .tag = OptionTag::INPUT})
+  , _mathDocument("math_document",this,"",
+      {.short_name = "mdoc",
+       .description = "With LaTeX input: write a LaTeX document with every statement, its worked solution or the account of its proof, and its plot. "
+                      "A name ending in .pdf also compiles it, if a LaTeX compiler is installed.",
+       .tag = OptionTag::OUTPUT})
+  , _mathCertificates("math_certificates",this,"",
+      {.short_name = "mcert",
+       .description = "With LaTeX input: write to this file the certificates accepted by the independent checker, one after the other.",
+       .tag = OptionTag::OUTPUT})
+  , _mathExplanations("math_explanations",this,true,
+      {.short_name = "mexp",
+       .description = "With LaTeX input: explain step by step. The worked solutions of the mathematical engine go to the document; "
+                      "the account of a proof found by Vampire goes to the document, or to the output if no document is written.",
+       .tag = OptionTag::OUTPUT})
+  , _mathLanguage("math_language",this,MathLanguage::EN,{"en","it"},
+      {.short_name = "mlang",
+       .description = "With LaTeX input: the language of the accounts of Vampire's proofs and of the verification statuses.",
+       .tag = OptionTag::OUTPUT})
+  , _mathLogic("math_logic",this,MathLogic::VAMPIRE,{"vampire","engine"},
+      {.short_name = "mlogic",
+       .description = "With LaTeX input: who decides a statement of first-order logic. vampire translates it and proves or refutes it with the prover "
+                      "(a finite counter-model is rechecked by the independent checker, a proof is not); "
+                      "engine uses the mathematical engine's own procedures, slower and weaker but with certified proofs.",
+       .tag = OptionTag::INPUT})
+  , _mathModelTime("math_model_time",this,20,
+      {.short_name = "mmt",
+       .description = "With LaTeX input: for a statement of first-order logic, how long to look for a finite counter-model beside the proof search "
+                      "(before it, in the portfolio modes), within the time limit. Same format as time_limit; 0 skips the search for models.",
        .tag = OptionTag::INPUT})
   , _instantiation("instantiation",this,false,
       {.short_name = "inst",

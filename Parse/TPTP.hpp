@@ -344,6 +344,7 @@ public:
    */
   bool containsConjecture() const { return _containsConjecture; }
   static bool findAxiomName(const Unit* unit, std::string& name, std::filesystem::path &path);
+  static void assignAxiomName(const Unit* unit, const std::string& name, const std::filesystem::path& path = {});
   /** True iff @b unit was read between vampire(model_check,model_start) and
    *  vampire(model_check,model_end), i.e. defines the model to check in --mode model_check. */
   static bool isModelDefinition(const Unit* unit) { return _modelDefinitionUnits.contains(unit->number()); }

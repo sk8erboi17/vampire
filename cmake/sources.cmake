@@ -99,6 +99,7 @@ set(UNIT_TESTS
     UnitTests/tLPO.cpp
     UnitTests/tList.cpp
     UnitTests/tMap.cpp
+    UnitTests/tMathLogic.cpp
     UnitTests/tOption.cpp
     UnitTests/tPredicateElimination.cpp
     UnitTests/tProofOutput.cpp
@@ -177,6 +178,8 @@ set(SOURCES
     FMB/Monotonicity.hpp
     FMB/SortInference.cpp
     FMB/SortInference.hpp
+    Humanizer/ProofNarrator.cpp
+    Humanizer/ProofNarrator.hpp
     Indexing/AcyclicityIndex.cpp
     Indexing/AcyclicityIndex.hpp
     Indexing/ClauseCodeTree.cpp
@@ -591,6 +594,17 @@ set(SOURCES
     Lib/TypeList.hpp
     Lib/Vector.hpp
     Lib/VirtualIterator.hpp
+    Math/Driver.cpp
+    Math/Driver.hpp
+    Math/Engine.h
+    Math/LogicProblem.cpp
+    Math/LogicProblem.hpp
+    Math/LogicStatement.cpp
+    Math/LogicStatement.hpp
+    Math/LogicTranslator.cpp
+    Math/LogicTranslator.hpp
+    Math/Names.hpp
+    Math/Verification.hpp
     Minisat/core/Dimacs.h
     Minisat/core/Solver.cc
     Minisat/core/Solver.h
@@ -613,6 +627,9 @@ set(SOURCES
     Minisat/utils/ParseUtils.h
     Minisat/utils/System.cc
     Minisat/utils/System.h
+    Proof/IndependentChecker.h
+    Parse/LaTeX.cpp
+    Parse/LaTeX.hpp
     Parse/SMTLIB2.cpp
     Parse/SMTLIB2.hpp
     Parse/TPTP.cpp

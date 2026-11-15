@@ -85,6 +85,9 @@ public:
   // Assume def is non-equality ground literal
   void addPredicateDefinition(unsigned f, const DArray<unsigned>& args, bool res);
 
+  // the number of elements of a vampire sort in this model
+  unsigned sortSize(unsigned sort) const { return _sizes[sort]; }
+
   bool evaluate(Unit* unit, bool expectingPartial = false);
   unsigned evaluateGroundTerm(Term* term);
   bool evaluateGroundLiteral(Literal* literal);

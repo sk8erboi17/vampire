@@ -56,6 +56,27 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_compile_definitions(ABSOLUTE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+################################################################
+# the mathematical engine (C)
+################################################################
+# Two C translation units. Math/Engine.c includes the engine's sources in
+# Math/quaerens/ and implements the interface Math/Engine.h, the only thing
+# the C++ side sees of the engine. Proof/IndependentChecker.c is the checker
+# of certificates, compiled apart from the engine on purpose (see
+# Proof/IndependentChecker.h). They are a target of their own, defined here before the
+# C++-only compile options below (-fno-rtti and the like), which a C compiler
+# would not accept quietly. Its objects go into every executable that is
+# built from the common objects.
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+add_library(mathengine OBJECT Math/Engine.c Proof/IndependentChecker.c)
+
+# The independent checker also as a program on its own, built from the same
+# source: a file of certificates can be rechecked without Vampire.
+#     certificate-checker FILE.cert
+add_executable(certificate-checker Math/quaerens/checker.c)
+
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   add_compile_definitions(VDEBUG=1)
 else()
@@ -245,7 +266,7 @@ endif()
 add_library(common OBJECT ${SOURCES})
 
 # the actual Vampire executable
-add_executable(vampire vampire.cpp $<TARGET_OBJECTS:common>)
+add_executable(vampire vampire.cpp $<TARGET_OBJECTS:common> $<TARGET_OBJECTS:mathengine>)
 
 install(TARGETS vampire)
 
@@ -280,6 +301,7 @@ if(CMAKE_BUILD_TYPE STREQUAL Debug)
     ${TESTING_SOURCES}
     ${UNIT_TESTS}
     $<TARGET_OBJECTS:common>
+    $<TARGET_OBJECTS:mathengine>
   )
 endif()
 
@@ -317,4 +339,5 @@ add_executable(subsat
     EXCLUDE_FROM_ALL  # only build when explicitly requested
     SATSubsumption/subsat/subsat_main.cpp
     $<TARGET_OBJECTS:common>
+    $<TARGET_OBJECTS:mathengine>
 )
