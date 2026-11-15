@@ -613,7 +613,7 @@ no report on 386 statements of 15 documents that use every path (161
 refutations rechecked, 97 answers of the arithmetic theories), with the
 document and the certificates written; none on 145 statements of 6
 documents run again with the checker and the plots as modules and the rule
-for equipotence; and none on 149 statements of 5 documents with the
+for equipotence; and none on 153 statements of 5 documents with the
 numbers asked of Vampire and recomputed by the checker (50 certificates
 "numbers").
 
