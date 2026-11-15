@@ -1005,12 +1005,6 @@ Options::Options ()
       {.short_name = "mlang",
        .description = "With LaTeX input: the language of the accounts of Vampire's proofs and of the verification statuses.",
        .tag = OptionTag::OUTPUT})
-  , _mathLogic("math_logic",this,MathLogic::VAMPIRE,{"vampire","engine"},
-      {.short_name = "mlogic",
-       .description = "With LaTeX input: who decides a statement of first-order logic. vampire translates it and proves or refutes it with the prover "
-                      "(a finite counter-model is rechecked by the independent checker, a proof is not); "
-                      "engine uses the mathematical engine's own procedures, slower and weaker but with certified proofs.",
-       .tag = OptionTag::INPUT})
   , _mathModelTime("math_model_time",this,20,
       {.short_name = "mmt",
        .description = "With LaTeX input: for a statement of first-order logic, how long to look for a finite counter-model beside the proof search "

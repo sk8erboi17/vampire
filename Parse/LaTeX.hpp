@@ -76,13 +76,14 @@ public:
   bool next(Item& item);
 
   /**
-   * Reads and classifies an item. With logicToVampire a statement of
-   * first-order logic comes back as LOGIC; a statement of logic that has no
-   * first-order translation over plain sorts (sets of parts or of maps,
-   * equipotence, written numbers), and every statement when logicToVampire
-   * is false, is decided by the engine and comes back as MATHEMATICS.
+   * Reads and classifies an item. A statement of first-order logic over
+   * plain sorts comes back as LOGIC, for Vampire. Everything else is decided
+   * by the engine and comes back as MATHEMATICS: mathematics proper, and the
+   * statements of logic that have no such translation (sets of all the parts
+   * or of all the maps of a set, equipotence, written numbers), for which
+   * the engine's procedures are the only ones there are.
    */
-  Statement read(const Item& item, bool logicToVampire);
+  Statement read(const Item& item);
 
   /** True if a file with this name is LaTeX by its extension. */
   static bool isLatexFile(const std::string& name);

@@ -113,13 +113,9 @@ English.
 | `--math_explanations on/off` (`-mexp`) | `on` | worked solutions and accounts of proofs |
 | `--math_language en/it` (`-mlang`) | `en` | accounts of Vampire's proofs, verification statuses |
 | `--math_model_time T` (`-mmt`) | `2` | seconds of finite-model search beside the proof search; `0` skips it |
-| `--math_logic vampire/engine` (`-mlogic`) | `vampire` | see below |
 
-`--math_logic engine` has the engine decide the statements of logic too, with
-its own procedures: weaker and slower than Vampire, but their proofs carry
-certificates. It exists for comparison and for whoever needs a certified proof
-of a statement of logic before Vampire's proofs can be rechecked. It is a
-switch, not a second prover in the race.
+There is no option to have the engine decide a statement that Vampire can be
+given: that would be a second prover for the same statements.
 
 Every other option of Vampire applies to the statements of logic as it does to
 a TPTP problem: `-t`, `--mode casc`, `-sa fmb`, `--proof off`. `--mode output`
@@ -161,7 +157,7 @@ other four files are byte for byte those of Quaerens.
 |---|---|---|
 | Reading LaTeX: expressions, sets, quantifiers, solution sets, `\item` | `Parse/LaTeX` over `parser.c` | in use, in C behind `Math/Engine.h` |
 | Unfolding the notation of the books, rechecked on finite models | frontend | in use, before a statement is handed to Vampire |
-| Logic over plain sets: finite models, instances, saturation, splitting | **Vampire** (finite model builder, saturation, AVATAR) | replaced; the engine's provers are not called for these (unless `--math_logic engine`) |
+| Logic over plain sets: finite models, instances, saturation, splitting | **Vampire** (finite model builder, saturation, AVATAR) | replaced; the engine's provers are never called for these |
 | Logic with sets of *all* parts or *all* maps, equipotence, written numbers | engine | kept as specialised procedures: not first-order over plain sorts, so not translated |
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |

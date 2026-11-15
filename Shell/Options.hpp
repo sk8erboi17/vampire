@@ -552,14 +552,6 @@ public:
     IT = 1
   };
 
-  /** Who decides a statement of first-order logic read from LaTeX. */
-  enum class MathLogic : unsigned int {
-    /** Vampire: the statement is translated and proved or refuted by the prover */
-    VAMPIRE = 0,
-    /** the mathematical engine's own procedures, whose proofs carry certificates */
-    ENGINE = 1
-  };
-
   /**
    * Possible values for mode_name.
    * @since 06/05/2007 Manchester
@@ -1265,7 +1257,6 @@ public:
   std::string mathCertificates() const { return _mathCertificates.actualValue; }
   bool mathExplanations() const { return _mathExplanations.actualValue; }
   MathLanguage mathLanguage() const { return _mathLanguage.actualValue; }
-  MathLogic mathLogic() const { return _mathLogic.actualValue; }
   int mathModelTime() const { return _mathModelTime.actualValue; }
   bool normalize() const { return _normalize.actualValue; }
   void setNormalize(bool normalize) { _normalize.actualValue = normalize; }
@@ -1785,7 +1776,6 @@ private:
   StringOptionValue _mathCertificates;
   BoolOptionValue _mathExplanations;
   ChoiceOptionValue<MathLanguage> _mathLanguage;
-  ChoiceOptionValue<MathLogic> _mathLogic;
   TimeLimitOptionValue _mathModelTime;
   BoolOptionValue _instantiation;
 

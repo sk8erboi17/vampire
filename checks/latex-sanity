@@ -84,12 +84,8 @@ check_results invalid
 
 # no false statement is a theorem, however it is decided, and no invalid writing is read
 check_output_lacks "Theorem" --proof off -t 10 latex/false.tex
-check_output_lacks "Theorem" --proof off -t 10 --math_logic engine latex/false.tex
 check_output_lacks "Theorem" --proof off -t 10 latex/invalid.tex
 check_output_lacks "CounterSatisfiable" --proof off -t 10 latex/invalid.tex
-
-# the engine deciding the logic too: certified proofs where Vampire's are not
-check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 --math_logic engine latex/logic.tex
 
 # a statement of logic is Vampire's problem in every mode: here it is only printed, as TPTP
 check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax latex latex/logic.tex

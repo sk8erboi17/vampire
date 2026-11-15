@@ -47,7 +47,6 @@ namespace {
 struct Run {
   std::string name;              // the input, as the reports call it
   Language language;
-  bool logicToVampire;
   bool explain;
   bool printAccount;
   bool document;                 // a final document is being written
@@ -340,7 +339,6 @@ std::optional<int> Driver::run()
   Run run;
   run.name = options.inputFile().empty() ? "<stdin>" : std::filesystem::path(options.inputFile()).filename().string();
   run.language = options.mathLanguage() == Options::MathLanguage::IT ? Language::ITALIAN : Language::ENGLISH;
-  run.logicToVampire = options.mathLogic() == Options::MathLogic::VAMPIRE;
   run.explain = options.mathExplanations();
   run.document = !options.mathDocument().empty();
   run.printAccount = run.explain && !run.document && options.proof() != Options::Proof::OFF;
@@ -367,7 +365,7 @@ std::optional<int> Driver::run()
     addCommentSignForSZS(std::cout) << "Statement " << item.number << " of " << run.name << ": "
                                     << oneLine(item.unreadable.empty() ? item.formula : item.text) << std::endl;
 
-    Parse::LaTeX::Statement statement = frontend.read(item, run.logicToVampire);
+    Parse::LaTeX::Statement statement = frontend.read(item);
     Status status;
     const char* decidedBy;
 

@@ -55,12 +55,12 @@ bool LaTeX::next(Item& item)
   return true;
 }
 
-LaTeX::Statement LaTeX::read(const Item& item, bool logicToVampire)
+LaTeX::Statement LaTeX::read(const Item& item)
 {
   const char* begin = item.text.c_str();
   const char* end = begin + item.text.size();
   Statement statement;
-  statement.verdict = qr_decide_item(begin, end, logicToVampire);
+  statement.verdict = qr_decide_item(begin, end, /* delegate_logic */ 1);
   if (statement.verdict.outcome != QR_LOGIC) return statement;
 
   /* The engine handed the statement over. It is given to Vampire only if
