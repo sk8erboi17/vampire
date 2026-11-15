@@ -142,6 +142,14 @@ check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof o
 check_output_contains "% Result 7: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
 check_output_contains "% Result 8: RefutationCertified (vampire)" --proof off -t 10 latex/parts.tex
 check_output_contains "comprehend 0 (clause (eq (f 2 (v 0)) (v 0)))" --proof off -t 10 --math_certificates /dev/stdout latex/parts.tex
+
+# two sets supposed equipotent: the engine goes first (statement 10). Where it has no
+# answer (statement 9) Vampire proves the statement with the bijection given as two
+# maps inverse to each other; nothing rechecks that proof, and the output says so
+check_output_contains "% Result 9: TheoremUnverified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "with each supposed bijection given as two maps inverse to each other" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 10: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
+check_output_contains "psi1(phi1(X0)) = X0" --mode output --math_model_time 0 latex/parts.tex
 check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/parts.tex
 
 # a statement on numbers that the engine cannot decide goes to Vampire's arithmetic

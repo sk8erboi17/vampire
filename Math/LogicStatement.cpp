@@ -41,13 +41,18 @@ class LogicStatementReader {
 public:
   LogicStatementReader(LogicStatement& statement) : _statement(statement) {}
 
-  /** Reads the condition in text and returns it; on any problem leaves the reason in the statement's _outside. */
-  LogicStatement::Formula readCondition(const std::string& text)
+  /**
+   * Reads the condition in text and returns it; on any problem leaves the
+   * reason in the statement's _outside. @b wholeStatement says that the
+   * condition is the statement itself, and not a law given with it: only
+   * there can a hypothesis be a bijection between two sets (bijection()).
+   */
+  LogicStatement::Formula readCondition(const std::string& text, bool wholeStatement)
   {
     _text = &text;
     _position = 0;
     _scope.clear();
-    LogicStatement::Formula formula = condition(0);
+    LogicStatement::Formula formula = condition(0, wholeStatement ? Place::STATEMENT : Place::INSIDE);
     skipSpaces();
     if (ok() && _position != text.size()) fail("there is text after the condition");
     return formula;
@@ -167,7 +172,96 @@ private:
     return result;
   }
 
-  Formula condition(unsigned depth)
+  /**
+   * Where a condition stands, for the one thing that depends on it, a
+   * bijection between two sets (see bijection()): the whole statement, a
+   * conjunct of the hypotheses of a statement "hypotheses imply claim", or
+   * anywhere else.
+   */
+  enum class Place { STATEMENT, HYPOTHESIS, INSIDE };
+
+  /**
+   * "The sets A and B are equipotent", as a hypothesis of the statement:
+   * two new maps, one from A to B and one from B to A, and the condition
+   * that each undoes the other.
+   *
+   * WHY IT MEANS THE SAME. Let the statement be "E and H imply C", with E
+   * the equipotence of A and B, and let D say of two maps p: A -> B and
+   * q: B -> A that q(p(x)) = x for every x of A and p(q(y)) = y for every
+   * y of B. Then "E and H imply C" holds in every interpretation exactly
+   * when "D and H imply C" holds in every interpretation that also gives
+   * p and q. If the second holds and E, H hold in an interpretation, take
+   * a bijection of A onto B for p and its inverse for q: D holds, so C
+   * does, and C does not speak of p and q. If the first holds and D, H
+   * hold in an interpretation with p and q, then p is a bijection (q undoes
+   * it on both sides), so E holds there, and so does C.
+   *
+   * The argument needs E to be a hypothesis. To PROVE that two sets are
+   * equipotent is to build a bijection, which no choice of two symbols can
+   * do; and under a negation or in one branch of an "or" the maps would
+   * have to exist only in some cases. Everywhere else the equipotence is
+   * refused, and the statement stays with the engine, as do products of
+   * sets on either side.
+   */
+  Formula bijection(Place place)
+  {
+    Formula result;
+    if (place != Place::HYPOTHESIS || _statement._wantsExample) {
+      fail("the statement speaks of a bijection between two sets, and not as a hypothesis to use");
+      return result;
+    }
+    if (accept('(')) { fail("the statement speaks of a bijection with a product of sets"); return result; }
+    int from = findSort(word());
+    if (accept('(')) { fail("the statement speaks of a bijection with a product of sets"); return result; }
+    int to = findSort(word());
+    if (from < 0 || to < 0) { fail("a bijection needs two declared sets"); return result; }
+
+    /* Names no symbol has. */
+    unsigned number = 1;
+    while (findSymbol("phi" + std::to_string(number)) >= 0 || findSymbol("psi" + std::to_string(number)) >= 0) number++;
+    LogicStatement::Symbol there, back;
+    there.name = "phi" + std::to_string(number);
+    there.domain = {(unsigned)from};
+    there.range = to;
+    back.name = "psi" + std::to_string(number);
+    back.domain = {(unsigned)to};
+    back.range = from;
+    unsigned thereSymbol = (unsigned)_statement._symbols.size();
+    _statement._symbols.push_back(there);
+    _statement._symbols.push_back(back);
+    _statement._bijections++;
+
+    /* For every x of A, back(there(x)) = x; for every y of B, there(back(y)) = y. */
+    auto undoes = [&](unsigned first, unsigned second, unsigned sort, unsigned other, const char* name) {
+      Formula all;
+      all.connective = Connective::FORALL;
+      all.variable = _statement._variables++;
+      all.variableName = name;
+      all.sort = sort;
+      Term element;
+      element.variable = (int)all.variable;
+      element.sort = sort;
+      Term image;
+      image.symbol = first;
+      image.arguments = {element};
+      image.sort = other;
+      Term returned;
+      returned.symbol = second;
+      returned.arguments = {image};
+      returned.sort = sort;
+      Formula same;
+      same.connective = Connective::EQUAL;
+      same.terms = {returned, element};
+      all.parts.push_back(same);
+      return all;
+    };
+    result.connective = Connective::AND;
+    result.parts.push_back(undoes(thereSymbol, thereSymbol + 1, (unsigned)from, (unsigned)to, "x"));
+    result.parts.push_back(undoes(thereSymbol + 1, thereSymbol, (unsigned)to, (unsigned)from, "y"));
+    return result;
+  }
+
+  Formula condition(unsigned depth, Place place = Place::INSIDE)
   {
     Formula result;
     if (depth > MAX_DEPTH) { fail("the statement is nested too deeply for the translation"); return result; }
@@ -198,8 +292,12 @@ private:
     if (head == "and" || head == "or" || head == "implies" || head == "iff") {
       result.connective = head == "and" ? Connective::AND : head == "or" ? Connective::OR
                         : head == "implies" ? Connective::IMPLIES : Connective::IFF;
-      result.parts.push_back(condition(depth + 1));
-      result.parts.push_back(condition(depth + 1));
+
+      /* The hypotheses of the statement are the conjuncts of what it
+       * supposes, "H1 and ... and Hn imply C"; nothing else is one. */
+      bool hypotheses = (head == "implies" && place == Place::STATEMENT) || (head == "and" && place == Place::HYPOTHESIS);
+      result.parts.push_back(condition(depth + 1, hypotheses ? Place::HYPOTHESIS : Place::INSIDE));
+      result.parts.push_back(condition(depth + 1, hypotheses && head == "and" ? Place::HYPOTHESIS : Place::INSIDE));
       expect(')');
       return result;
     }
@@ -219,7 +317,11 @@ private:
       return result;
     }
     if (head == "forallpart" || head == "existspart") { fail("the statement quantifies over the parts of a set"); return result; }
-    if (head == "equipotent") { fail("the statement speaks of a bijection between two sets"); return result; }
+    if (head == "equipotent") {
+      result = bijection(place);
+      expect(')');
+      return result;
+    }
     if (head == "=") {
       result.connective = Connective::EQUAL;
       result.terms.push_back(term(depth + 1));
@@ -291,12 +393,12 @@ LogicStatement LogicStatement::read(const std::string& text, bool wantsExample)
     static const std::string STATEMENT = "statement ", AXIOM = "axiom ";
     if (line.compare(0, STATEMENT.size(), STATEMENT) == 0) {
       /* The declarations all come before the statement: it is read with every name known. */
-      statement._formula = reader.readCondition(line.substr(STATEMENT.size()));
+      statement._formula = reader.readCondition(line.substr(STATEMENT.size()), /* wholeStatement */ true);
       hasCondition = true;
       continue;
     }
     if (line.compare(0, AXIOM.size(), AXIOM) == 0) {
-      statement._laws.push_back(reader.readCondition(line.substr(AXIOM.size())));
+      statement._laws.push_back(reader.readCondition(line.substr(AXIOM.size()), /* wholeStatement */ false));
       continue;
     }
     std::vector<std::string> words = wordsOf(line);

@@ -88,19 +88,24 @@ public:
    * are in Math/README.md).
    *
    *   - First-order logic over plain sets: LOGIC. Vampire leads; the engine
-   *     judges the models it finds and rebuilds its proofs as certificates
-   *     (Math/Driver.cpp).
-   *   - Logic with sets of all the parts or of all the maps of a set, or
-   *     with written numbers: the engine leads, because a model there must
-   *     have every part and every map, and a proof must choose the parts
-   *     it needs. If it proves or refutes, that is the verdict
-   *     (MATHEMATICS). If it has no answer the statement comes back as
-   *     LOGIC with engineHadNoAnswer set, and Vampire is asked for a proof
-   *     from the laws of those sets that the engine supplies.
-   *   - Everything else is the engine's alone (MATHEMATICS): mathematics
-   *     proper, a statement that only computes with the numbers it writes,
-   *     and logic with no first-order form (a quantifier over parts that
-   *     are not a set of the statement, a bijection between two sets).
+   *     judges the models it finds, and the independent checker follows
+   *     its proofs (Math/Driver.cpp).
+   *   - Logic with sets of all the parts or of all the maps of a set, with
+   *     written numbers, or with two sets supposed equipotent: the engine
+   *     leads, because a model there must have every part and every map,
+   *     a proof must choose the parts it needs, and equipotent finite sets
+   *     are sets of the same size. If it proves or refutes, that is the
+   *     verdict (MATHEMATICS). If it has no answer the statement comes back
+   *     as LOGIC with engineHadNoAnswer set, and Vampire is asked for a
+   *     proof: from the laws of those sets that the engine supplies, and
+   *     with each supposed bijection as two maps inverse to each other.
+   *   - Logic with no first-order form of its own stays MATHEMATICS: a
+   *     quantifier over the parts of a set (clausesOnly is set when the
+   *     engine has no answer, and Vampire then works on the checker's
+   *     clauses), a bijection between two sets that has to be proved.
+   *   - Mathematics proper, and a statement that only computes with the
+   *     numbers it writes, are the engine's (MATHEMATICS); what it cannot
+   *     decide about numbers may go to Vampire's arithmetic (Driver.cpp).
    */
   Statement read(const Item& item);
 

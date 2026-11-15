@@ -85,10 +85,15 @@
  * interpretation. The written numbers are named elements, declared distinct
  * and declared to be all the elements of their sort.
  *
+ * EQUIPOTENCE. A hypothesis "A and B are equipotent" reaches this class as
+ * two maps of the statement, one each way, with the condition that each
+ * undoes the other (LogicStatement.cpp shows that the statement means the
+ * same): they are symbols like the declared ones, and get the same axioms.
+ *
  * WHAT IS NOT TRANSLATED. A quantifier on the parts of a set that is not
- * itself a set of the statement, and equipotence, have no first-order form
- * here: LogicStatement::outside() refuses them and they never reach this
- * class.
+ * itself a set of the statement, and an equipotence that is not a
+ * hypothesis, have no first-order form here: LogicStatement::outside()
+ * refuses them and they never reach this class.
  */
 
 #ifndef __Math_LogicTranslator__

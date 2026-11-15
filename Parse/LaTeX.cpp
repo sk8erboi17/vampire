@@ -66,8 +66,8 @@ LaTeX::Statement LaTeX::read(const Item& item)
   /* The engine handed the statement over. It is given to Vampire if the
    * typed reading succeeds; a statement with no first-order form (a
    * quantifier over parts that are not a set of the statement, a
-   * bijection between two sets) goes back to the engine, whose procedures
-   * are the only ones there are for it. */
+   * bijection between two sets that is not a hypothesis) goes back to the
+   * engine. */
   if (statement.verdict.logic) {
     statement.logic = Math::LogicStatement::read(statement.verdict.logic, statement.verdict.wants_example != 0);
     statement.notTranslated = statement.logic.outside();

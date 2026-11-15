@@ -208,7 +208,8 @@ struct LogicOutcome {
   std::string proof;        // what goes on the page of the document, as LaTeX text
   std::string certificate;  // the certificate the independent checker accepted
   bool byEngine = false;    // what stands is the engine's "not proved": Vampire, asked after it, had no proof either
-  unsigned rechecked = 0;   // how many steps of Vampire's refutation the independent checker followed, if it did
+  int rechecked = -1;       // how many steps of Vampire's refutation the independent checker followed, or -1 if it
+                            // did not (0 is a refutation without a step: the checker's clauses hold the empty one)
   std::string notRechecked; // if it did not, and the theorem is certified another way: where the recheck stopped
 };
 
@@ -786,7 +787,7 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
       if (recheck.certified) {
         outcome.status = Status::REFUTATION_CERTIFIED;
         outcome.certificate = recheck.certificate;
-        outcome.rechecked = recheck.steps;
+        outcome.rechecked = (int)recheck.steps;
         return true;
       }
       outcome.status = Status::COUNTEREXAMPLE_UNVERIFIED;
@@ -802,7 +803,7 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
     if (recheck.certified) {
       outcome.status = Status::THEOREM_CERTIFIED;
       outcome.certificate = recheck.certificate;
-      outcome.rechecked = recheck.steps;
+      outcome.rechecked = (int)recheck.steps;
       if (!answer.goalUsed)
         outcome.reason = italian ? "Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
                                  : "The hypotheses are contradictory by themselves: the claim was not used.";
@@ -813,9 +814,18 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
       /* The engine went first and could not prove it: there is no proof of
        * its own to rebuild. The theorem stands on Vampire's proof. */
       outcome.status = Status::THEOREM_UNVERIFIED;
-      outcome.reason = (italian
-        ? "Il motore matematico non aveva né una dimostrazione né un controesempio; Vampire ha dimostrato l'enunciato dalle leggi degli insiemi di parti e di applicazioni che il motore gli ha dato. La prova non è ricontrollata dal verificatore indipendente."
-        : "The mathematical engine had neither a proof nor a counterexample; Vampire proved the statement from the laws of the sets of parts and of maps that the engine gave it. The proof is not rechecked by the independent checker.");
+      outcome.reason = italian ? "Il motore matematico non aveva né una dimostrazione né un controesempio; Vampire ha dimostrato l'enunciato"
+                               : "The mathematical engine had neither a proof nor a counterexample; Vampire proved the statement";
+      /* From what: the laws of the sets of parts and of maps, and, for two
+       * sets supposed equipotent, the bijection as two maps (LogicStatement.hpp). */
+      if (!statement.laws().empty())
+        outcome.reason += italian ? " dalle leggi degli insiemi di parti e di applicazioni che il motore gli ha dato"
+                                  : " from the laws of the sets of parts and of maps that the engine gave it";
+      if (statement.bijections())
+        outcome.reason += italian ? ", con ogni biiezione supposta data come due applicazioni inverse l'una dell'altra"
+                                  : ", with each supposed bijection given as two maps inverse to each other";
+      outcome.reason += italian ? ". La prova non è ricontrollata dal verificatore indipendente."
+                                : ". The proof is not rechecked by the independent checker.";
       outcome.reason += (italian ? " Il ricontrollo delle inferenze di Vampire si è fermato: " : " The recheck of Vampire's inferences stopped: ") + recheck.problem + ".";
       if (!answer.goalUsed)
         outcome.reason += italian ? " Le ipotesi sono contraddittorie da sole: la tesi non è stata usata."
@@ -902,7 +912,7 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
   switch (outcome.status) {
     case Status::THEOREM_CERTIFIED:
       /* Vampire's inferences rechecked: the account, and what the checker did. */
-      if (outcome.rechecked) {
+      if (outcome.rechecked >= 0) {
         page = outcome.account + (outcome.account.empty() ? "" : "\n") + verification
              + (italian ? " Il verificatore indipendente ha ricontrollato, uno per uno, i " + std::to_string(outcome.rechecked)
                           + " passi di una refutazione trovata da Vampire sulle clausole che il verificatore stesso ricava dall'enunciato."
@@ -1012,7 +1022,7 @@ std::optional<int> Driver::run()
       addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
                                       << " [" << statusCode(status) << "]" << std::endl;
       if (!outcome.reason.empty()) addCommentSignForSZS(std::cout) << outcome.reason << std::endl;
-      if (outcome.rechecked)
+      if (outcome.rechecked >= 0)
         addCommentSignForSZS(std::cout) << "Vampire's inferences rechecked by the independent checker: " << outcome.rechecked << " steps" << std::endl;
       if (!outcome.notRechecked.empty())
         addCommentSignForSZS(std::cout) << "Vampire's inferences were not rechecked (" << outcome.notRechecked
@@ -1101,7 +1111,7 @@ std::optional<int> Driver::run()
         LogicOutcome outcome;
         outcome.status = statement.wantsExample ? Status::REFUTATION_CERTIFIED : Status::THEOREM_CERTIFIED;
         outcome.certificate = onClauses.certificate;
-        outcome.rechecked = onClauses.steps;
+        outcome.rechecked = (int)onClauses.steps;
         outcome.reason = italian
           ? "Il motore matematico non aveva né una dimostrazione né un controesempio; Vampire ha refutato le clausole che il verificatore indipendente ricava dall'enunciato."
           : "The mathematical engine had neither a proof nor a counterexample; Vampire refuted the clauses that the independent checker builds from the statement.";

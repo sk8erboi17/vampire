@@ -119,13 +119,76 @@ TEST_FUN(reads_sets_of_parts_sets_of_maps_and_written_numbers)
 TEST_FUN(refuses_what_has_no_first_order_form)
 {
   /* A quantifier on parts that are not a set of the statement, and a
-   * bijection between two sets, are left to the engine. */
+   * bijection between two sets that has to be found, are left to the engine. */
   ASS(!LogicStatement::read("sort S\nstatement (forallpart X S (forall x S (X x)))\n", false).outside().empty());
   ASS(!LogicStatement::read("sort S\nsort T\nstatement (equipotent S T)\n", false).outside().empty());
 
   /* A set of parts of a set that is not there, a law that is not a condition. */
   ASS(!LogicStatement::read("sort P_1 parts S inP_1\nstatement true\n", false).outside().empty());
   ASS(!LogicStatement::read("sort S\nstatement true\naxiom (forall x S\n", false).outside().empty());
+}
+
+TEST_FUN(an_equipotence_that_is_a_hypothesis_is_two_maps_inverse_to_each_other)
+{
+  /* "If S and T are equipotent and S has at most one element, so has T." */
+  LogicStatement statement = LogicStatement::read(
+    "sort S\nsort T\n"
+    "statement (implies (and (equipotent S T) (forall x S (forall y S (= x y)))) (forall u T (forall v T (= u v))))\n", false);
+  ASS(statement.outside().empty());
+  ASS_EQ(statement.bijections(), 1u);
+
+  /* Two symbols the statement did not declare, one each way. */
+  ASS_EQ(statement.symbols().size(), 2u);
+  ASS_EQ(statement.symbols()[0].name, "phi1");
+  ASS_EQ(statement.symbols()[0].domain.size(), 1u);
+  ASS_EQ(statement.symbols()[0].domain[0], 0u);
+  ASS_EQ(statement.symbols()[0].range, 1);
+  ASS_EQ(statement.symbols()[1].name, "psi1");
+  ASS_EQ(statement.symbols()[1].domain[0], 1u);
+  ASS_EQ(statement.symbols()[1].range, 0);
+
+  /* Vampire does not lead on it: the engine's search for models knows what equipotent sets are. */
+  ASS(!statement.plainOnly());
+
+  /* The hypotheses given to Vampire: each map undoes the other. */
+  LogicTranslator translator(statement);
+  translator.translate();
+  bool undone = false;
+  for (const LogicTranslator::Input& input : translator.inputs())
+    undone = undone || (input.role == LogicTranslator::Role::HYPOTHESIS && input.unit->toString().find("psi1(phi1(") != std::string::npos);
+  ASS(undone);
+
+  /* A name the statement already uses is not taken. */
+  LogicStatement other = LogicStatement::read(
+    "sort S\nsort T\nsymbol phi1 S\n"
+    "statement (implies (and (equipotent S T) (= phi1 phi1)) (exists u T true))\n", false);
+  ASS(other.outside().empty());
+  ASS_EQ(other.symbols()[1].name, "phi2");
+  ASS_EQ(other.symbols()[2].name, "psi2");
+}
+
+TEST_FUN(an_equipotence_to_prove_or_under_another_connective_is_refused)
+{
+  /* To prove an equipotence is to build a bijection; under "not", "or", "iff"
+   * or a quantifier the two maps would exist only in some cases. */
+  const char* const REFUSED[] = {
+    "statement (equipotent S T)\n",
+    "statement (implies (equipotent S T) (equipotent T S))\n",
+    "statement (implies (not (equipotent S T)) (exists x S true))\n",
+    "statement (implies (or (equipotent S T) (exists x S true)) (exists x S true))\n",
+    "statement (implies (iff (equipotent S T) true) (exists x S true))\n",
+    "statement (implies (exists x S (equipotent S T)) (exists u T true))\n",
+    "statement (and (equipotent S T) (exists x S true))\n",
+    "statement (implies (equipotent (S T) T) (exists x S true))\n",
+    "statement (implies (equipotent S U) (exists x S true))\n",
+  };
+  for (const char* statement : REFUSED)
+    ASS(!LogicStatement::read(std::string("sort S\nsort T\n") + statement, false).outside().empty());
+
+  /* A request for an example is not "hypotheses imply claim" to be proved. */
+  ASS(!LogicStatement::read("sort S\nsort T\nstatement (implies (equipotent S T) (exists x S true))\n", true).outside().empty());
+  /* Nor is a law given with the statement. */
+  ASS(!LogicStatement::read("sort S\nsort T\nstatement true\naxiom (implies (equipotent S T) true)\n", false).outside().empty());
 }
 
 TEST_FUN(the_laws_of_a_set_of_parts_go_to_vampire_as_axioms)

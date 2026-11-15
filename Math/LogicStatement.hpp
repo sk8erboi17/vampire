@@ -126,7 +126,7 @@ public:
    * The reading checks the sorts: a symbol is applied to elements of its
    * domain, an equality compares two elements of the same set. Whatever the
    * text contains, the result is safe to use: if the statement has no
-   * first-order form (a quantifier on the parts of a set, equipotence), or
+   * first-order form (a quantifier on the parts of a set, an equipotence that is not a hypothesis), or
    * the text is not what this reader expects, outside() says why and the
    * statement must not be translated.
    */
@@ -144,11 +144,27 @@ public:
    */
   const std::vector<Formula>& laws() const { return _laws; }
 
-  /** True if every set is a plain one: then a finite model is just sizes and tables. */
+  /**
+   * How many hypotheses "A and B are equipotent" the statement has. Each
+   * was read as two maps, one from A to B and one from B to A, that undo
+   * each other: two symbols more than the statement declares, phiN and
+   * psiN, and the condition in place of the equipotence (the reader, in
+   * LogicStatement.cpp, shows that the statement means the same). An
+   * equipotence anywhere else has no first-order form, and outside() says
+   * so.
+   */
+  unsigned bijections() const { return _bijections; }
+
+  /**
+   * True if every set is a plain one and no bijection was introduced: then
+   * the symbols are the declared ones, and a finite model of the
+   * translation is just sizes and tables for the statement. These are the
+   * statements on which a first-order prover leads.
+   */
   bool plainOnly() const
   {
     for (const Sort& sort : _sorts) if (sort.kind != SortKind::PLAIN) return false;
-    return true;
+    return _bijections == 0;
   }
   unsigned variables() const { return _variables; }
   bool wantsExample() const { return _wantsExample; }
@@ -162,6 +178,7 @@ private:
   Formula _formula;
   std::vector<Formula> _laws;
   unsigned _variables = 0;
+  unsigned _bijections = 0;
   bool _wantsExample = false;
   std::string _outside;
 

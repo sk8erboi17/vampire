@@ -13,8 +13,9 @@ in its own structure for models; the independent checker follows Vampire's
 proofs inference by inference. Where sets of all the parts of a set come in,
 and in mathematics proper, the engine goes first, and Vampire is asked when
 the engine has no answer: for a proof from the laws of those sets, for a
-refutation of the checker's clauses when a statement quantifies over parts,
-and with its arithmetic theories when a statement quantifies over numbers.
+proof from a supposed bijection given as two maps, for a refutation of the
+checker's clauses when a statement quantifies over parts, and with its
+arithmetic theories when a statement quantifies over numbers.
 Neither decides against the other: an answer of one is always put to the
 test of the other, or of the checker, and what nobody rechecked is labelled
 as such.
@@ -51,7 +52,11 @@ LaTeX -> Parse/LaTeX: read, unfold, type (Math/LogicStatement)
            |        no answer, quantifiers over numbers of one kind
            |                  -> Vampire's arithmetic: the statement, and its negation
            |
-           +-- a bijection between two sets --------------------> the engine alone
+           +-- two sets supposed equipotent --------------------> THE ENGINE LEADS
+           |        no answer -> Vampire: proof with the bijection as two maps
+           |                     inverse to each other
+           |
+           +-- a bijection between two sets, to be proved ------> the engine alone
            |
            v
    Proof/IndependentChecker judges every certificate
@@ -111,6 +116,17 @@ what the statement is, by measurement (see "Measures").
   statement suggest (for "f(y) = y for every y" with an induction principle
   among the hypotheses, the part of the x with f(x) = x). What Vampire
   refutes there is a certificate at once.
+- **Two sets supposed equipotent** ("if S and T are equipotent and ...").
+  The engine leads: in a finite model equipotent sets are sets of the same
+  size, and its proofs use the bijection through witnesses the checker
+  knows. When it has no answer, Vampire is asked for a proof of the
+  statement with each supposed bijection given as two maps, one each way,
+  that undo each other; `Math/LogicStatement.cpp` shows that the statement
+  means the same. This holds only for an equipotence that is a hypothesis:
+  to *prove* that two sets are equipotent is to build a bijection, which
+  the engine's search for witnesses does and a first-order prover cannot,
+  and those statements are the engine's alone. A proof found this way is
+  not rechecked: the checker's clauses have no rule for equipotence.
 - **Mathematics proper.** The statement goes to its algorithm in the engine:
   induction on sums and products, sign tables for equations and inequalities
   (also solving them), limits, derivatives, integrals, matrices and linear
@@ -127,10 +143,7 @@ what the statement is, by measurement (see "Measures").
   proved there is found, not verified: the checker has no language for
   arithmetic with quantifiers. Variables of two kinds, exponents that are
   letters, divisions by an expression, functions and roots are not handed
-  over: they would need a choice the translation must not make. The
-  same holds for a bijection between two sets: to prove one is to build
-  it, which the engine's search for witnesses does and a first-order prover
-  cannot.
+  over: they would need a choice the translation must not make.
 - **Not a statement.** An ambiguous or invalid writing is refused with the
   reason. Nothing is read one way when it could be read two.
 
@@ -241,6 +254,7 @@ prints a statement as TPTP.
 | `Math/tools/as_quaerens.py` | presents this executable to the fuzz scripts of the Quaerens repository |
 | `Math/tools/engine_volumes.py` | splits the engine's single file into its volumes, joins them back, checks that the two are the same |
 | `Math/tools/fuzz_numbers.py` | differential fuzz of the statements on integers that reach Vampire's arithmetic, against an oracle that counts |
+| `Math/tools/fuzz_equipotence.py` | differential fuzz of the statements that suppose two sets equipotent, against an oracle that compares numbers of elements |
 
 The engine by domain. In Quaerens the engine is one file of 52 thousand
 lines, a book of numbered chapters. Here the book is in volumes, one per
@@ -308,7 +322,8 @@ written in the steps it already had.
 | Logic over plain sets: making the answer checkable | checker, engine | the checker follows Vampire's inferences one by one (`Proof/Replay`); the engine's structure for models judges Vampire's models; its certifying provers rebuild a proof only where the inferences cannot be followed |
 | Logic with sets of *all* parts or *all* maps, written numbers | engine first, then **Vampire** | the engine leads (measured); Vampire proves from the engine's laws what the engine cannot |
 | Logic with a quantifier over the parts of a set | engine first, then **Vampire** | Vampire refutes the checker's clauses, with the parts the engine proposes |
-| A bijection between two sets | engine | proving one means building it: the engine's search for witnesses is the only procedure |
+| Two sets supposed equipotent | engine first, then **Vampire** | the engine leads; Vampire proves what the engine cannot, with the bijection as two maps inverse to each other (not rechecked) |
+| A bijection between two sets, to be proved | engine | proving one means building it: the engine's search for witnesses is the only procedure |
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |
 | Sign tables: equations, inequalities, solving, parameters, congruences | engine | in use |
@@ -354,10 +369,12 @@ Not done, and not claimed:
   rationals, or has a declared map, an exponent that is a letter, a
   function or a root, stays with the engine; and what Vampire proves about
   numbers is not rechecked by anything.
-- **A bijection between two sets is not given to Vampire**; those
-  statements are the engine's alone. A hypothesis "S and T are equipotent"
-  could be given as two maps inverse to each other, but the checker's
-  translation into clauses has no rule for it, and it was not added.
+- **A bijection that has to be proved is not given to Vampire**; those
+  statements are the engine's alone, and so are an equipotence under a
+  negation or in a branch of an "or", and one with a product of sets. A
+  supposed bijection is given as two maps, but what Vampire proves from it
+  is not rechecked: the checker's translation into clauses has no rule for
+  equipotence, and it was not added.
 - **On the parts of a set Vampire only proves.** It works with the parts
   the engine proposes; that it finds no refutation says nothing.
 - **The engine's worked solutions are in English only**, and the engine's
@@ -385,6 +402,10 @@ Not done, and not claimed:
   kinds, an exponent that is a letter, a division by an expression or among
   integers, functions, roots, declared maps, requests for solutions); a
   text that is not what the engine hands over is refused.
+- `UnitTests/tMathLogic.cpp` also: an equipotence that is a hypothesis read
+  as two maps inverse to each other, and refused anywhere else (to be
+  proved, under a negation, in an "or", under a quantifier, with a product
+  of sets, in a request for an example).
 - `UnitTests/tMathLogic.cpp` (ctest `MathLogic`): the typed reading, the
   translation (plain sets, sets of parts and of maps, written numbers), the
   checker on correct and altered counterexamples, the engine adopting and
@@ -408,15 +429,16 @@ Not done, and not claimed:
   `Math/tools/as_quaerens.py`, each with an oracle of its own; and
   `Math/tools/fuzz_numbers.py`, for the statements on integers that go to
   Vampire's arithmetic: every quantified variable is confined to a few
-  values by the statement itself, and the oracle tries them all. A line
-  `BUG` is a false proof or a false refutation.
+  values by the statement itself, and the oracle tries them all; and
+  `Math/tools/fuzz_equipotence.py`, for the statements that suppose two
+  sets equipotent. A line `BUG` is a false proof or a false refutation.
 - `checks/sanity` and the unit tests of Vampire are unchanged and must pass
   as before.
 
 ## Measures
 
-All on the corpus of the engine: 155 documents, 6506 statements. 6248 are
-mathematics proper, or logic that the engine decides or keeps; 258 get their
+All on the corpus of the engine: 155 documents, 6506 statements. 6247 are
+mathematics proper, or logic that the engine decides or keeps; 259 get their
 answer through Vampire.
 
 **Who goes first**, decided by what each does alone:
@@ -426,7 +448,7 @@ answer through Vampire.
 | First-order logic over plain sets (245 statements) | decides 244 | decides 229 | Vampire |
 | With sets of all parts or all maps (19 theorems of `parts_and_maps.tex`) | proves 16, from the engine's laws | proves 19 | the engine |
 
-**What working together gives**, on those 258 statements:
+**What working together gives**, on those 259 statements:
 
 | | The engine alone | Together |
 |---|---|---|
@@ -434,8 +456,8 @@ answer through Vampire.
 | Counterexamples verified | 88 | 89 |
 | Requests for an example refuted, certified | 0 | 7 |
 | Theorems found, not verified | 0 | 4 |
-| Refutations found, not verified | 0 | 14 |
-| No answer | 29 | 1 |
+| Refutations found, not verified | 0 | 15 |
+| No answer, or no method | 30 | 1 |
 
 Every certified answer of the engine is still certified, by the same checker;
 Vampire adds answers the engine did not have, and they are labelled for what
@@ -451,7 +473,7 @@ the checker in all, 72 for the median proof, 2091 for the longest. (The other
 recheck the engine rebuilt the proofs it could; the theorems only Vampire can
 prove were not verified, and the refuted requests neither.
 
-The 28 answers that are new were looked at one by one, and all are right:
+The 29 answers that are new were looked at one by one, and all are right:
 
 - 8 statements that hold in every finite set and fail in an infinite one
   ("an injective map of a set into itself is onto", and the like): Vampire's
@@ -472,12 +494,18 @@ The 28 answers that are new were looked at one by one, and all are right:
   induction principle written as a hypothesis on all the parts of S, which
   Vampire proves on the checker's clauses with the part of the x with
   f(x) = x;
-- 9 statements on integers, by Vampire's arithmetic theories, not verified
-  (21 statements of the corpus reach them): 3 theorems, "(ab - 2)(a - b) = 0
-  and (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and two on divisibility;
-  and 6 false statements refuted by a proof of their negation, all six from
-  the documents of false statements ("if x = k^2 + 7 and y = j^2 + 7 then
-  x = y").
+- 10 statements on numbers, by Vampire's arithmetic theories, not verified
+  (24 statements of the corpus reach them): 3 theorems on integers,
+  "(ab - 2)(a - b) = 0 and (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and
+  two on divisibility; and 7 false statements refuted by a proof of their
+  negation, all seven from the documents of false statements ("if
+  x = k^2 + 7 and y = j^2 + 7 then x = y" on integers, "x^2 + a^2 + b^2 > 0
+  for all reals").
+
+No statement of the corpus supposes two sets equipotent and is left without
+an answer by the engine, so the proofs from a supposed bijection add nothing
+there; they do on other statements ("if S and T are equipotent and S has at
+most three elements, so has T"), and on the fuzz below.
 
 **Cost** (one document after the other, `-t 3`; the machine was busy with
 other programs, so the figures of one run are comparable with each other
@@ -493,7 +521,7 @@ Working together costs time: 83% on the whole corpus, 43% without the
 arithmetic theories. Where it goes:
 
 - the statements on numbers that Vampire's arithmetic does not decide take
-  their whole time, with two processes each (12 of the 21 that reach it):
+  their whole time, with two processes each (14 of the 24 that reach it):
   35 seconds here. `--math_numbers_time` bounds this, at 5 seconds by
   default whatever the time limit is;
 - the search for finite models waits its full time on the statements whose
@@ -519,10 +547,17 @@ repository, each with an oracle of its own: 22 scripts, 1220 statements, no
 outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 400
 statements on integers with four seeds, no `BUG`; Vampire's arithmetic
 decides 333 of them, 202 true ones proved and 131 false ones refuted, all as
-the counting oracle says. AddressSanitizer and UndefinedBehaviorSanitizer:
+the counting oracle says. `Math/tools/fuzz_equipotence.py`: 200 statements
+that suppose two sets equipotent, with two seeds, no `BUG`; the engine
+decides 161, Vampire proves 23 (15 from the supposed bijection, where the
+engine had no answer, and 8 that the unfolding of the notation had reduced
+to plain logic), all true for an oracle that only knows that equipotent
+sets have as many elements, and 16 stay without an answer.
+AddressSanitizer and UndefinedBehaviorSanitizer:
 no report on 386 statements of 15 documents that use every path (161
 refutations rechecked, 97 answers of the arithmetic theories), with the
-document and the certificates written.
+document and the certificates written, and none on 67 statements of 6
+documents run again after the reading of a supposed bijection was added.
 
 ## Licences
 
