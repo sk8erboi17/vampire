@@ -203,7 +203,12 @@ Rules that are not negotiable:
   grounds, and nothing in this module upgrades a status.
 - **A proof by Vampire's arithmetic theories is never certified.** It is
   `TheoremUnverified`, or `CounterexampleUnverified` when what was proved
-  is the negation, and the output says which.
+  is the negation, and the output says which. That is where the engine's
+  own proofs of such statements stand too ("proved with the rules for
+  quantifiers; no certificate"): the checker has a language for one real
+  variable (sign tables), and none for integers or for several variables
+  with quantifiers. On these statements nothing is lost by asking Vampire,
+  and nothing is certified by either.
 
 ## The account of a proof
 
