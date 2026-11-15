@@ -8,12 +8,16 @@ algorithm made for each; and of every answer it says how far it was checked.
 This is the Quaerens project absorbed into Vampire as a set of modules. It is
 one program, and its two parts work on a statement together, each where it is
 the better one: Vampire searches for proofs and for finite models; the
-mathematical engine reads the statement, judges the models Vampire finds in
-its own structure for models, and rebuilds Vampire's proofs in a form that
-the independent checker can recheck. Where sets of all the parts of a set
-come in, the engine goes first and Vampire is asked when the engine has no
-answer. Neither decides against the other: an answer of one is always put to
-the test of the other, or of the checker.
+mathematical engine reads the statement and judges the models Vampire finds
+in its own structure for models; the independent checker follows Vampire's
+proofs inference by inference. Where sets of all the parts of a set come in,
+and in mathematics proper, the engine goes first, and Vampire is asked when
+the engine has no answer: for a proof from the laws of those sets, for a
+refutation of the checker's clauses when a statement quantifies over parts,
+and with its arithmetic theories when a statement quantifies over numbers.
+Neither decides against the other: an answer of one is always put to the
+test of the other, or of the checker, and what nobody rechecked is labelled
+as such.
 
 ```
 vampire statements.tex                         every \item of the document, one after the other
@@ -32,13 +36,22 @@ LaTeX -> Parse/LaTeX: read, unfold, type (Math/LogicStatement)
            |      Vampire: proof search and finite-model search, together
            |        model -> engine: loaded into its own structure for models,
            |                 recomputed (also as written), certified
-           |        proof -> engine: rebuilt in a form the checker can recheck
+           |        proof -> checker: Vampire's inferences as its steps (Proof/Replay);
+           |                 failing that, the engine rebuilds a proof
            |
            +-- logic with sets of all parts / all maps ------> THE ENGINE LEADS
            |      engine: model search with the real sets, certifying proof
            |        no answer -> Vampire: proof from the laws the engine supplies
            |
-           +-- mathematics proper, logic with no first-order form -> the engine
+           +-- logic with a quantifier over the parts of a set -> THE ENGINE LEADS
+           |        no answer -> Vampire: refutation of the checker's clauses,
+           |                     with the parts the engine proposes
+           |
+           +-- mathematics proper ------------------------------> THE ENGINE
+           |        no answer, quantifiers over numbers of one kind
+           |                  -> Vampire's arithmetic: the statement, and its negation
+           |
+           +-- a bijection between two sets --------------------> the engine alone
            |
            v
    Proof/IndependentChecker judges every certificate
@@ -199,6 +212,7 @@ English.
 | `--math_language en/it` (`-mlang`) | `en` | accounts of Vampire's proofs, verification statuses |
 | `--math_model_time T` (`-mmt`) | `2` | seconds of finite-model search beside the proof search; `0` skips it |
 | `--math_recheck_time T` (`-mrt`) | `5` | seconds Vampire may take to refute the checker's clauses again, for the recheck of a proof it has found; `0` skips the recheck |
+| `--math_numbers_time T` (`-mnt`) | `5` | seconds Vampire's arithmetic theories may work on a statement about numbers that the engine could not decide; `0` does not ask them |
 
 There is no option to have the engine decide a statement that Vampire can be
 given: that would be a second prover for the same statements.
@@ -226,6 +240,7 @@ prints a statement as TPTP.
 | `Humanizer/ProofNarrator` | the account of a refutation, in English and Italian |
 | `Math/tools/as_quaerens.py` | presents this executable to the fuzz scripts of the Quaerens repository |
 | `Math/tools/engine_volumes.py` | splits the engine's single file into its volumes, joins them back, checks that the two are the same |
+| `Math/tools/fuzz_numbers.py` | differential fuzz of the statements on integers that reach Vampire's arithmetic, against an oracle that counts |
 
 The engine by domain. In Quaerens the engine is one file of 52 thousand
 lines, a book of numbered chapters. Here the book is in volumes, one per
@@ -388,13 +403,20 @@ Not done, and not claimed:
   its last step is removed; TPTP input is untouched.
 - `python3 -I Math/tools/engine_volumes.py check Math/quaerens`: the
   volumes of the engine, joined, split again, are the same files.
+- Fuzz, outside the checks (Python 3, standard library only): the scripts
+  of the Quaerens repository run against this executable through
+  `Math/tools/as_quaerens.py`, each with an oracle of its own; and
+  `Math/tools/fuzz_numbers.py`, for the statements on integers that go to
+  Vampire's arithmetic: every quantified variable is confined to a few
+  values by the statement itself, and the oracle tries them all. A line
+  `BUG` is a false proof or a false refutation.
 - `checks/sanity` and the unit tests of Vampire are unchanged and must pass
   as before.
 
 ## Measures
 
-All on the corpus of the engine: 155 documents, 6506 statements. 6257 are
-mathematics proper, or logic that the engine decides or keeps; 249 get their
+All on the corpus of the engine: 155 documents, 6506 statements. 6248 are
+mathematics proper, or logic that the engine decides or keeps; 258 get their
 answer through Vampire.
 
 **Who goes first**, decided by what each does alone:
@@ -404,16 +426,16 @@ answer through Vampire.
 | First-order logic over plain sets (245 statements) | decides 244 | decides 229 | Vampire |
 | With sets of all parts or all maps (19 theorems of `parts_and_maps.tex`) | proves 16, from the engine's laws | proves 19 | the engine |
 
-**What working together gives**, on those 249 statements:
+**What working together gives**, on those 258 statements:
 
 | | The engine alone | Together |
 |---|---|---|
 | Theorems certified | 141 | 143 |
 | Counterexamples verified | 88 | 89 |
 | Requests for an example refuted, certified | 0 | 7 |
-| Theorems found, not verified | 0 | 1 |
-| Refutations found, not verified | 0 | 8 |
-| No answer | 20 | 1 |
+| Theorems found, not verified | 0 | 4 |
+| Refutations found, not verified | 0 | 14 |
+| No answer | 29 | 1 |
 
 Every certified answer of the engine is still certified, by the same checker;
 Vampire adds answers the engine did not have, and they are labelled for what
@@ -429,7 +451,7 @@ the checker in all, 72 for the median proof, 2091 for the longest. (The other
 recheck the engine rebuilt the proofs it could; the theorems only Vampire can
 prove were not verified, and the refuted requests neither.
 
-The 19 answers that are new were looked at one by one, and all are right:
+The 28 answers that are new were looked at one by one, and all are right:
 
 - 8 statements that hold in every finite set and fail in an infinite one
   ("an injective map of a set into itself is onto", and the like): Vampire's
@@ -449,31 +471,58 @@ The 19 answers that are new were looked at one by one, and all are right:
   "f(z) = z and f(s(y)) = s(f(y)) give f(y) = y for every y" with the
   induction principle written as a hypothesis on all the parts of S, which
   Vampire proves on the checker's clauses with the part of the x with
-  f(x) = x.
+  f(x) = x;
+- 9 statements on integers, by Vampire's arithmetic theories, not verified
+  (21 statements of the corpus reach them): 3 theorems, "(ab - 2)(a - b) = 0
+  and (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and two on divisibility;
+  and 6 false statements refuted by a proof of their negation, all six from
+  the documents of false statements ("if x = k^2 + 7 and y = j^2 + 7 then
+  x = y").
 
 **Cost** (one document after the other, `-t 3`; the machine was busy with
-other programs, so the CPU time is the fairer figure):
+other programs, so the figures of one run are comparable with each other
+more than with those of another day):
 
 | | Time | CPU time | Peak memory |
 |---|---|---|---|
-| Quaerens alone | 110.0 s | 96.4 s | 467 MB |
-| Together | 130.1 s | 120.6 s | 468 MB |
-| Together, without the recheck of inferences (`--math_recheck_time 0`) | 133.6 s | 123.2 s | 468 MB |
-| Together, `--math_model_time 0.5` | 117.5 s | 103.4 s | 467 MB |
+| Quaerens alone | 90.0 s | 87.9 s | 465 MB |
+| Together | 164.6 s | 197.8 s | 467 MB |
+| Together, without the arithmetic theories (`--math_numbers_time 0`) | 128.9 s | 118.3 s | 469 MB |
 
-Working together costs time: 18% on the whole corpus (25% of CPU time), 7%
-with the search for finite models cut to half a second. The search for
-models waits its full time on the statements whose only counter-models are
-infinite. Having the checker follow Vampire's inferences does not cost more
-than having the engine rebuild the proofs, which is what happened before and
-still happens without the recheck. A statement on the parts of a set for
-which neither the engine nor Vampire finds an answer now takes Vampire's
-whole time limit. No improvement in speed is claimed; what is gained is in
-the tables above.
+Working together costs time: 83% on the whole corpus, 43% without the
+arithmetic theories. Where it goes:
 
-Vampire itself, on TPTP input, is not changed: `checks/sanity` takes the same
-time before and after, and on the 33 problems of `checks/Problems` the
-untouched and the integrated executable print the same output.
+- the statements on numbers that Vampire's arithmetic does not decide take
+  their whole time, with two processes each (12 of the 21 that reach it):
+  35 seconds here. `--math_numbers_time` bounds this, at 5 seconds by
+  default whatever the time limit is;
+- the search for finite models waits its full time on the statements whose
+  only counter-models are infinite (in another run of the same evening:
+  160.5 s, and 156.7 s with `--math_model_time 0.5`);
+- a statement on the parts of a set for which neither the engine nor
+  Vampire finds an answer takes Vampire's whole time limit (2 statements);
+- having the checker follow Vampire's inferences does not cost more than
+  having the engine rebuild the proofs, which is what happened before and
+  still happens without the recheck (160.5 s with it, 170.3 s with
+  `--math_recheck_time 0`).
+
+No improvement in speed is claimed; what is gained is in the tables above.
+
+Vampire itself, on TPTP input, is not changed: `checks/sanity` passes as
+before, and on the 33 problems of `checks/Problems`, with three sets of
+options, the untouched and the integrated executable print the same output
+(99 runs of 99).
+
+**Fuzz and sanitizers**, on the last version. The scripts of the Quaerens
+repository, each with an oracle of its own: 22 scripts, 1220 statements, no
+`BUG` (one `SUSPECT`, looked at: a correct proof of the engine about x = 4/5,
+outside the window of that oracle). `Math/tools/fuzz_numbers.py`: 400
+statements on integers with four seeds, no `BUG`; Vampire's arithmetic
+decides 333 of them, 202 true ones proved and 131 false ones refuted, all as
+the counting oracle says. AddressSanitizer and UndefinedBehaviorSanitizer:
+no report on 386 statements of 15 documents that use every path (161
+refutations rechecked, 97 answers of the arithmetic theories), with the
+document and the certificates written.
 
 ## Licences
 

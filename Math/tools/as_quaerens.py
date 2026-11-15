@@ -17,6 +17,9 @@ lines:
   - a counterexample found by Vampire and accepted by the independent checker
     is "FALSO: controesempio ...", with the model, which the oracle reads back
     and recomputes with its own evaluator;
+  - a statement on numbers whose negation Vampire's arithmetic proved is
+    "FALSO", without a counterexample: the oracle knows whether the statement
+    is true and must be able to object;
   - "not a theorem" reported by Vampire without a model is "NON DIMOSTRATO":
     there is nothing the oracle could recompute, and a refutation that cannot
     be checked is not presented to it as one. The same for a request for an
@@ -47,6 +50,7 @@ def main():
             result = re.search(r"^% Result \d+: (\w+) \((\w+)\)$", block, re.M)
             engine = re.search(r"^% Engine verdict: (.*)$", block, re.M)
             model = re.search(r"^% (?:Counterexample|Example) \(LaTeX\): (.*)$", block, re.M)
+            denied = "and Vampire proved its negation" in block
             if not result:
                 line = "NON DIMOSTRATO: il programma non ha risposto"
             elif result.group(2) == "engine" and engine:
@@ -59,6 +63,8 @@ def main():
                 line = "FALSO: controesempio %s; certificato verificato" % model.group(1)
             elif result.group(1) == "Unsupported":
                 line = "NON SUPPORTATO: fuori dal frammento letto"
+            elif result.group(1) == "CounterexampleUnverified" and denied:
+                line = "FALSO: Vampire ha dimostrato la negazione dell'enunciato con le sue teorie aritmetiche; senza certificato"
             elif result.group(1) == "CounterexampleUnverified":
                 line = "NON DIMOSTRATO: Vampire riporta che non è un teorema, senza un modello finito da ricontrollare"
             elif result.group(1) == "RefutationCertified":

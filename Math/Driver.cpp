@@ -613,6 +613,10 @@ struct ArithmeticAnswer {
  * named as such there ("the negation of ..."), so that the status Vampire
  * prints for it is not read as the status of the statement.
  *
+ * The searches have their own time limit (math_numbers_time): a statement
+ * about numbers that Vampire does not decide soon is usually one it does
+ * not decide, and a document may hold many.
+ *
  * Nothing rechecks what is found: the caller must report it as found, not
  * verified (NumberStatement.hpp).
  *
@@ -621,6 +625,8 @@ struct ArithmeticAnswer {
  */
 bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, ArithmeticAnswer& answer)
 {
+  Options& options = *env.options;
+  if (!options.mathNumbersTime()) return true;
   QrVerdict handed = qr_numbers_item(item.text.c_str(), item.text.c_str() + item.text.size());
   if (!handed.logic) return true;
   NumberStatement statement = NumberStatement::read(handed.logic);
@@ -628,7 +634,6 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
   answer.asked = true;
   answer.sort = statement.sort();
 
-  Options& options = *env.options;
   std::string base = (std::filesystem::temp_directory_path()
     / ("vampire-latex-" + std::to_string(getpid()) + "-" + std::to_string(run.statements) + "-numbers")).string();
   struct Search {
@@ -658,6 +663,8 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     close(file);
 
     options.problemName = (search.denied ? "the negation of " : "") + problemName;
+    int total = options.timeLimitInDeciseconds();
+    options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathNumbersTime()) : options.mathNumbersTime());
     std::istringstream problem(statement.tptp(search.denied));
     UIHelper::parseStream(problem, "", Options::InputSyntax::TPTP, /* verbose */ false, /* preferSMTonAuto */ false);
     LogicProblem::Settings settings;
