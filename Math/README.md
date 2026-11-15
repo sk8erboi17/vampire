@@ -215,8 +215,7 @@ Not done, and not claimed:
 
 Vampire is under its modified BSD 3-clause licence (`LICENCE`). The files
 added by this integration outside `Math/quaerens/` carry Vampire's header.
-The sources in `Math/quaerens/` are the Quaerens project, which has no
-licence file of its own: before this tree is distributed their author has to
-put them under a licence compatible with Vampire's (the same BSD 3-clause is
-the simplest choice). They use the C standard library only. The LaTeX compiler
+The sources in `Math/quaerens/` are the Quaerens project, under the BSD
+3-clause licence (`Math/quaerens/LICENCE`), which is compatible with
+Vampire's. They use the C standard library only. The LaTeX compiler
 used for the PDF is an external program, run if present and never linked.
