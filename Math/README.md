@@ -213,7 +213,7 @@ prints a statement as TPTP.
 |---|---|
 | `Parse/LaTeX` | the frontend as the rest of Vampire sees it: the statements of an input, each read and classified |
 | `Math/Engine.h`, `Math/Engine.c` | the C interface of the mathematical engine, and the translation unit that holds it |
-| `Math/quaerens/` | the engine's sources: `main.c` (search, calculus, decisions), `parser.c` (LaTeX), `output.c` (document), `plot.c` (plots), `checker.c` (checker) |
+| `Math/quaerens/` | the engine's sources: `main.c` (its design, the index of its chapters, and one include per volume), the volumes `engine_*.c` (see below), `parser.c` (LaTeX), `output.c` (document), `plot.c` (plots), `checker.c` (checker) |
 | `Math/LogicStatement` | a statement of logic as a typed tree: sorts, symbols with signatures, formulas |
 | `Math/LogicTranslator` | that tree into Vampire units; possibly empty sorts |
 | `Math/NumberStatement` | a statement with quantifiers over numbers, as the engine hands it over, into a TPTP problem for Vampire's arithmetic |
@@ -225,6 +225,41 @@ prints a statement as TPTP.
 | `Proof/Replay` | a refutation by Vampire, inference by inference, into the explicit steps the checker follows |
 | `Humanizer/ProofNarrator` | the account of a refutation, in English and Italian |
 | `Math/tools/as_quaerens.py` | presents this executable to the fuzz scripts of the Quaerens repository |
+| `Math/tools/engine_volumes.py` | splits the engine's single file into its volumes, joins them back, checks that the two are the same |
+
+The engine by domain. In Quaerens the engine is one file of 52 thousand
+lines, a book of numbered chapters. Here the book is in volumes, one per
+domain, each a run of consecutive chapters:
+
+| Volume | Chapters | |
+|---|---|---|
+| `engine_foundations.c` | 1-7 | limits, errors and memory, exact numbers, monomials, polynomials, atoms, fractions of polynomials |
+| `engine_evaluation.c` | 10-12 | the known sequences, an expression tree to a fraction, tests of vanishing |
+| `engine_induction.c` | 13 | induction on sums and products |
+| `engine_sets.c` | 15-16 | relations between sets by regions |
+| `engine_intervals.c` | 24 | real numbers as intervals with a guaranteed error |
+| `engine_quantifiers.c` | 18-18.7 | quantifiers over numbers: the rules of proof |
+| `engine_sign_tables.c` | 18.8-18.19 | sign tables, solutions, plots, one parameter |
+| `engine_explanation.c` | 40 | worked solutions |
+| `engine_quantifiers_verdict.c` | 19 | quantifiers: independent verification and verdict |
+| `engine_sequences.c` | 25-26 | induction on an inequality, sequences by recurrence |
+| `engine_derivatives.c` | 27 | derivatives and the study of a function |
+| `engine_logic.c` | 28 | arbitrary sets: finite models, instances, saturation, the tasks done for Vampire |
+| `engine_limits.c` | 29 | limits |
+| `engine_integrals.c` | 30 | integrals |
+| `engine_linear_algebra.c` | 32-33 | matrices, determinants, linear systems |
+| `engine_multivariable.c` | 35-36 | functions of several variables |
+| `engine_indices.c` | 38 | identities with indices |
+| `engine_statement.c` | 20, 23 | which chapter reads a statement; the document; `main` |
+
+Nothing was rewritten to make them: a volume is cut at the banner of its
+first chapter, and the volumes joined in order are, byte for byte, the single
+file (`python3 -I Math/tools/engine_volumes.py check Math/quaerens`). They
+are read in that order into one translation unit, exactly as the chapters
+were, so the compiled engine is the same program: the preprocessed
+translation unit before and after the split is identical. To bring in a new
+`main.c` from the Quaerens repository: `join`, apply the changes to the
+single file, `split`.
 
 Vampire's own files are touched in a handful of places, each a few lines and
 each inert unless the input is LaTeX: the options (`Shell/Options`), the
@@ -274,11 +309,15 @@ written in the steps it already had.
 
 Not done, and not claimed:
 
-- **The engine is still one C translation unit** behind a C interface. Its
-  parts (algebra, analysis, linear algebra, tensors) are chapters of
-  `main.c`, not modules with interfaces of their own. Splitting them is the
-  next structural step; `Proof/` (the checker) is the first part that is a
-  module in the build.
+- **The engine is in volumes by domain, not in modules.** Its parts
+  (numbers and polynomials, sign tables, limits, integrals, linear algebra,
+  logic, indices) are files of their own, but they are still read in order
+  into one translation unit behind one C interface: a volume uses whatever
+  the volumes before it define, and none has an interface of its own or is
+  compiled apart. Making them modules means deciding, volume by volume,
+  what each exports, and giving up the shared static state (the arena, the
+  table of atoms, the proof being written); that was not done. `Proof/`
+  (the checker) is the one part that is a module in the build.
 - **The typed C++ form exists for statements of logic only.** Mathematical
   expressions are typed trees inside the engine and are not visible to C++.
 - **Not every inference of Vampire can be followed.** The run whose
@@ -347,6 +386,8 @@ Not done, and not claimed:
   inferences; certificates are accepted by `certificate-checker` and
   rejected once altered, and every rechecked refutation is rejected once
   its last step is removed; TPTP input is untouched.
+- `python3 -I Math/tools/engine_volumes.py check Math/quaerens`: the
+  volumes of the engine, joined, split again, are the same files.
 - `checks/sanity` and the unit tests of Vampire are unchanged and must pass
   as before.
 

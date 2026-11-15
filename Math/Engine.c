@@ -13,10 +13,12 @@
  * implementation of its C interface (Engine.h).
  *
  * The engine (Math/quaerens/) is written as one translation unit: main.c
- * includes parser.c, output.c, plot.c and checker.c, and nearly everything
- * in it is static. This file includes it whole and defines, below it, the
- * few functions the rest of Vampire calls. That is why the interface can
- * reach the engine's internals without the engine exporting them.
+ * includes its volumes, one per domain (engine_*.c), which include
+ * parser.c, output.c, plot.c and checker.c where they need them, and nearly
+ * everything in it is static. This file includes it whole and defines,
+ * below it, the few functions the rest of Vampire calls. That is why the
+ * interface can reach the engine's internals without the engine exporting
+ * them.
  *
  * The engine's own main() is renamed and never called: the command line of
  * this program is Vampire's.
