@@ -70,7 +70,7 @@ add_compile_definitions(ABSOLUTE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
-add_library(mathengine OBJECT Math/Engine.c Proof/IndependentChecker.c)
+add_library(mathengine OBJECT Math/Engine.c Math/Plot.c Proof/IndependentChecker.c)
 
 # The independent checker also as a program on its own, built from the same
 # source: a file of certificates can be rechecked without Vampire.

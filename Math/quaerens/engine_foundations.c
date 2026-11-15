@@ -25,15 +25,31 @@
  *
  * Warning: non usare qui altri nomi che cominciano con ck_, Ck o CK_, nemmeno
  * una costante. Il controllo vale qualcosa solo finché i due programmi non
- * hanno codice in comune: nemmeno un'utilità "innocua". */
+ * hanno codice in comune: nemmeno un'utilità "innocua".
+ *
+ * Dentro Vampire il verificatore è un modulo a sé, compilato una volta
+ * sola: chi ospita questo file definisce QUAERENS_CHECKER_INTERFACE con il
+ * nome di un file che dichiara ck_check() e CkAnswer, e allora checker.c
+ * qui non entra affatto. La regola qui sopra diventa un fatto: di altri
+ * nomi del verificatore non ce ne sono. */
+#ifdef QUAERENS_CHECKER_INTERFACE
+#include QUAERENS_CHECKER_INTERFACE
+#else
 #define CK_NO_MAIN
 #include "checker.c"
+#endif
 
 /* I grafici (18q). Anche plot.c è un file a sé, che non sa nulla di questo:
  * disegna ciò che gli si dice e scrive un PDF. Di ciò che contiene si usano
  * solo le funzioni e i tipi della sua interfaccia, che cominciano con pl_,
- * Pl o PL_. */
+ * Pl o PL_. Dentro Vampire anche plot.c è un modulo a sé: chi ospita questo
+ * file definisce QUAERENS_PLOT_INTERFACE con il nome di un file che ne
+ * dichiara l'interfaccia. */
+#ifdef QUAERENS_PLOT_INTERFACE
+#include QUAERENS_PLOT_INTERFACE
+#else
 #include "plot.c"
+#endif
 
 #define ARENA_BYTES ((size_t)256 << 20)  /* memoria di lavoro per un enunciato */
 #define MAX_ATOMS 256        /* atomi distinti in un enunciato */

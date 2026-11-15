@@ -60,6 +60,21 @@ typedef enum {
  */
 ProofCheck proof_check_certificate(const char* certificate, const char** why);
 
+/**
+ * Checks the certificate that begins at *text and moves *text just past
+ * its "end" line, so that a text holding several certificates can be
+ * checked one after the other. *why receives the reason when the answer is
+ * not PROOF_CHECK_ACCEPTED. @b steps is the budget of work for recomputing
+ * a finite model (how many elements the quantifiers may try); zero or less
+ * asks for the usual one. The budget says how much the checker is willing
+ * to compute, never what it accepts: past it the answer is
+ * PROOF_CHECK_UNKNOWN.
+ *
+ * This is the entry point the mathematical engine uses (ck_check() of
+ * checker.c), now that it no longer holds a copy of the checker.
+ */
+ProofCheck proof_check_next(const char** text, const char** why, long long steps);
+
 #ifdef __cplusplus
 }
 #endif

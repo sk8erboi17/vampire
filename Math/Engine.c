@@ -14,8 +14,10 @@
  *
  * The engine (Math/quaerens/) is written as one translation unit: main.c
  * includes its volumes, one per domain (engine_*.c), which include
- * parser.c, output.c, plot.c and checker.c where they need them, and nearly
- * everything in it is static. This file includes it whole and defines,
+ * parser.c and output.c where they need them, and nearly everything in it
+ * is static. The checker and the plots, which in Quaerens are included
+ * too, are here modules compiled apart, and the engine sees their
+ * interfaces only. This file includes it whole and defines,
  * below it, the few functions the rest of Vampire calls. That is why the
  * interface can reach the engine's internals without the engine exporting
  * them.
@@ -32,6 +34,12 @@
  * explanations_wanted and the document_* functions of output.c. If the
  * engine renames one, this file stops compiling, which is the intent.
  */
+
+/* The independent checker and the plots are modules of their own in this
+ * build (Proof/IndependentChecker, Math/Plot): the engine gets their
+ * interfaces, not their sources. */
+#define QUAERENS_CHECKER_INTERFACE "Math/EngineModules.h"
+#define QUAERENS_PLOT_INTERFACE "Math/Plot.h"
 
 #define main quaerens_standalone_main
 #include "quaerens/main.c"

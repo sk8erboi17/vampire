@@ -14,9 +14,10 @@
  * The checker's source is included whole, without its command-line main():
  * everything in it is static, and its one entry point, ck_check(), is
  * wrapped below. This file includes nothing else of the program, which is
- * the point: the copy of the checker that judges what Vampire finds is not
- * the one inside the mathematical engine's translation unit, and neither
- * can see the other.
+ * the point: this is the only place where the checker is compiled, and
+ * what uses it (the mathematical engine for its own proofs, the driver for
+ * what Vampire finds) sees the two functions of the interface and nothing
+ * of what is inside.
  */
 
 #define CK_NO_MAIN
@@ -24,15 +25,17 @@
 
 #include "IndependentChecker.h"
 
-ProofCheck proof_check_certificate(const char* certificate, const char** why)
+ProofCheck proof_check_next(const char** text, const char** why, long long steps)
 {
-  const char* text = certificate;
   const char* reason = "";
-
-  /* Zero asks for the checker's usual budget of work on a model. The
-   * budget only says how much the checker is willing to compute, never
-   * what it accepts: past it the answer is "cannot check". */
-  CkAnswer answer = ck_check(&text, &reason, 0);
+  CkAnswer answer = ck_check(text, &reason, steps);
   if (why) *why = reason;
   return answer == CK_ACCEPTED ? PROOF_CHECK_ACCEPTED : answer == CK_REJECTED ? PROOF_CHECK_REJECTED : PROOF_CHECK_UNKNOWN;
+}
+
+ProofCheck proof_check_certificate(const char* certificate, const char** why)
+{
+  /* Zero asks for the checker's usual budget of work on a model. */
+  const char* text = certificate;
+  return proof_check_next(&text, why, 0);
 }
