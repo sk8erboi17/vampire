@@ -706,17 +706,21 @@ they are. No statement is answered one way by one and the other way by the
 other. Among the statements the engine decides alone, 28 verdicts about
 integers that had no certificate now have one: each has one integer
 variable, and the checker's complete count says what the engine said. The
-count never said the opposite. Asking Vampire's arithmetic about the
-other verdicts of the engine on numbers that had no certificate gives
-certificates to 114 more (on the 309 documents below), and it never
-proved the opposite of the engine. On all the 309 documents that the Quaerens
+count never said the opposite. The engine now writes a certificate
+numbers for its own counterexamples (19z, in Quaerens too): the statement
+as it was read, with the numbers it found as witnesses; on the 309
+documents below 116 refutations of the engine that had none have one.
+Asking Vampire's arithmetic about the verdicts on numbers that are still
+without a certificate gives certificates to 60 more, and it never proved
+the opposite of the engine. On all the 309 documents that the Quaerens
 repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
 word for word, and `certificate-checker`, the checker as a program of its
-own, accepts all the certificates the run writes: 3617 (3492 before the
+own, accepts all the certificates the run writes: 3679 (3492 before the
 proofs from the laws of the integers, which add three, the infinite
-counter-models, which add eight, and the verdicts of the engine confirmed
-by Vampire's arithmetic, which add 114). In the run that measured the infinite
+counter-models, which add eight, the engine's counterexamples, which add
+116, and the verdicts of the engine confirmed by Vampire's arithmetic,
+which add 60). In the run that measured the infinite
 counter-models, with the machine under a load of 130, the search of
 Vampire's arithmetic for "if x = k + 100 then x = m + 101"
 (`false_rare_witnesses.tex`, 14) ran out of its five seconds and that
@@ -817,11 +821,12 @@ arithmetic theories. Where it goes:
 
 - confirming the engine's verdicts about numbers without a certificate
   (`--math_confirm_engine`) costs the most: on the 309 documents, six at a
-  time, 674 s of processor time instead of 133 s, and 2:48 instead of
-  2:00, for the 114 certificates it adds. Each of the 358 such statements
-  gets two searches of Vampire's arithmetic, which use their whole five
-  seconds when they prove nothing; `--math_confirm_engine off` gives the
-  time back.
+  time, 519 s of processor time instead of 176 s, and 2:24 instead of
+  0:51, for the 60 certificates it adds. Each such statement gets two
+  searches of Vampire's arithmetic, which use their whole five seconds
+  when they prove nothing; `--math_confirm_engine off` gives the time back.
+  (Before the engine certified its own counterexamples it was 674 s
+  instead of 133 s for 114.)
 
 No improvement in speed is claimed for Vampire; what is gained is in the
 tables above. For the engine on its own there is one: `quaerens --threads 4`

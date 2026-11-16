@@ -265,6 +265,7 @@
 #define numbers_agree qre_numbers_agree
 #define numbers_contain qre_numbers_contain
 #define numbers_equal qre_numbers_equal
+#define numbers_notation qre_numbers_notation
 #define numbers_sample qre_numbers_sample
 #define numbers_subset qre_numbers_subset
 #define operation_symbols qre_operation_symbols

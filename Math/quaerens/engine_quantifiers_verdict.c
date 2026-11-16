@@ -12,6 +12,7 @@
 #include "engine_quantifiers.h"
 #include "engine_sign_tables.h"
 #include "engine_explanation.h"
+#include "engine_statement.h"
 #include "engine_sequences.h"
 #include "engine_derivatives.h"
 
@@ -1086,6 +1087,10 @@ static int iterates_declared(void) {
 
 /* Il lavoro di prove_quantified(), che ne descrive il contratto. Al ritorno
  * la tabella `maps` contiene ancora le applicazioni dell'enunciato. */
+/* L'enunciato in corso nella notazione dei certificati numbers, scritto da
+ * decide_quantified() appena letto, o NULL (vedi 19z, numbers_witnessed()). */
+static _Thread_local const char *quantified_notation;
+
 static Verdict decide_quantified(const char *formula) {
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "con le regole sui quantificatori", NULL, NULL};
 
@@ -1139,6 +1144,12 @@ static Verdict decide_quantified(const char *formula) {
         if (!failure) formula_check(thesis);
         scope_count = 0;
     }
+
+    /* 19z. L'enunciato nella notazione dei certificati numbers, scritto ora,
+     * appena letto: le regole che seguono possono riscrivere l'albero, e il
+     * certificato deve dire l'enunciato com'è (vedi prove_quantified()). */
+    if (!syntax_error && !failure && !map_count && !pair_set_count && !statement_parameter_count && !derivative_signs)
+        quantified_notation = numbers_notation(thesis);
 
     /* 26c. Le iterate di un'applicazione: una successione per ricorrenza. */
     if (!syntax_error && !failure && iterates_declared()) return decide_iterates(thesis);
@@ -1355,6 +1366,74 @@ static Verdict decide_quantified(const char *formula) {
     return verdict;
 }
 
+/* 19z. IL CONTROESEMPIO COME CERTIFICATO
+ *
+ * "Per ogni a, x interi: ..." è falso, e il verdetto porta i numeri che lo
+ * mostrano: "controesempio a = 2, x = -1". Quei numeri sono un certificato
+ * numbers (capitolo 20 di checker.c): l'enunciato, che fallisce, con un
+ * testimone per ogni quantificatore che i numeri nominano. Il verificatore
+ * ricalcola l'enunciato su di loro, e accetta solo se l'esito è stabilito e
+ * falso: un quantificatore più interno che nessun numero stabilisce (un
+ * "esiste" che dovrebbe fallire per ogni valore) lo lascia non stabilito, e
+ * allora il certificato non c'è. Il testimone della n-esima volta che una
+ * lettera compare nel controesempio va all'n-esimo quantificatore, in
+ * ordine di scrittura, che la lega ("k = 1, k = 0" per due k): se fosse
+ * quello sbagliato il verificatore lo respingerebbe, non accetterebbe il
+ * falso.
+ *
+ * L'enunciato si scrive appena letto (19z in decide_quantified()), perché
+ * il certificato deve dire quello e non un albero riscritto dalle regole. */
+
+static void numbers_witnessed(Verdict *verdict) {
+    static _Thread_local char *text;
+    static _Thread_local size_t size;
+    const char *statement = strstr(quantified_notation, "\nstatement ");
+    if (!statement) return;
+    statement += 11;
+    size_t statement_length = strcspn(statement, "\n");
+    size_t need = strlen(quantified_notation) + strlen(verdict->detail) * 4 + 128;
+    if (need > size) {
+        char *grown = realloc(text, need);
+        if (!grown) return;
+        text = grown;
+        size = need;
+    }
+    int length = snprintf(text, size, "certificate numbers\n%.*s\nfails\n", (int)(statement + statement_length - quantified_notation),
+                          quantified_notation);
+    int seen[256] = {0};   /* per lettera: quante volte è già comparsa nel controesempio */
+    for (const char *p = verdict->detail; *p;) {
+        while (*p == ' ' || *p == ',') p++;
+        if (!*p) break;
+        if (!isalpha((unsigned char)*p) || p[1] != ' ' || p[2] != '=' || p[3] != ' ') return;
+        char letter = *p;
+        p += 4;
+        const char *value = p;
+        if (*p == '-') p++;
+        if (!isdigit((unsigned char)*p)) return;
+        while (isdigit((unsigned char)*p)) p++;
+        if (*p == '/') {
+            p++;
+            if (!isdigit((unsigned char)*p)) return;
+            while (isdigit((unsigned char)*p)) p++;
+        }
+        if (*p && *p != ',') return;
+        /* L'n-esimo quantificatore, in ordine di scrittura, che lega letter. */
+        int number = 0, found = -1, skip = seen[(unsigned char)letter]++;
+        char wanted[32];
+        snprintf(wanted, sizeof wanted, " (var %d) (set", (int)(unsigned char)letter);
+        for (const char *at = statement; at < statement + statement_length; at++) {
+            if (strncmp(at, "(forall", 7) != 0 && strncmp(at, "(exists", 7) != 0) continue;
+            if (found < 0 && strncmp(at + 7, wanted, strlen(wanted)) == 0 && skip-- == 0) found = number;
+            number++;
+        }
+        if (found < 0) return;
+        length += snprintf(text + length, size - (size_t)length, "witness %d %.*s\n", found, (int)(p - value), value);
+    }
+    snprintf(text + length, size - (size_t)length, "end\n");
+    const char *cursor = text, *why = "";
+    if (ck_check(&cursor, &why, checker_steps()) == CK_ACCEPTED) verdict->certificate = text;
+}
+
 /* Decide l'enunciato con quantificatori scritto in formula e ne ritorna il
  * verdetto, con la dimostrazione scritta.
  *
@@ -1366,7 +1445,9 @@ static Verdict decide_quantified(const char *formula) {
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate precedenti
  * non sono più validi. */
 Verdict prove_quantified(const char *formula) {
+    quantified_notation = NULL;
     Verdict verdict = decide_quantified(formula);
+    if (verdict.outcome == REFUTED && !verdict.certificate && verdict.detail && quantified_notation) numbers_witnessed(&verdict);
 
     /* Le applicazioni dichiarate valgono solo per questo enunciato: il parser
      * delle espressioni, che serve anche agli altri metodi, non deve più

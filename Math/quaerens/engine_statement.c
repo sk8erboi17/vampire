@@ -391,6 +391,37 @@ static int numbers_formula(const Formula *f) {
     }
 }
 
+/* L'enunciato thesis, appena letto, nella notazione qui sopra: il testo
+ * "kind K\nstatement S\n" di un certificato numbers (capitolo 20 di
+ * checker.c), in un deposito del thread valido fino alla chiamata dopo; NULL
+ * se non sta nel frammento. Serve a dare un certificato ai controesempi del
+ * motore (prove_quantified()). Il testo si scrive nel deposito dei
+ * certificati e se ne copia: lo si chiama appena letto l'enunciato, quando
+ * nessun certificato è in corso, e lo si lascia vuoto. */
+const char *numbers_notation(const Formula *thesis) {
+    static const char *const kind[] = {NULL, "int", "rat", "real"};
+    static _Thread_local char *kept;
+    static _Thread_local size_t kept_size;
+    certificate_length = 0;
+    certificate_broken = 0;
+    numbers_base = numbers_bound_count = 0;
+    const char *text = NULL;
+    if (numbers_formula(thesis) && numbers_base && !certificate_broken) {
+        size_t need = certificate_length + 32;
+        if (need > kept_size) {
+            char *grown = realloc(kept, need);
+            if (grown) { kept = grown; kept_size = need; }
+        }
+        if (need <= kept_size) {
+            snprintf(kept, kept_size, "kind %s\nstatement %.*s\n", kind[numbers_base], (int)certificate_length, certificate_text);
+            text = kept;
+        }
+    }
+    certificate_length = 0;
+    certificate_broken = 0;
+    return text;
+}
+
 /* Dentro Vampire (LOGIC_NUMBERS). Legge l'enunciato con quantificatori sui
  * numeri scritto in formula e, se sta nel frammento descritto sopra, lo
  * consegna: NOT_PROVED con reason == LOGIC_HANDED_OVER e il testo in

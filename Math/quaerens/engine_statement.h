@@ -15,9 +15,11 @@
 
 #include "engine_foundations.h"
 #include "engine_induction.h"
+#include "parser.h"
 
 void verdict_print(FILE *out, const Verdict *verdict);
 Verdict prove(const char *formula, int variable, int has_base, long long base);
 Verdict prove_item(const char *item, const char *end);
+const char *numbers_notation(const Formula *thesis);
 
 #endif /* QUAERENS_ENGINE_STATEMENT_H */
