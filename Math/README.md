@@ -936,7 +936,12 @@ the driver does. Through the whole program, `fuzz_numbers.py` with the
 proofs from the laws: 450 statements with three seeds, no `BUG`; of the 194
 theorems Vampire's arithmetic proves, 163 are certified, 95 of them by a
 proof from the laws that the checker followed, and 31 are found, not
-verified. Under the sanitizers, the documents of the three theorems, of
+verified. With what came after (the checker's count, the second strategy,
+and a refutation that counts as such when any of its clauses is empty,
+not only the last), seed 44 alone: all the 66 theorems that Vampire's
+arithmetic proves are certified; the last one missing was true already in
+its translation ("if y = y implies 4 < 0, then ..."), with the empty
+clause among those the checker starts from and no step to add. Under the sanitizers, the documents of the three theorems, of
 the numbers, of logic and of the parts of a set: no report. With the checker's count: `fuzz_numbers.py` again, 1260
 statements, no `BUG`; the checker settles 125 of them by itself, 69 true
 and 56 false, all as the counting oracle says; and the scripts of Quaerens
