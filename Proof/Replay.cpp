@@ -181,15 +181,18 @@ bool Replay::start(const std::string& handedOver)
 {
   /* The beginning of the certificate: up to the line "clausify", and the
    * lines that may follow it and that the checker turns into clauses by
-   * itself: "comprehend" (an instance of a formula on the parts of a set)
-   * and "biject" (a pair of maps offered as a bijection and its inverse). */
+   * itself: "comprehend" (an instance of a formula on the parts of a set),
+   * "biject" (a pair of maps offered as a bijection and its inverse) and,
+   * in a certificate "arithmetic", "step compute" (a clause without
+   * variables that the checker accepts by computing it). */
   std::istringstream lines(handedOver);
   std::string line;
   bool clausified = false, listed = false;
   while (!listed && std::getline(lines, line)) {
     listed = line.compare(0, 8, "symbols ") == 0;
     if (listed) break;
-    if (clausified && line.compare(0, 11, "comprehend ") != 0 && line.compare(0, 7, "biject ") != 0) return false;
+    if (clausified && line.compare(0, 11, "comprehend ") != 0 && line.compare(0, 7, "biject ") != 0
+        && line.compare(0, 13, "step compute ") != 0) return false;
     _prefix += line + "\n";
     clausified = clausified || line.compare(0, 8, "clausify") == 0;
   }
@@ -543,6 +546,45 @@ void Replay::subterms(int t, int& cursor, std::vector<std::pair<int, int>>& foun
   for (int argument : _terms[t].arguments) subterms(argument, cursor, found);
 }
 
+/** How many places a term has, counted as subterms() counts them: one for a variable, one for each symbol. */
+int Replay::size(int t) const
+{
+  if (t <= 0) return 1;
+  int places = 1;
+  for (int argument : _terms[t].arguments) places += size(argument);
+  return places;
+}
+
+/**
+ * The place number that the subterm at the place @b position of @b t has
+ * in the instance of @b t by @b substitution, into @b result.
+ *
+ * The checker rewrites the instance of the clause (ck_r_replace() after
+ * ck_r_instances()), and counts the places there; the places of the step
+ * are found on the clause before the substitution. They are the same
+ * unless a variable before the place stands for a term: then the place
+ * moves by the places of that term, less one. For "x < 2 + x" rewritten
+ * at "2 + x" with x standing for "(-2) + y", the place is 2 before and 4
+ * after. (Without this, such a superposition was never rebuilt: the
+ * place pointed elsewhere, apply() refused it, and the inference was
+ * reported as one the checker's steps cannot rebuild.)
+ */
+bool Replay::placeInInstance(int t, int position, int& cursor, int& placed, const std::map<int, int>& substitution,
+                             int& result) const
+{
+  if (cursor == position) { result = placed; return true; }
+  cursor++;
+  if (t < 0) {
+    auto bound = substitution.find(-t - 1);
+    placed += bound == substitution.end() ? 1 : size(bound->second);
+    return false;
+  }
+  placed++;
+  for (int argument : _terms[t].arguments)
+    if (placeInInstance(argument, position, cursor, placed, substitution, result)) return true;
+  return false;
+}
+
 /**
  * Merges the literals of the clause number @b index that are the same
  * equation written the two ways round, one factoring step for each, and
@@ -702,8 +744,9 @@ bool Replay::reach(int from, const Clause& target, int depth, const std::vector<
               step.q = from;
               step.lq = j;
               step.side = side;
-              step.position = place.first;
               step.substitution = simultaneous(bindings);
+              int cursor = 0, placed = 0;
+              if (!placeInInstance(side ? yr : yl, place.first, cursor, placed, step.substitution, step.position)) continue;
               if (tryStep(step, target, depth, equations, reached)) return true;
             }
           }

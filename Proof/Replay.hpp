@@ -294,6 +294,8 @@ private:
   int falsified(const std::vector<int>& pool, std::map<int, bool>& value);
   void pop(int clauses);
   void subterms(int term, int& cursor, std::vector<std::pair<int, int>>& found);
+  int size(int term) const;
+  bool placeInInstance(int term, int position, int& cursor, int& placed, const std::map<int, int>& substitution, int& result) const;
   bool reach(int from, const Clause& target, int depth, const std::vector<int>& equations, int& reached);
   bool tryStep(const Step& step, const Clause& target, int depth, const std::vector<int>& equations, int& reached);
 };

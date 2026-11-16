@@ -16,14 +16,20 @@
  *
  * The rule the tests defend: the problem says exactly what the statement
  * says, and a statement that cannot be said exactly is not handed over.
+ * Also the beginning of a proof from the laws of the integers (certificate
+ * "arithmetic", 20f of checker.c): the clauses the checker starts from, as
+ * the checker gives them, and the facts about the numerals.
  */
 
+#include <algorithm>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
 #include "Math/Engine.h"
 #include "Math/NumberStatement.hpp"
 #include "Proof/IndependentChecker.h"
+#include "Proof/Replay.hpp"
 #include "Test/UnitTesting.hpp"
 
 using namespace Math;
@@ -265,4 +271,50 @@ TEST_FUN(an_answer_of_vampire_is_a_witness_only_if_it_is_a_number)
   ASS(!NumberStatement::answerValue("1/0", value));
   ASS(!NumberStatement::answerValue("", value));
   ASS(!NumberStatement::answerValue("12345678901234567890", value));
+}
+
+TEST_FUN(a_statement_on_integers_has_the_clauses_of_the_checker_with_the_laws_of_the_integers)
+{
+  qr_init();
+
+  NumberStatement statement = NumberStatement::read(handedOver(
+    "\\forall a, b, c \\in \\mathbb{Z}\\ (((ab - 2)(a - b) = 0 \\land (bc - 2)(b - c) = 0) \\implies (ac - 2)(a - c) = 0)"));
+  ASS(statement.ok());
+  std::string beginning = statement.arithmeticBeginning(false);
+  ASS(beginning.compare(0, 42, "certificate arithmetic\nkind int\nstatement ") == 0);
+  ASS(beginning.size() > 17 && beginning.compare(beginning.size() - 17, 17, "clausify forward\n") == 0);
+  ASS(statement.arithmeticBeginning(true).find("statement (not (forall") != std::string::npos);
+
+  /* The checker translates the statement: the numerals of the translation are 0, 1 and the 2 of the statement. */
+  const char* why = "";
+  char* listing = proof_arithmetic_clauses((beginning + "end\n").c_str(), &why);
+  ASS(listing);
+  std::string first(listing);
+  std::free(listing);
+  ASS(first.compare(0, 15, "numerals 0 1 2\n") == 0);
+  ASS(first.find("\nsymbols ") != std::string::npos && first.find("\nclauses ") != std::string::npos);
+
+  /* The facts about them: three for each pair, and 1 + 1 = 2. The checker accepts them by computing them, and
+   * Proof::Replay reads what it then has as the clauses a refutation starts from. */
+  std::string facts = NumberStatement::arithmeticFacts({0, 1, 2});
+  ASS_EQ(std::count(facts.begin(), facts.end(), '\n'), 10);
+  ASS(facts.find("step compute (clause (eq (f 0 (f 5) (f 5)) (f 6)))") != std::string::npos);
+  listing = proof_arithmetic_clauses((beginning + facts + "end\n").c_str(), &why);
+  ASS(listing);
+  std::string all(listing);
+  std::free(listing);
+  Proof::Replay replay;
+  ASS(replay.start(beginning + facts + all.substr(all.find('\n') + 1)));
+  ASS(replay.initialClauses() > 18 + 10);   // the statement, the laws, the facts
+
+  /* A false fact is refused, and so is anything that is not the beginning of a certificate arithmetic. */
+  ASS(!proof_arithmetic_clauses((beginning + "step compute (clause (eq (f 4) (f 6)))\nend\n").c_str(), &why));
+  ASS(std::string(why).find("falsa") != std::string::npos);
+  ASS(!proof_arithmetic_clauses((beginning.substr(0, beginning.size() - 17) + "end\n").c_str(), &why));
+  ASS(!proof_arithmetic_clauses("certificate saturation\nsort S\nstatement true\nclausify\nend\n", &why));
+
+  /* Among rationals the checker has no laws: no beginning. */
+  NumberStatement rational = NumberStatement::read("numbers rat \n(forall (var 1) (set) (= (var 1) (var 1)))\n");
+  ASS(rational.ok());
+  ASS(rational.arithmeticBeginning(false).empty());
 }

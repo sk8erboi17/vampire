@@ -1,10 +1,10 @@
 % Result 1: TheoremUnverified (engine)
 % Result 2: TheoremCertified (checker)
-% Result 3: TheoremUnverified (vampire)
-% Result 4: TheoremUnverified (vampire)
+% Result 3: TheoremCertified (vampire)
+% Result 4: TheoremCertified (vampire)
 % Result 5: CounterexampleVerified (vampire)
 % Result 6: CounterexampleVerified (vampire)
 % Result 7: Unsolved (engine)
 % Result 8: Unsolved (engine)
 % Result 9: Unsolved (engine)
-% Summary of numbers.tex: 9 statements; TheoremCertified 1; TheoremUnverified 3; CounterexampleVerified 2; Unsolved 3
+% Summary of numbers.tex: 9 statements; TheoremCertified 3; TheoremUnverified 1; CounterexampleVerified 2; Unsolved 3

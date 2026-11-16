@@ -329,6 +329,43 @@ std::string NumberStatement::certificate(bool denied, const WitnessProblem& prob
   return text + "end\n";
 }
 
+std::string NumberStatement::arithmeticBeginning(bool denied) const
+{
+  if (!ok() || _kind != 1) return "";
+  return "certificate arithmetic\nkind int\nstatement " + (denied ? "(not " + _text + ")" : _text) + "\nclausify forward\n";
+}
+
+std::string NumberStatement::arithmeticFacts(const std::vector<long long>& numerals)
+{
+  /* The symbols of the translation (checker.c, 20f): add 0, mul 2, less 3,
+   * and the numerals from 4 on. With many numerals only neighbours are
+   * compared: the order of the others follows from the laws. */
+  static const size_t ALL_PAIRS = 16;
+  auto numeral = [](size_t i) { return "(f " + std::to_string(4 + i) + ")"; };
+  auto find = [&](long long value) {
+    for (size_t i = 0; i < numerals.size(); i++) if (numerals[i] == value) return (long long)i;
+    return -1LL;
+  };
+  std::string facts;
+  for (size_t i = 0; i < numerals.size(); i++)
+    for (size_t j = i + 1; j < numerals.size() && (numerals.size() <= ALL_PAIRS || j == i + 1); j++) {
+      size_t low = numerals[i] < numerals[j] ? i : j, high = low == i ? j : i;
+      facts += "step compute (clause (ne " + numeral(i) + " " + numeral(j) + "))\n";
+      facts += "step compute (clause (pos (f 3 " + numeral(low) + " " + numeral(high) + ")))\n";
+      facts += "step compute (clause (neg (f 3 " + numeral(high) + " " + numeral(low) + ")))\n";
+    }
+  if (numerals.size() > ALL_PAIRS) return facts;
+  for (size_t i = 0; i < numerals.size(); i++)
+    for (size_t j = i; j < numerals.size(); j++) {
+      long long a = numerals[i], b = numerals[j];
+      long long sum = a > 0 && b > 0 && a <= (1LL << 40) && b <= (1LL << 40) ? find(a + b) : -1;
+      long long product = a > 1 && b > 1 && a <= (1LL << 20) && b <= (1LL << 20) ? find(a * b) : -1;
+      if (sum >= 0) facts += "step compute (clause (eq (f 0 " + numeral(i) + " " + numeral(j) + ") " + numeral((size_t)sum) + "))\n";
+      if (product >= 0) facts += "step compute (clause (eq (f 2 " + numeral(i) + " " + numeral(j) + ") " + numeral((size_t)product) + "))\n";
+    }
+  return facts;
+}
+
 bool NumberStatement::answerValue(const std::string& answer, std::string& value)
 {
   std::string text = answer;

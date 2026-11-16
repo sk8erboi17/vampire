@@ -15,7 +15,9 @@ and in mathematics proper, the engine goes first, and Vampire is asked when
 the engine has no answer: for a proof from the laws of those sets, for a
 proof from a supposed bijection given as two maps, for a refutation of the
 checker's clauses when a statement quantifies over parts, and with its
-arithmetic theories when a statement quantifies over numbers.
+arithmetic theories when a statement quantifies over numbers; what those
+theories prove about integers it proves once more from the laws of the
+integers alone, on the checker's clauses, so that the checker can follow it.
 Neither decides against the other: an answer of one is always put to the
 test of the other, or of the checker, and what nobody rechecked is labelled
 as such.
@@ -53,6 +55,9 @@ LaTeX -> Parse/LaTeX: read, unfold, type (Math/LogicStatement)
            |                     the certificate, or the answer
            |        no answer, quantifiers over numbers of one kind
            |                  -> Vampire's arithmetic: the statement, and its negation
+           |        proved among integers, no number shows it
+           |                  -> Vampire: refutation of the checker's clauses with
+           |                     the laws of the integers, followed by the checker
            |
            +-- two sets supposed equipotent --------------------> THE ENGINE LEADS
            |        no answer -> Vampire: proof with the bijection as two maps
@@ -180,8 +185,28 @@ what the statement is, by measurement (see "Measures").
   with ..." fails at m = 0 because no x works) is verified with the number
   Vampire gives and the count for the variable that is left; there Vampire
   is asked for the number in a second search, and the checker is given each
-  tuple that its answer offers. With several variables left, what Vampire
-  proves is found, not verified: the checker has no steps for arithmetic.
+  tuple that its answer offers. With several variables left no count is
+  complete, and among integers there is a proof instead: **from the laws of
+  the integers** (chapter 20f of `checker.c`, certificate `arithmetic`).
+  The checker translates the statement by itself into a statement of logic
+  over one set Z, in which sum, opposite, product and the order are symbols
+  it knows only by a fixed table of laws that are true among the integers
+  (a commutative ring with unit and no divisors of zero, a total order
+  compatible with sums and with products of positives, nothing between x
+  and x + 1), adds the laws, and follows a refutation by saturation as for
+  logic; the one step that computes is `compute`, a clause without
+  variables that it accepts if it is true among the integers ("0 and 2 are
+  different", "1 + 1 = 2"). Vampire's arithmetic proves the statement;
+  Vampire then refutes the checker's clauses with no theory, with the
+  options whose inferences can be followed (first with literal selection 1,
+  the saturation algorithm discount and clauses chosen mostly by weight:
+  among the laws of a ring the default search gets lost), and `Proof/Replay`
+  writes the steps. The clauses are asked of the checker itself
+  (`proof_arithmetic_clauses()` in `Proof/IndependentChecker.h`, which says
+  why that is no weakness): for logic the engine mirrors the checker to
+  know them, and a mirror can only agree with it. There is no induction
+  among the laws, and none for rationals and reals: what needs them is
+  found, not verified.
   Variables of two kinds, exponents that are
   letters, divisions by an expression, functions and roots are not handed
   over: they would need a choice the translation must not make.
@@ -240,17 +265,21 @@ Rules that are not negotiable:
   the output says `CONTRADICTION`. None has occurred in any test.
 - **No numerical test makes a theorem.** The engine never reports one on such
   grounds, and nothing in this module upgrades a status.
-- **A proof by Vampire's arithmetic theories is certified only by numbers.**
+- **A proof by Vampire's arithmetic theories is never certified as it is.**
   If the statement is one that values settle and Vampire gives them, the
   checker recomputes the statement on them: `CounterexampleVerified`, or
   `TheoremCertified` for an example. The numbers are Vampire's; that they
   do what is claimed is the checker's count, and nothing else is believed.
-  Otherwise the answer is `TheoremUnverified`, or `CounterexampleUnverified`
-  when what was proved is the negation, and the output says which. That is
-  where the engine's own proofs of such statements stand too ("proved with
-  the rules for quantifiers; no certificate"): for a statement that is true
-  for every value the checker has a language with one real variable (sign
-  tables), and none for integers or for several variables.
+  Among integers Vampire proves it once more from the laws of the integers
+  alone, on the clauses the checker makes, and the checker follows that
+  proof (20f): `TheoremCertified`, or `CounterexampleVerified` for a
+  negation. The laws are the checker's, fixed, each true among the
+  integers; Vampire's theories are not in that proof. Otherwise the answer
+  is `TheoremUnverified`, or `CounterexampleUnverified` when what was
+  proved is the negation, and the output says which. That is where the
+  engine's own proofs of such statements stand too ("proved with the rules
+  for quantifiers; no certificate"), unless the checker's count settles
+  them (one integer variable).
 
 ## The account of a proof
 
@@ -309,6 +338,7 @@ prints a statement as TPTP.
 | `Math/tools/fuzz_numbers.py` | differential fuzz of the statements on integers that reach Vampire's arithmetic, against an oracle that counts |
 | `Math/tools/fuzz_equipotence.py` | differential fuzz of the statements that suppose two sets equipotent, against an oracle that compares numbers of elements |
 | `Math/tools/fuzz_bijections.py` | differential fuzz of the statements that conclude that two sets are equipotent from what is known of the maps between them, against an oracle that looks for a finite counterexample |
+| `Math/tools/fuzz_arithmetic_laws.py` | adversarial fuzz of the proofs from the laws of the integers: the checker's clauses of the claim an oracle finds false, given to Vampire, must not be refuted, and a false fact offered as `compute` must be refused |
 
 The engine by domain. In Quaerens the engine is one file of 52 thousand
 lines, a book of numbered chapters, nearly everything in it static, read by
@@ -399,13 +429,16 @@ A third is two lines of `engine_foundations.c`: the engine includes
 `checker.c` and `plot.c` only when it is built alone; here it is given
 their interfaces instead. The other four files, the checker among them, are
 byte for byte those of Quaerens. Vampire's proofs are written in the steps
-the checker already had. Four things were added to the checker, in Quaerens
+the checker already had, and among integers in one more, compute. Five things were added to the checker, in Quaerens
 too, each with its justification and its tests: a rule to use an
 equipotence among the clauses of a proof by saturation (11m-e in
 `checker.c`) and one to prove it from a bijection that is written down
 (11m-f); a kind of certificate for a statement about numbers that a few
-numbers settle (chapter 20), and in it the complete count that settles a
-quantifier over one integer (20e).
+numbers settle (chapter 20), in it the complete count that settles a
+quantifier over one integer (20e), and the proof of a statement about
+integers from their laws (20f), with `compute`, its one step that
+computes, and the clausification without domain predicates that one set
+which is the whole domain allows (`whole` in `ck_r`).
 
 ## Migration: what is where, and what is not done
 
@@ -422,7 +455,7 @@ quantifier over one integer (20e).
 | Relations between parts by regions (complete decision) | engine | in use |
 | Induction: sums, products, recurrences, inequalities | engine | in use |
 | Sign tables: equations, inequalities, solving, parameters, congruences | engine | in use |
-| Quantifiers over integers, rationals, reals | engine first, then the checker's count and **Vampire** | the engine's rules and sign tables lead; a statement in one integer variable is settled by the checker's complete count (the certificate of the engine's verdict, or the answer); what is left goes to Vampire's arithmetic theories, when every variable is of one kind; a counterexample or an example found there is recomputed by the checker, with the count for one integer variable that numbers leave |
+| Quantifiers over integers, rationals, reals | engine first, then the checker's count and **Vampire** | the engine's rules and sign tables lead; a statement in one integer variable is settled by the checker's complete count (the certificate of the engine's verdict, or the answer); what is left goes to Vampire's arithmetic theories, when every variable is of one kind; a counterexample or an example found there is recomputed by the checker, with the count for one integer variable that numbers leave; a proof about integers that no number shows is found again by Vampire from the laws of the integers, on the checker's clauses, and the checker follows it |
 | Limits, derivatives, integrals | engine | in use |
 | Matrices, determinants, linear systems, discussion by a parameter | engine | in use |
 | Partial derivatives, gradients, Hessians, critical points | engine | in use |
@@ -462,10 +495,14 @@ Not done, and not claimed:
   with polynomial expressions. A statement that mixes integers and
   rationals, or has a declared map, an exponent that is a letter, a
   function or a root, stays with the engine. What is proved about numbers
-  is verified when numbers settle it, or when one integer variable is left
-  for the checker's count, and not otherwise: a statement that holds for
-  every value of several variables has no certificate, whoever proves it
-  (the checker has no steps for arithmetic).
+  is verified when numbers settle it, when one integer variable is left
+  for the checker's count, or, among integers, when Vampire proves it again
+  from the laws of the integers on the checker's clauses. Not otherwise: a
+  proof that needs induction (the laws do not have it), a statement about
+  rationals or reals (the checker has no laws for them), or one that
+  Vampire does not prove from the laws within the time of a recheck, is
+  found, not verified. The engine's own proofs of such statements are not
+  handed to Vampire for that: only what Vampire's theories proved is.
 - **A bijection is proved only if it can be written.** Vampire proves that
   two sets are equipotent from the pairs of maps the engine offers: maps of
   the statement, Skolem functions, the maps of other equipotences, up to
@@ -492,7 +529,10 @@ Not done, and not claimed:
   not rebuilt; a rebuilt refutation is accepted by the checker and rejected
   once its statement is denied or its last step removed; a refuted request
   for an example is certified as the negation; a statement on the parts of
-  a set is handed over with the parts to try.
+  a set is handed over with the parts to try. A superposition at a place after a
+  variable that the step instantiates with a term is rebuilt with the place
+  the checker counts, in the instance (it was not rebuilt before: the
+  place pointed elsewhere).
 - `UnitTests/tMathNumbers.cpp` also: a statement that numbers settle asked
   with its quantifiers in front; none for a statement that needs a proof
   for every value, or under an "if and only if"; the certificate written
@@ -500,6 +540,17 @@ Not done, and not claimed:
   numbers or for the opposite claim; an answer of Vampire is a witness
   only if it is a number. (The checker's chapter is tested in the Quaerens
   repository, `tests/checker/test_number_witnesses.c`, against an oracle.)
+- `UnitTests/tMathNumbers.cpp` also: the beginning of a certificate from the
+  laws of the integers, the clauses the checker gives for it (with the
+  numerals of the translation) and the facts about the numerals, which the
+  checker accepts and `Proof::Replay` reads; a false fact refused, and no
+  beginning among rationals. (Chapter 20f is tested in the Quaerens
+  repository, `tests/checker/test_arithmetic_laws.c`: a certificate written
+  by Vampire accepted, and refused with its statement denied, with a number
+  changed, without its last step, with a false fact, for the rationals;
+  `compute` against an oracle that computes; the laws true on a window of
+  integers; the translation of random statements evaluated among the
+  integers, against an oracle that counts.)
 - `UnitTests/tMathNumbers.cpp` (ctest `MathNumbers`): what the engine hands
   over of a statement on numbers (the sets with their bounds and removed
   points, divisibility, the three sorts) and the TPTP problem written from
@@ -553,8 +604,13 @@ Not done, and not claimed:
   sets equipotent; and `Math/tools/fuzz_bijections.py`, for the statements
   that conclude that two sets are equipotent from what is known of the maps
   between them, against an oracle that looks for a counterexample among
-  the interpretations with at most three elements in each set. A line
-  `BUG` is a false proof or a false refutation.
+  the interpretations with at most three elements in each set. And
+  `Math/tools/fuzz_arithmetic_laws.py`, the adversary of the proofs from
+  the laws of the integers: for statements whose truth an oracle counts,
+  the checker's clauses of the false claim go to Vampire, which must not
+  refute them, and a false fact offered as `compute` must be refused (it
+  also needs a C compiler, for the small program that asks the checker for
+  its clauses). A line `BUG` is a false proof or a false refutation.
 - `checks/sanity` and the unit tests of Vampire are unchanged and must pass
   as before.
 
@@ -575,10 +631,10 @@ answer through Vampire.
 
 | | The engine alone | Together |
 |---|---|---|
-| Theorems certified | 141 | 143 |
+| Theorems certified | 141 | 146 |
 | Counterexamples verified | 88 | 96 |
 | Requests for an example refuted, certified | 0 | 7 |
-| Theorems found, not verified | 0 | 4 |
+| Theorems found, not verified | 0 | 1 |
 | Refutations found, not verified | 0 | 8 |
 | No answer, or no method | 30 | 1 |
 
@@ -588,12 +644,13 @@ they are. No statement is answered one way by one and the other way by the
 other. Among the statements the engine decides alone, 28 verdicts about
 integers that had no certificate now have one: each has one integer
 variable, and the checker's complete count says what the engine said. The
-count never said the opposite. The run writes 3489 certificates, and
-`certificate-checker`, the checker as a program of its own, accepts all of
-them. On all the 309 documents that the Quaerens repository has by now
-(7470 statements) nothing else changes: the same 259 statements get their
+count never said the opposite. On all the 309 documents that the Quaerens
+repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
-word for word, and the 3492 certificates are all accepted.
+word for word, and `certificate-checker`, the checker as a program of its
+own, accepts all the 3495 certificates the run writes (3492 before the
+proofs from the laws of the integers, which add the three of those
+theorems).
 
 **Size.** The executable is 14.3 MB; Vampire alone is 12.0 MB. It was
 15.0 MB with the checker compiled twice, once inside the engine, and 14.6 MB
@@ -605,7 +662,9 @@ cannot exist. All 134 are rechecked inference by inference: 15431 steps of
 the checker in all, 72 for the median proof, 2091 for the longest. (The other
 16 certified theorems are proved by an example, a finite model.) Before this
 recheck the engine rebuilt the proofs it could; the theorems only Vampire can
-prove were not verified, and the refuted requests neither.
+prove were not verified, and the refuted requests neither. Three more, the
+theorems on integers below, are refutations by Vampire of the checker's
+clauses with the laws of the integers, followed in 87, 131 and 130 steps.
 
 The 29 answers that are new were looked at one by one, and all are right:
 
@@ -639,8 +698,11 @@ The 29 answers that are new were looked at one by one, and all are right:
   m positive" fails at x = 101, k = 1 because no positive m works): there
   Vampire gives the numbers and the checker settles the one integer
   variable that is left by its complete count. 3 are theorems on integers
-  in several variables, not verified: "(ab - 2)(a - b) = 0 and
+  in several variables, which no number shows: "(ab - 2)(a - b) = 0 and
   (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" and two on divisibility.
+  They were found and not verified until Vampire proved them again from
+  the laws of the integers, on the checker's clauses (20f): now all three
+  are certified.
 
 No statement of the corpus speaks of two equipotent sets and is left without
 an answer by the engine, so what Vampire proves with an equipotence adds
@@ -710,7 +772,20 @@ statements, no `BUG`.
 none is proved; the engine proves 223, Vampire proves 107 more with a
 bijection the engine offered, all followed by the checker, and 17 stay
 without an answer. This run is the adversary of the rule that proves an
-equipotence. With the checker's count: `fuzz_numbers.py` again, 1260
+equipotence. `Math/tools/fuzz_arithmetic_laws.py`: 420 statements with five
+seeds, no `BUG`: the checker's clauses of no false claim were refuted by
+Vampire (three strategies, two seconds each), and every false fact offered
+as `compute` was refused; of the true claims, 296 were refuted from the
+laws. This run is the adversary of the proofs from the laws of the
+integers. On 120 of those true claims, with two seconds, the default
+saturation refutes 100, selection 1 with discount and four clauses by
+weight for one by age 93, the two one after the other 106: that is what
+the driver does. Through the whole program, `fuzz_numbers.py` with the
+proofs from the laws: 450 statements with three seeds, no `BUG`; of the 194
+theorems Vampire's arithmetic proves, 163 are certified, 95 of them by a
+proof from the laws that the checker followed, and 31 are found, not
+verified. Under the sanitizers, the documents of the three theorems, of
+the numbers, of logic and of the parts of a set: no report. With the checker's count: `fuzz_numbers.py` again, 1260
 statements, no `BUG`; the checker settles 125 of them by itself, 69 true
 and 56 false, all as the counting oracle says; and the scripts of Quaerens
 on numbers through `as_quaerens.py`, 480 statements, no `BUG`. Under the

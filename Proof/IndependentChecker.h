@@ -75,6 +75,42 @@ ProofCheck proof_check_certificate(const char* certificate, const char** why);
  */
 ProofCheck proof_check_next(const char** text, const char** why, long long steps);
 
+/**
+ * For whoever writes a certificate "arithmetic" (chapter 20f of
+ * Math/quaerens/checker.c): the clauses the checker starts from.
+ *
+ * @b beginning is the beginning of such a certificate, up to and including
+ * its line "clausify" and any line "step" after it, followed by "end". The
+ * checker reads it as it reads a certificate (it translates the statement,
+ * adds the laws of the integers, makes the clauses and follows the steps)
+ * and, if nothing in it is wrong, the result is a text on the heap, to be
+ * released with free(), of these lines:
+ *
+ *     numerals V0 V1 ...    the value of each numeral of the translation, in the
+ *                           order of their symbols, which come after add, neg,
+ *                           mul and less (0, 1, 2, 3)
+ *     symbols N             then N lines "ARITY PREDICATE", one per symbol of the
+ *                           translation in the order of their numbers
+ *     clauses M             then M lines "(clause LITERAL...)", the clauses the
+ *                           checker has at the end of the beginning, by index
+ *
+ * which is what Proof::Replay reads after the beginning (without the line
+ * numerals). NULL otherwise, with the reason in *why (if not NULL).
+ *
+ * WHY THIS IS NOT A WEAKNESS. A certificate by saturation starts from
+ * clauses that the checker builds from the statement; whoever writes the
+ * steps must know them exactly, with the checker's numbers. For logic the
+ * engine computes them with code of its own that mirrors the checker's
+ * (Engine.h, qr_clauses_item()); here they are asked of the checker. Either
+ * way they must be the very clauses the checker will build, or the steps
+ * are rejected: a mirror can only agree with the checker, and agreeing
+ * with an error of the checker protects from nothing. What is accepted
+ * depends on the finished certificate alone, which proof_check_certificate()
+ * reads from the start, and the checker is right or wrong about it whatever
+ * the clauses were used for.
+ */
+char* proof_arithmetic_clauses(const char* beginning, const char** why);
+
 #ifdef __cplusplus
 }
 #endif

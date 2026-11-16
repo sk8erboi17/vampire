@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -502,16 +504,37 @@ struct Recheck {
  * Returns false in the child process, with the clauses loaded: the caller
  * must return at once so that the process goes on to refute them.
  */
+bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
+                         const std::vector<std::pair<std::string, std::string>>& strategy = {});
+
 bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, bool proved, Recheck& recheck)
 {
-  Options& options = *env.options;
   recheck.problem = "no time was given to it (math_recheck_time 0)";
-  if (proved && !options.mathRecheckTime()) return true;
+  if (proved && !env.options->mathRecheckTime()) return true;
 
   QrVerdict handed = qr_clauses_item(item.text.c_str(), item.text.c_str() + item.text.size());
+  return refuteHandedClauses(handed.logic, problemName, run, proved, recheck);
+}
+
+/**
+ * The work of refuteCheckerClauses(), on clauses already handed over: the
+ * beginning of a certificate by saturation, the symbols and the clauses
+ * the checker has after it (Proof/Replay.hpp). They come from the engine
+ * for a statement of logic, and from the checker itself for a statement
+ * about integers proved from their laws (certifyByLaws()). @b strategy is
+ * options of Vampire set after those that make its inferences followable,
+ * for a search that is known to need them.
+ */
+bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
+                         const std::vector<std::pair<std::string, std::string>>& strategy)
+{
+  Options& options = *env.options;
+  /* A recheck with no time is no recheck (a time limit of zero would be none at all). */
+  recheck.problem = "no time was given to it (math_recheck_time 0)";
+  if (proved && !options.mathRecheckTime()) return true;
   Proof::Replay replay;
   recheck.problem = "the statement has no translation into the clauses of the checker";
-  if (!handed.logic || !replay.start(handed.logic)) return true;
+  if (!handedOver || !replay.start(handedOver)) return true;
 
   std::string base = (std::filesystem::temp_directory_path()
     / ("vampire-latex-" + std::to_string(getpid()) + "-" + std::to_string(run.statements) + "-recheck")).string();
@@ -549,6 +572,13 @@ bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& pro
       } catch (Lib::Exception&) {
         /* An option this Vampire does not have, or not with this value: the
          * run goes on, and an inference that cannot be followed will show. */
+      }
+    }
+    for (const auto& option : strategy) {
+      try {
+        options.set(option.first, option.second);
+      } catch (Lib::Exception&) {
+        /* As above: the search goes on with the options it has. */
       }
     }
 
@@ -599,9 +629,91 @@ struct ArithmeticAnswer {
   bool certified = false;  // Vampire also gave numbers that settle the statement, and the independent
                            // checker recomputed the statement on them
   bool counted = false;    // ... and settled by its complete count a quantifier over one integer that no number shows
+  bool byLaws = false;     // or: the checker followed a refutation by Vampire of its own clauses with the laws of the
+                           // integers (certifyByLaws())
+  unsigned steps = 0;      // ... of so many steps
+  std::string lawsProblem; // if that was tried and did not certify: where it stopped
   std::string certificate; // the certificate the checker accepted
   std::string numbers;     // those numbers, as LaTeX: "$x = 7$, $y = 8$"
 };
+
+/**
+ * Has the independent checker follow a proof, by Vampire, that a statement
+ * about integers holds, or with @b denied that it fails, from the laws of
+ * the integers.
+ *
+ * Vampire's arithmetic theories have proved it, but their inferences
+ * compute: they are not steps of the checker. The checker has a
+ * certificate for this ("arithmetic", chapter 20f of checker.c): it
+ * translates the statement by itself, with sum, opposite, product and
+ * order as symbols of which it knows only the laws of the integers, which
+ * it adds, and follows a refutation of the clauses it makes, together with
+ * clauses without variables that it accepts by computing them. Vampire
+ * refutes those very clauses, with no theory and with the options whose
+ * inferences can be followed, and Proof::Replay writes its inferences as
+ * the checker's steps, as for a statement of logic (refuteHandedClauses()).
+ *
+ * The clauses are asked of the checker (proof_arithmetic_clauses()):
+ * first to know the numerals of the translation, then with the facts about
+ * them (NumberStatement::arithmeticFacts()), which are given to Vampire
+ * too. What counts is the checker accepting the finished certificate.
+ *
+ * Returns false in a child process, with the clauses loaded: the caller
+ * must return at once.
+ */
+bool certifyByLaws(const NumberStatement& statement, bool denied, const std::string& problemName, Run& run, Recheck& recheck)
+{
+  std::string beginning = statement.arithmeticBeginning(denied);
+  recheck.problem = "the statement is not about integers";
+  if (beginning.empty()) return true;
+  const char* why = "";
+  char* first = proof_arithmetic_clauses((beginning + "end\n").c_str(), &why);
+  if (!first) {
+    recheck.problem = std::string("the checker does not translate the statement: ") + why;
+    return true;
+  }
+  std::vector<long long> numerals;
+  std::istringstream line(std::string(first, std::strcspn(first, "\n")));
+  std::string word;
+  line >> word;
+  for (long long value; line >> value;) numerals.push_back(value);
+  std::free(first);
+
+  std::string facts = NumberStatement::arithmeticFacts(numerals);
+  char* clauses = proof_arithmetic_clauses((beginning + facts + "end\n").c_str(), &why);
+  if (!clauses) {
+    recheck.problem = std::string("the checker does not accept the facts about the numerals: ") + why;
+    return true;
+  }
+  const char* listed = std::strchr(clauses, '\n');   // what follows the line "numerals"
+  std::string handed = beginning + facts + (listed ? listed + 1 : "");
+  std::free(clauses);
+
+  /* Two searches, one after the other, each with the time of a recheck.
+   * With the laws of a ring among the clauses the default selection of
+   * literals gets lost in the sums and products: "(ab - 2)(a - b) = 0 and
+   * (bc - 2)(b - c) = 0 give (ac - 2)(a - c) = 0" is not refuted in five
+   * seconds with it. The first search has selection 1, the saturation
+   * algorithm that does not discard clauses to meet the time limit
+   * (discount: the default one finds that refutation with three seconds on
+   * an idle machine and misses it with two, or with three on a busy one),
+   * and four clauses chosen by weight for one by age: then it takes 0.06
+   * seconds, and 1.5 with the build for debugging. The second search is the
+   * default, which refutes other problems. Measured on 120 true claims of
+   * Math/tools/fuzz_arithmetic_laws.py, two seconds each: the first refutes
+   * 93, the default 100, the two one after the other 106. */
+  static const std::vector<std::vector<std::pair<std::string, std::string>>> STRATEGIES = {
+    {{"selection", "1"}, {"saturation_algorithm", "discount"}, {"age_weight_ratio", "1:4"}}, {}};
+  std::string problems;   // where each search stopped, for a reader
+  for (size_t i = 0; i < STRATEGIES.size(); i++) {
+    recheck = Recheck();
+    if (!refuteHandedClauses(handed.c_str(), problemName, run, /* proved */ true, recheck, STRATEGIES[i])) return false;
+    if (recheck.certified) return true;
+    problems += (i ? "; then " : "") + recheck.problem;
+  }
+  recheck.problem = problems;
+  return true;
+}
 
 /** A number as the checker writes it ("7", "-1/2"), in LaTeX. */
 std::string numberLatex(const std::string& value)
@@ -880,6 +992,21 @@ bool askArithmetic(const std::string& handedOver, const std::string& problemName
       answer.certificate = certificate;
       for (size_t i = 0; i < values.size(); i++)
         answer.numbers += std::string(i ? ", " : "") + "$" + letterLatex(witnesses.letters[i]) + " = " + numberLatex(values[i]) + "$";
+    }
+
+    /* No numbers settle it: a statement that holds for every value, or a
+     * refutation that needs more than values. Among integers the checker
+     * can follow a proof from their laws (certifyByLaws()). */
+    if (!answer.certified && statement.sort() == "$int") {
+      Recheck byLaws;
+      if (!certifyByLaws(statement, settled->denied, problemName, run, byLaws)) return false;
+      if (byLaws.certified) {
+        answer.certified = answer.byLaws = true;
+        answer.certificate = byLaws.certificate;
+        answer.steps = byLaws.steps;
+      } else {
+        answer.lawsProblem = byLaws.problem;
+      }
     }
   }
   for (const Search& search : searches) {
@@ -1332,7 +1459,18 @@ std::optional<int> Driver::run()
             + (arithmetic.denied ? "la sua negazione" : "l'enunciato")
           : "The mathematical engine had neither a proof nor a refutation; the statement was given to Vampire's arithmetic theories as a problem over " + arithmetic.sort + ", and Vampire proved "
             + (arithmetic.denied ? "its negation" : "the statement");
-        if (arithmetic.certified) {
+        if (arithmetic.byLaws) {
+          /* From the laws of the integers: the checker followed Vampire's refutation of its clauses. */
+          outcome.reason += italian
+            ? ". Vampire ha poi refutato, senza teorie, le clausole che il verificatore indipendente ricava dall'enunciato con le leggi degli interi, e il verificatore ha seguito la refutazione passo per passo."
+            : ". Vampire then refuted, with no theory, the clauses that the independent checker builds from the statement with the laws of the integers, and the checker followed the refutation step by step.";
+          outcome.certificate = arithmetic.certificate;
+          outcome.rechecked = (int)arithmetic.steps;
+          if (arithmetic.denied)
+            outcome.proof = (italian ? "\\textbf{L'enunciato \\`e falso.} Vampire ha dimostrato la negazione dalle leggi degli interi, e il verificatore indipendente ne ha seguito, uno per uno, i "
+                                     : "\\textbf{The statement is false.} Vampire proved its negation from the laws of the integers, and the independent checker followed, one by one, the ")
+              + std::to_string(arithmetic.steps) + (italian ? " passi." : " steps.");
+        } else if (arithmetic.certified) {
           /* With the numbers: the checker has recomputed the statement on them. */
           std::string with = arithmetic.numbers.empty() ? "" : (italian ? " (" : " (") + arithmetic.numbers + ")";
           /* A quantifier over one integer that no number shows: the checker settled it by its complete count. */
@@ -1355,6 +1493,8 @@ std::optional<int> Driver::run()
         } else {
           outcome.reason += italian ? ". La prova non è ricontrollata dal verificatore indipendente."
                                     : ". The proof is not rechecked by the independent checker.";
+          if (!arithmetic.lawsProblem.empty())
+            outcome.reason += (italian ? " Dalle leggi degli interi: " : " From the laws of the integers: ") + arithmetic.lawsProblem + ".";
         }
         status = outcome.status;
         decidedBy = "vampire";

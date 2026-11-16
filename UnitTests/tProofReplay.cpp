@@ -429,3 +429,24 @@ TEST_FUN(an_equipotence_with_a_product_of_sets_has_no_clauses_to_hand_over)
   QrVerdict handedOver = qr_clauses_item(item.c_str(), item.c_str() + item.size());
   ASS(handedOver.logic == nullptr);
 }
+
+/* p(x, h(c, x));  h(x, h(k(x), y)) = y;  not p(h(k(c), c), c).  Symbols: 0 h, 1 c, 2 p, 3 k. */
+static const std::vector<std::string> BOUND_SYMBOLS = {"2 0", "0 0", "2 1", "1 0"};
+static const std::vector<std::string> BOUND_CLAUSES = {
+  "(clause (pos (f 2 (v 0) (f 0 (f 1) (v 0)))))",
+  "(clause (eq (f 0 (v 0) (f 0 (f 3 (v 0)) (v 1))) (v 1)))",
+  "(clause (neg (f 2 (f 0 (f 3 (f 1)) (f 1)) (f 1))))"};
+
+TEST_FUN(rebuilds_a_superposition_where_a_variable_before_the_place_stands_for_a_term)
+{
+  Replay replay;
+  ASS(replay.start(handed(BOUND_SYMBOLS, BOUND_CLAUSES)));
+  for (unsigned unit = 1; unit <= 3; unit++) replay.input(unit, (int)unit - 1);
+
+  /* h(c, x) rewritten with x standing for h(k(c), y): p(h(k(c), y), h(c, h(k(c), y))) becomes p(h(k(c), y), y).
+   * In the instance the place of h(c, ...) is 5, not 2, and that is the place the checker counts. */
+  ASS(replay.derive(4, {1, 2}, clause(replay, "(clause (pos (f 2 (f 0 (f 3 (f 1)) (v 0)) (v 0))))")));
+  ASS(contains(replay.certificate(), " 0 5 (subst"));
+  ASS(replay.derive(5, {4, 3}, clause(replay, "(clause)")));
+  ASS(replay.refutes(5));
+}

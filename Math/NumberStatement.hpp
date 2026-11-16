@@ -120,6 +120,28 @@ public:
   std::string certificate(bool denied, const WitnessProblem& problem, const std::vector<std::string>& values) const;
 
   /**
+   * The beginning of a certificate "arithmetic" (chapter 20f of
+   * Math/quaerens/checker.c) that the statement holds or, with @b denied,
+   * that it fails, up to its line "clausify forward": the checker turns
+   * the statement into clauses in which sum, opposite, product and order
+   * are symbols known only by the laws of the integers, which it adds, and
+   * follows a refutation of them. Empty if the statement is not about
+   * integers: the checker has no laws for the others.
+   */
+  std::string arithmeticBeginning(bool denied) const;
+
+  /**
+   * Lines "step compute" of such a certificate: facts about the numerals
+   * of its translation, @b numerals being their values in the order of
+   * their symbols (proof_arithmetic_clauses() lists them). Any two numerals
+   * are different, the smaller is less than the other and not the other
+   * way round, and a sum or product of two of them that is one of them is
+   * that one. The checker accepts each by computing it; what a proof needs
+   * beyond these it derives from the laws.
+   */
+  static std::string arithmeticFacts(const std::vector<long long>& numerals);
+
+  /**
    * Reads a number as Vampire writes one in an answer ("7", "-3", "1/2",
    * "$to_real(1/2)") into the checker's notation. Returns false for
    * anything else: an answer that is not a number is not a witness.

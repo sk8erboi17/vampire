@@ -170,9 +170,20 @@ check_output_contains "% Result 12: CounterexampleVerified (engine)" --proof off
 # a statement on numbers that the engine cannot decide goes to Vampire's arithmetic
 # theories, as it is and as its negation: what is proved there is found, not verified,
 # and says which of the two was proved. Variables of two kinds are not handed over
-check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved the statement" --proof off -t 10 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved its negation" --proof off -t 10 latex/numbers.tex
+
+# among integers the checker follows a proof from their laws (20f of checker.c): Vampire
+# refutes, with no theory, the clauses the checker makes of the statement with those laws,
+# and the checker follows it step by step. Statements 3 and 4 hold for every value of
+# several variables, and no number shows that: they are certified this way, and only
+# this way (without the recheck they are found, not verified, as above)
+check_output_contains "% Result 3: TheoremCertified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 4: TheoremCertified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "the clauses that the independent checker builds from the statement with the laws of the integers" --proof off -t 10 latex/numbers.tex
+check_output_contains "certificate arithmetic" --proof off -t 10 --math_certificates /dev/stdout latex/numbers.tex
+check_output_lacks "TheoremCertified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/numbers.tex
 
 # where numbers settle the statement Vampire is asked for them too, and the checker
 # recomputes the statement on them: statement 5 is false with x = 101, y = 102 (and the
@@ -194,7 +205,6 @@ check_output_contains "% SZS answers Tuple [[" --proof off -t 10 latex/numbers.t
 check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t 10 latex/numbers.tex
 check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/numbers.tex
-check_output_lacks "Certified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 
@@ -251,13 +261,13 @@ then
 	done
 
 	# a refutation without its last step does not reach the empty clause: every
-	# certificate that follows Vampire's inferences must be rejected, the others
-	# are untouched
-	for name in logic parts
+	# certificate that follows Vampire's inferences (saturation, and arithmetic from
+	# the laws of the integers) must be rejected, the others are untouched
+	for name in logic parts numbers
 	do
 		awk '{ if (held != "" && !($0 == "end" && held ~ /^step /)) print held; held = $0 } END { print held }' \
 		    "$scratch/$name.cert" > "$scratch/$name.cut"
-		saturations=`grep -c '^certificate saturation' "$scratch/$name.cert"`
+		saturations=`grep -c '^certificate \(saturation\|arithmetic\)' "$scratch/$name.cert"`
 		before=`"$scratch/checker" "$scratch/$name.cert" | grep -c 'ACCETTATO'`
 		after=`"$scratch/checker" "$scratch/$name.cut" | grep -c 'ACCETTATO'`
 		if test "$saturations" -eq 0 || test `expr "$before" - "$after"` -ne "$saturations"
