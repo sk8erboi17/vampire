@@ -122,7 +122,16 @@ what the statement is, by measurement (see "Measures").
     Vampire proves the claim once more from the laws of the integers, as
     for numbers (below), and the checker follows it: the counterexample is
     verified. For a request for an example the same interpretation is the
-    example.
+    example. When none of those works and the statement has one set, one
+    operation on it and elements of it ("in a monoid a b = e and a c = e
+    give b = c"), the monoid of triples is tried (`certifyByTriples()`): a
+    word u a^m over a, b, c with ab = ac = 1, up to the length of u, its
+    last letter and m, so S is a set of triples of integers (20g has sets
+    of several components) and the operation is defined by cases; the
+    elements are those of four candidates that a sieve in the driver finds
+    making the statement false on the small triples. Vampire cannot prove
+    the claim about it whole from the laws of the integers, and the
+    certificate has it in parts and cases (below, the measures).
 - **Logic with sets of all the parts or of all the maps of a set, or with
   written numbers.** The engine leads: a model must have every part and
   every map, which the engine builds and a first-order model builder does
@@ -468,7 +477,15 @@ quantifier over one integer (20e), the proof of a statement about
 integers from their laws (20f), with `compute`, its one step that
 computes, and the clausification without domain predicates that one set
 which is the whole domain allows (`whole` in `ck_r`), and the infinite
-counterexample over the integers (20g), whose claim is checked as 20f.
+counterexample over the integers (20g), whose claim is checked as 20f,
+whole or in parts and cases: its conjunctions, and for each a set of
+conditions ("atoms") and of leaves, which the checker checks cover every
+choice of true and false for the atoms, each leaf with its own
+refutation. Its sets may be of integers or of tuples of integers with a
+condition. A certificate with such sets has two laws more,
+-(x + y) = -x + -y and -(-x) = x, which follow from the ring and which
+Vampire needs there; the others keep the eighteen laws, and the numbers
+of their clauses.
 
 ## Migration: what is where, and what is not done
 
@@ -527,11 +544,14 @@ Not done, and not claimed:
   documents of the corpus no recheck fails, so following more of
   Vampire's inferences would add nothing there.
 - **"Not a theorem" by saturation is verified only with a counter-model
-  over the integers from a short list.** Every set is the integers from 0
-  on, every symbol one of a few expressions or conditions; a counter-model
-  that needs elements of another kind (the monoid with an element that has
-  two right inverses, whose elements are maps of the naturals) is not
-  found, and then the refutation is Vampire's word alone.
+  from a short list.** Every set is the integers from 0 on, every symbol
+  one of a few expressions or conditions; or, for one operation on one
+  set, the monoid of triples. A statement whose counter-models are none of
+  these is refuted on Vampire's word alone; on the corpus there is none
+  left. The monoid's proof is in 60 cases, found by the driver from the
+  cases of the definition, which are few here: an operation whose
+  definition has many more would give leaves past the checker's limits (16
+  atoms, 512 leaves for a part).
 - **No reasoning inside one proof across the two.** They pass statements,
   models and proofs to each other; Vampire cannot ask the engine for a
   computation in the middle of a proof.
@@ -611,7 +631,12 @@ Not done, and not claimed:
   "there is" asked of Vampire, a witness taken where it counts as a "there
   is" and refused for the closure, a definition with a letter that is not
   an argument refused. (Chapter 20g is tested in the Quaerens repository,
-  `tests/checker/test_infinite_models.c`: two certificates written by
+  `tests/checker/test_infinite_parts.c`: the certificate of the monoid of
+  triples written by Vampire, 31 parts and 60 leaves, accepted, and refused
+  without a leaf, with a part out of order or missing, with b = c, with the
+  operation changed, with an atom on a letter the chain does not bind, with
+  a sign too many or too few, with five components, with the triples
+  interpreted after a define; `tests/checker/test_infinite_models.c`: two certificates written by
   Vampire, accepted, and refused with another interpretation, with one that
   maps out of its set, with the statement denied, without the last step,
   with a wrong witness; the rules of the lines; and the claim of 3000
@@ -728,11 +753,12 @@ the opposite of the engine. On all the 309 documents that the Quaerens
 repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
 word for word, and `certificate-checker`, the checker as a program of its
-own, accepts all the certificates the run writes: 3679 (3492 before the
-proofs from the laws of the integers, which add three, the infinite
-counter-models, which add eight, the engine's counterexamples, which add
-116, and the verdicts of the engine confirmed by Vampire's arithmetic,
-which add 60). In the run that measured the infinite
+own, accepts all the certificates the run writes: 3681 in the last run
+(3492 before the proofs from the laws of the integers, which add three,
+the infinite counter-models, which add nine, the engine's
+counterexamples, which add 116, and the verdicts of the engine confirmed
+by Vampire's arithmetic, which add 60 to 63: three of those searches
+finish within their five seconds at a load of 30 and not at one of 90). In the run that measured the infinite
 counter-models, with the machine under a load of 130, the search of
 Vampire's arithmetic for "if x = k + 100 then x = m + 101"
 (`false_rare_witnesses.tex`, 14) ran out of its five seconds and that
@@ -763,8 +789,15 @@ The 29 answers that are new were looked at one by one, and all are right:
   from 0 on, and f(x) = x + 1, or f(x) = x - 1 except f(0) = 0, or both
   (for "f(g(x)) = x gives g(f(x)) = x"), or x + 1 with Y = {0} (for
   "f(f^{-1}(Y)) = Y"). The eighth, a monoid in which an element has two
-  right inverses, has counter-models whose elements are maps of the
-  naturals, not integers: it is refuted, not verified;
+  right inverses, has no counter-model of that list; it is verified in the
+  monoid of triples (above), with e = (0, 0, 0), a = (0, 0, 1) and b, c
+  the triples (1, 1, 0) and (1, 0, 0): 31 parts and 60 leaves, the
+  associativity in 30 cases on 8 atoms, 4734 steps, 514 KB, about five
+  seconds (7.9 s for the statement instead of 2.6 s). Before the parts:
+  the claim whole, with the options of a recheck, was not refuted in 300
+  seconds, the associativity alone not in 200 (in 30 with Vampire's
+  default options, which the checker cannot follow), and without the two
+  laws -(x + y) = -x + -y and -(-x) = x not in 300 even so;
 - 7 requests for an example of something that cannot exist (two sets that
   are equal by definition and should differ, a reflexive relation with an
   element not related to itself, a map that moves every part of a set, the
@@ -838,7 +871,12 @@ arithmetic theories. Where it goes:
   searches of Vampire's arithmetic, which use their whole five seconds
   when they prove nothing; `--math_confirm_engine off` gives the time back.
   (Before the engine certified its own counterexamples it was 674 s
-  instead of 133 s for 114.)
+  instead of 133 s for 114.) These processor times were measured at a load
+  of about 90; at one of 30 the same run takes 844 s of processor time and
+  2:04: a search that proves nothing uses its whole five seconds of the
+  clock, and gets more of the processor in them on a less busy machine;
+- the monoid of triples costs about five seconds, on the one statement
+  that reaches it.
 
 No improvement in speed is claimed for Vampire; what is gained is in the
 tables above. For the engine on its own there is one: `quaerens --threads 4`

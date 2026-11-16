@@ -15,6 +15,7 @@
 #include "Driver.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -508,7 +509,8 @@ struct Recheck {
  * must return at once so that the process goes on to refute them.
  */
 bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
-                         const std::vector<std::pair<std::string, std::string>>& strategy = {}, int deciseconds = 0);
+                         const std::vector<std::pair<std::string, std::string>>& strategy = {}, int deciseconds = 0,
+                         bool leaf = false);
 
 bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, bool proved, Recheck& recheck)
 {
@@ -528,10 +530,14 @@ bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& pro
  * options of Vampire set after those that make its inferences followable,
  * for a search that is known to need them; @b deciseconds, if not zero, a
  * time limit shorter than the one of a recheck, for a search that is one
- * guess among several.
+ * guess among several. With @b leaf the clauses are those of one leaf of a
+ * certificate "infinite" with parts (20g of checker.c): the steps are
+ * checked as that leaf only (proof_check_leaf()), and @b deciseconds, if
+ * not zero, is the time limit itself, longer or shorter than a recheck's
+ * (a leaf is one piece of a proof that no single recheck could find).
  */
 bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
-                         const std::vector<std::pair<std::string, std::string>>& strategy, int deciseconds)
+                         const std::vector<std::pair<std::string, std::string>>& strategy, int deciseconds, bool leaf)
 {
   Options& options = *env.options;
   /* A recheck with no time is no recheck (a time limit of zero would be none at all). */
@@ -561,7 +567,7 @@ bool refuteHandedClauses(const char* handedOver, const std::string& problemName,
     options.setMode(Options::Mode::VAMPIRE);
     int total = options.timeLimitInDeciseconds();
     if (proved) options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathRecheckTime()) : options.mathRecheckTime());
-    if (deciseconds > 0) options.setTimeLimitInDeciseconds(std::min(options.timeLimitInDeciseconds(), deciseconds));
+    if (deciseconds > 0) options.setTimeLimitInDeciseconds(leaf ? deciseconds : std::min(options.timeLimitInDeciseconds(), deciseconds));
     static const char* const FOLLOWABLE[][2] = {
       {"sat_solver", "minisat"}, {"splitting_congruence_closure", "off"}, {"function_definition_elimination", "none"},
       {"unused_predicate_definition_removal", "off"}, {"blocked_clause_elimination", "off"}, {"equality_proxy", "off"},
@@ -615,7 +621,7 @@ bool refuteHandedClauses(const char* handedOver, const std::string& problemName,
 
   std::string certificate = replay.certificate();
   const char* why = "";
-  if (proof_check_certificate(certificate.c_str(), &why) != PROOF_CHECK_ACCEPTED) {
+  if ((leaf ? proof_check_leaf(certificate.c_str(), &why) : proof_check_certificate(certificate.c_str(), &why)) != PROOF_CHECK_ACCEPTED) {
     recheck.problem = std::string("the independent checker did not accept the rebuilt steps: ") + why;
     return true;
   }
@@ -667,7 +673,8 @@ struct ArithmeticAnswer {
  * Returns false in a child process, with the clauses loaded: the caller
  * must return at once.
  */
-bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick = false);
+bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick = false,
+                      int leafDeciseconds = 0);
 
 bool certifyByLaws(const NumberStatement& statement, bool denied, const std::string& problemName, Run& run, Recheck& recheck)
 {
@@ -705,10 +712,14 @@ std::string clausesListed(const char* listing, std::vector<long long>& numerals)
  * to its line "clausify": the clauses from the checker, the facts about
  * the numerals, the refutation from Vampire, the steps from Proof::Replay
  * (see certifyByLaws()). With @b quick, one search of two seconds with the
- * first strategy, for a beginning that is one guess among several.
+ * first strategy, for a beginning that is one guess among several. With
+ * @b leafDeciseconds the beginning is that of one leaf of a certificate
+ * "infinite" with parts, and each search has that time limit
+ * (refuteHandedClauses()).
  * Returns false in a child process.
  */
-bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick)
+bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick,
+                      int leafDeciseconds)
 {
   const char* why = "";
   char* first = proof_arithmetic_clauses((beginning + "end\n").c_str(), &why);
@@ -748,7 +759,9 @@ bool certifyBeginning(const std::string& beginning, const std::string& problemNa
   std::string problems;   // where each search stopped, for a reader
   for (size_t i = 0; i < (quick ? 1 : STRATEGIES.size()); i++) {
     recheck = Recheck();
-    if (!refuteHandedClauses(handed.c_str(), problemName, run, /* proved */ true, recheck, STRATEGIES[i], quick ? 20 : 0)) return false;
+    if (!refuteHandedClauses(handed.c_str(), problemName, run, /* proved */ true, recheck, STRATEGIES[i],
+                             leafDeciseconds ? (quick ? std::min(20, leafDeciseconds) : leafDeciseconds) : quick ? 20 : 0,
+                             leafDeciseconds != 0)) return false;
     if (recheck.certified) return true;
     problems += (i ? "; then " : "") + recheck.problem;
   }
@@ -1145,6 +1158,257 @@ struct InfiniteAnswer {
   std::string problem;        // if none was found: why, for a reader
 };
 
+/* ---------------------------------------------------------------------------
+ * The monoid of one-sided inverses, an interpretation by triples of integers
+ * ---------------------------------------------------------------------------
+ *
+ * "In a monoid, a * b = e and a * c = e give b = c" holds in every finite
+ * monoid and is false: in the monoid of the words over a, b, c with ab =
+ * ac = 1, a has two right inverses. That monoid is not made of integers,
+ * but one of its quotients is made of triples of them: a word u a^m with u
+ * over b and c, up to its length n, its last letter l (0 for b or for no
+ * letter, 1 for c) and m. Two words with the same triple multiply the same
+ * way, because a^m cancels the first m letters of what follows and keeps
+ * the rest:
+ *
+ *     (n, l, m) * (n', l', m') = (n + n' - m, l', m')   if n' > m
+ *                                (n, l, m')             if n' = m
+ *                                (n, l, m - n' + m')    if n' < m
+ *
+ * on the triples with n, m >= 0, l in {0, 1}, and l = 1 only if n >= 1.
+ * The unit is (0, 0, 0), a = (0, 0, 1), b = (1, 0, 0), c = (1, 1, 0). The
+ * checker writes the claim that this is an interpretation in which the
+ * statement is false, with the sets of triples of 20g of checker.c; Vampire
+ * cannot prove it whole from the laws of the integers (nor associativity
+ * alone, with the options a recheck needs, in two hundred seconds), and
+ * proves each of its cases in a few: the certificate has parts and leaves.
+ */
+
+typedef std::array<long long, 3> Triple;
+
+/** The operation of the monoid on triples, as the certificate defines it. */
+static Triple oneSidedProduct(const Triple& x, const Triple& y)
+{
+  if (y[0] > x[2]) return {x[0] + y[0] - x[2], y[1], y[2]};
+  if (y[0] == x[2]) return {x[0], x[1], y[2]};
+  return {x[0], x[1], x[2] - y[0] + y[2]};
+}
+
+/** A tree of the checker's notation (chapter 11): an atom or a list. */
+struct Sexp {
+  std::string atom;
+  std::vector<Sexp> items;
+};
+
+static bool readSexp(const std::string& text, size_t& at, Sexp& out)
+{
+  while (at < text.size() && std::isspace((unsigned char)text[at])) at++;
+  if (at >= text.size()) return false;
+  if (text[at] == ')') return false;
+  if (text[at] != '(') {
+    size_t start = at;
+    while (at < text.size() && !std::isspace((unsigned char)text[at]) && text[at] != '(' && text[at] != ')') at++;
+    out.atom = text.substr(start, at - start);
+    return true;
+  }
+  at++;
+  for (;;) {
+    while (at < text.size() && std::isspace((unsigned char)text[at])) at++;
+    if (at >= text.size()) return false;
+    if (text[at] == ')') { at++; return true; }
+    Sexp item;
+    if (!readSexp(text, at, item)) return false;
+    out.items.push_back(item);
+  }
+}
+
+/**
+ * The statement in the monoid of triples, with each quantifier over the
+ * triples whose numbers are at most two: a sieve for the choice of the
+ * elements, not a proof (the checker's certificate is the proof). @b ok
+ * goes false on anything the sieve does not know.
+ */
+struct TripleSieve {
+  std::string operation;
+  std::map<std::string, Triple> elements;
+  std::vector<Triple> box;
+  std::vector<std::pair<std::string, Triple>> bound;
+  bool ok = true;
+
+  Triple term(const Sexp& t)
+  {
+    if (t.items.empty()) {
+      for (size_t i = bound.size(); i-- > 0;)
+        if (bound[i].first == t.atom) return bound[i].second;
+      auto found = elements.find(t.atom);
+      if (found != elements.end()) return found->second;
+      ok = false;
+      return {0, 0, 0};
+    }
+    if (t.items.size() == 3 && t.items[0].atom == operation) return oneSidedProduct(term(t.items[1]), term(t.items[2]));
+    ok = false;
+    return {0, 0, 0};
+  }
+
+  bool holds(const Sexp& c)
+  {
+    if (!ok) return false;
+    if (c.items.empty()) {
+      if (c.atom == "true") return true;
+      ok = false;
+      return false;
+    }
+    const std::string& head = c.items[0].atom;
+    if (head == "not" && c.items.size() == 2) return !holds(c.items[1]);
+    if ((head == "and" || head == "or" || head == "implies" || head == "iff") && c.items.size() == 3) {
+      bool a = holds(c.items[1]), b = holds(c.items[2]);
+      return head == "and" ? a && b : head == "or" ? a || b : head == "implies" ? !a || b : a == b;
+    }
+    if (head == "=" && c.items.size() == 3) return term(c.items[1]) == term(c.items[2]);
+    if ((head == "forall" || head == "exists") && c.items.size() == 4) {
+      bool every = head == "forall";
+      for (const Triple& x : box) {
+        bound.push_back({c.items[1].atom, x});
+        bool value = holds(c.items[3]);
+        bound.pop_back();
+        if (!ok) return false;
+        if (value != every) return !every;
+      }
+      return every;
+    }
+    ok = false;
+    return false;
+  }
+};
+
+/**
+ * Tries the monoid of triples (see above) as the infinite counter-model of
+ * a statement with one set, one operation on it and elements of it, and
+ * has the checker certify it, part by part and case by case. @b head is
+ * the beginning of the certificate up to the statement. Returns false in a
+ * child process.
+ */
+static bool certifyByTriples(const std::string& head, const std::string& statementLine, const std::string& sort,
+                             const std::string& operation, const std::vector<std::string>& elements,
+                             const std::string& problemName, Run& run, InfiniteAnswer& answer)
+{
+  Options& options = *env.options;
+  static const std::vector<Triple> CANDIDATES = {{0, 0, 0}, {0, 0, 1}, {1, 0, 0}, {1, 1, 0}};
+  static const char* const TRIPLE_SET =
+    "(and (lesseq 0 (var 0)) (and (lesseq 0 (var 2)) (and (or (= (var 1) 0) (= (var 1) 1)) (implies (= (var 1) 1) (lesseq 1 (var 0))))))";
+  static const char* const TRIPLE_PRODUCT =
+    "(cases (less (var 2) (var 3)) (sub (add (var 0) (var 3)) (var 2)) (var 0)) "
+    "(cases (less (var 2) (var 3)) (var 4) (var 1)) "
+    "(cases (less (var 2) (var 3)) (var 5) (cases (= (var 3) (var 2)) (var 5) (add (sub (var 2) (var 3)) (var 5))))";
+  if (elements.size() > 6) return true;
+
+  /* The elements: the first choice, by the sum of the places of the
+   * candidates, in which the sieve finds the statement false. */
+  Sexp statement;
+  size_t at = statementLine.find('(');
+  if (at == std::string::npos || !readSexp(statementLine, at, statement)) return true;
+  TripleSieve sieve;
+  sieve.operation = operation;
+  for (long long n = 0; n <= 2; n++)
+    for (long long l = 0; l <= 1; l++)
+      for (long long m = 0; m <= 2; m++)
+        if (l == 0 || n >= 1) sieve.box.push_back({n, l, m});
+  std::vector<size_t> found;
+  size_t total = 1;
+  for (size_t i = 0; i < elements.size(); i++) total *= CANDIDATES.size();
+  for (size_t sum = 0; sum <= elements.size() * (CANDIDATES.size() - 1) && found.empty(); sum++)
+    for (size_t code = 0; code < total && found.empty(); code++) {
+      std::vector<size_t> choice;
+      size_t rest = code, places = 0;
+      for (size_t i = 0; i < elements.size(); i++) {
+        choice.push_back(rest % CANDIDATES.size());
+        places += choice.back();
+        rest /= CANDIDATES.size();
+      }
+      if (places != sum) continue;
+      for (size_t i = 0; i < elements.size(); i++) sieve.elements[elements[i]] = CANDIDATES[choice[i]];
+      sieve.ok = true;
+      bool holds = sieve.holds(statement);
+      if (!sieve.ok) return true;
+      if (!holds) found = choice;
+    }
+  answer.problem = "no choice of the elements makes the statement false in the monoid of triples, as far as the sieve sees";
+  if (found.empty()) return true;
+
+  std::string beginning = head + "interpret " + sort + " (tuple 3 " + TRIPLE_SET + ")\n" + "define " + operation + " " + TRIPLE_PRODUCT + "\n";
+  for (size_t i = 0; i < elements.size(); i++) {
+    const Triple& t = CANDIDATES[found[i]];
+    beginning += "define " + elements[i] + " " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
+  }
+
+  /* The parts and their cases, as proposed by the checker's side. */
+  const char* why = "";
+  char* listing = proof_infinite_cases(beginning.c_str(), &why);
+  if (!listing) { answer.problem = std::string("the checker does not read the monoid of triples: ") + why; return true; }
+  struct Part { std::string atoms; std::vector<std::string> leaves; };
+  std::vector<Part> parts;
+  std::istringstream lines(listing);
+  std::free(listing);
+  for (std::string line; std::getline(lines, line);) {
+    if (line.compare(0, 5, "part ") == 0) parts.push_back({});
+    else if (!parts.empty() && line.compare(0, 5, "atom ") == 0) parts.back().atoms += line + "\n";
+    else if (!parts.empty() && (line == "leaf" || line.compare(0, 5, "leaf ") == 0)) parts.back().leaves.push_back(line);
+  }
+  if (parts.empty()) return true;
+
+  /* Each part: first whole, with one short search; then case by case,
+   * each leaf with two searches of twice the time of a recheck. All of it
+   * within twelve times the time of the arithmetic theories (one minute by
+   * default) for each part, and twenty-four for all of them. */
+  int leafTime = 2 * options.mathRecheckTime();
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2400 * (long)options.mathNumbersTime());
+  std::string certificate = beginning;
+  unsigned steps = 0;
+  for (size_t k = 0; k < parts.size(); k++) {
+    std::string part = "part " + std::to_string(k) + "\n";
+    std::string body;
+    Recheck recheck;
+    std::string prefix = beginning + part + "leaf\n";
+    if (!certifyBeginning(prefix + "clausify forward\n", problemName, run, recheck, /* quick */ true, leafTime)) return false;
+    if (recheck.certified && recheck.certificate.compare(0, prefix.size(), prefix) == 0) {
+      body = "leaf\n" + recheck.certificate.substr(prefix.size(), recheck.certificate.size() - prefix.size() - 4);
+      steps += recheck.steps;
+    } else {
+      if (parts[k].atoms.empty()) { answer.problem = "a part of the claim about the monoid of triples was not refuted: " + recheck.problem; return true; }
+      body = parts[k].atoms;
+      for (const std::string& leaf : parts[k].leaves) {
+        if (std::chrono::steady_clock::now() > deadline) { answer.problem = "the cases of the monoid of triples took longer than their time"; return true; }
+        prefix = beginning + part + parts[k].atoms + leaf + "\n";
+        Recheck one;
+        if (!certifyBeginning(prefix + "clausify forward\n", problemName, run, one, false, leafTime)) return false;
+        if (!one.certified || one.certificate.compare(0, prefix.size(), prefix) != 0) {
+          answer.problem = "a case of the claim about the monoid of triples was not refuted: " + one.problem;
+          return true;
+        }
+        body += leaf + "\n" + one.certificate.substr(prefix.size(), one.certificate.size() - prefix.size() - 4);
+        steps += one.steps;
+      }
+    }
+    certificate += part + body;
+  }
+  certificate += "end\n";
+  if (proof_check_certificate(certificate.c_str(), &why) != PROOF_CHECK_ACCEPTED) {
+    answer.problem = std::string("the checker did not accept the monoid of triples, part by part: ") + why;
+    return true;
+  }
+  answer.certified = true;
+  answer.certificate = certificate;
+  answer.steps = steps;
+  std::string op = latexName(operation).latex;
+  answer.interpretation = "$" + latexName(sort).latex + " = \\{(n, \\ell, m) \\in \\mathbb{N}_0 \\times \\{0, 1\\} \\times \\mathbb{N}_0 \\mid \\ell = 1 \\Rightarrow n \\ge 1\\}$, "
+    "$(n, \\ell, m) " + op + " (n', \\ell', m')$ $= (n + n' - m, \\ell', m')$ for $n' > m$, $(n, \\ell, m')$ for $n' = m$, $(n, \\ell, m - n' + m')$ for $n' < m$";
+  for (size_t i = 0; i < elements.size(); i++) {
+    const Triple& t = CANDIDATES[found[i]];
+    answer.interpretation += ", $" + latexName(elements[i]).latex + " = (" + std::to_string(t[0]) + ", " + std::to_string(t[1]) + ", " + std::to_string(t[2]) + ")$";
+  }
+  return true;
+}
+
 /**
  * Looks for an infinite interpretation over the integers in which a
  * statement of logic is false, and has the independent checker certify it
@@ -1334,6 +1598,23 @@ bool certifyInfinite(const Parse::LaTeX::Item& item, const std::string& problemN
       }
     }
 
+  }
+
+  /* No simple interpretation over the integers: for a statement with one
+   * set, one operation on it and elements of it, the monoid of triples. */
+  std::string operation;
+  std::vector<std::string> elements;
+  bool shaped = sorts.size() == 1;
+  for (const Symbol& symbol : symbols) {
+    if (symbol.predicate || symbol.arity == 1) shaped = false;
+    else if (symbol.arity == 2) { shaped = shaped && operation.empty(); operation = symbol.name; }
+    else elements.push_back(symbol.name);
+  }
+  if (shaped && !operation.empty()) {
+    std::string problem = answer.problem;
+    if (!certifyByTriples("certificate infinite\n" + declarations + statementLine + "\n", statementLine, sorts[0], operation, elements,
+                          problemName, run, answer)) return false;
+    if (!answer.certified) answer.problem = problem + "; " + answer.problem;
   }
   return true;
 }

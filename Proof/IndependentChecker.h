@@ -76,6 +76,35 @@ ProofCheck proof_check_certificate(const char* certificate, const char** why);
 ProofCheck proof_check_next(const char** text, const char** why, long long steps);
 
 /**
+ * For whoever writes a certificate "infinite" with parts (20g of
+ * Math/quaerens/checker.c) one leaf at a time: checks a certificate that
+ * has one part with one leaf, as if that were the whole claim. A leaf
+ * accepted this way proves nothing about the statement; only the whole
+ * certificate, every part and every leaf, checked by
+ * proof_check_certificate(), does.
+ */
+ProofCheck proof_check_leaf(const char* certificate, const char** why);
+
+/**
+ * For whoever writes a certificate "infinite" with parts: @b beginning is
+ * such a certificate up to its interpretation (its lines interpret and
+ * define), with nothing after. The result, on the heap, is
+ *
+ *     parts N
+ *     part 0
+ *     atom C ...            the conditions to split on (none for a part without cases)
+ *     leaf SIGNS ...        one per case, + - or . for every atom
+ *     part 1
+ *     ...
+ *
+ * cases proposed by following the (cases C E F) of the definitions: split
+ * on the first one whose condition has no other cases and names only the
+ * letters of the part's chain, decide it both ways, and so on. NULL, with
+ * the reason in *why, if the checker does not read the beginning.
+ */
+char* proof_infinite_cases(const char* beginning, const char** why);
+
+/**
  * For whoever writes a certificate "arithmetic" or "infinite" (chapters
  * 20f and 20g of Math/quaerens/checker.c): the clauses the checker starts
  * from.

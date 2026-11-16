@@ -42,6 +42,16 @@ ProofCheck proof_check_certificate(const char* certificate, const char** why)
   return proof_check_next(&text, why, 0);
 }
 
+ProofCheck proof_check_leaf(const char* certificate, const char** why)
+{
+  /* The only place where a certificate with one leaf of one part is read
+   * as complete (ck_g_partial of 20g): the text cannot ask for it. */
+  ck_g_partial = 1;
+  ProofCheck answer = proof_check_certificate(certificate, why);
+  ck_g_partial = 0;
+  return answer;
+}
+
 /* ------------------------------------------------------------------------
  * The clauses of a certificate "arithmetic", for whoever writes one
  * ------------------------------------------------------------------------
@@ -142,11 +152,13 @@ char* proof_arithmetic_clauses(const char* beginning, const char** why)
 {
   ck_begin(beginning, 0);
   ck_g_claim = NULL;
+  ck_g_partial = 1;   /* a beginning with parts has one leaf (20g) */
   while (isspace((unsigned char)*ck_cursor)) ck_cursor++;
   if (!ck_word("certificate")) ck_reject("not the beginning of a certificate");
   else if (ck_word("arithmetic")) ck_a_read();
   else if (ck_word("infinite")) ck_g_read();
   else ck_reject("not the beginning of a certificate arithmetic or infinite");
+  ck_g_partial = 0;
   if (ck_status == CK_ACCEPTED && !ck_r.started) ck_reject("the beginning has no line clausify");
 
   ProofText out = {0};
@@ -179,3 +191,148 @@ char* proof_arithmetic_clauses(const char* beginning, const char** why)
   ck_finish();
   return out.text;
 }
+
+/* ------------------------------------------------------------------------
+ * The parts of the claim of a certificate "infinite", and their cases
+ * ------------------------------------------------------------------------
+ *
+ * None of this is trusted: the checker reads the atoms and leaves it is
+ * given, and checks that they cover every case and that every leaf is
+ * refuted (20g). Here they are only proposed. */
+
+/* 1 if the trees a and b are the same, node by node. */
+static int proof_same(const CkNNode* a, const CkNNode* b)
+{
+  if (!a || !b) return a == b;
+  if (a->kind != b->kind || a->value != b->value) return 0;
+  if (a->kind == CK_N_IN && memcmp(&a->set, &b->set, sizeof a->set) != 0) return 0;
+  return proof_same(a->a, b->a) && proof_same(a->b, b->b) && proof_same(a->c, b->c);
+}
+
+/* t with every (cases C E F) whose condition is a decided atom replaced by
+ * the case it gives: atom[i] has the value decided[i] (1, 0, or -1 for
+ * undecided). */
+static const CkNNode* proof_decide(const CkNNode* t, const CkNNode* const* atom, const int* decided, int atoms)
+{
+  if (!t || ck_status != CK_ACCEPTED) return t;
+  if (t->kind == CK_N_CASES) {
+    const CkNNode* condition = proof_decide(t->c, atom, decided, atoms);
+    for (int i = 0; i < atoms; i++)
+      if (decided[i] >= 0 && proof_same(condition, atom[i]))
+        return proof_decide(decided[i] ? t->a : t->b, atom, decided, atoms);
+    CkNNode* copy = ck_n_node(CK_N_CASES);
+    *copy = *t;
+    copy->c = condition;
+    copy->a = proof_decide(t->a, atom, decided, atoms);
+    copy->b = proof_decide(t->b, atom, decided, atoms);
+    return copy;
+  }
+  CkNNode* copy = ck_n_node(t->kind);
+  *copy = *t;
+  copy->a = proof_decide(t->a, atom, decided, atoms);
+  copy->b = proof_decide(t->b, atom, decided, atoms);
+  return copy;
+}
+
+/* The condition of the innermost and leftmost (cases C E F) of t whose C
+ * has no cases and names only letters of the chain, or NULL. */
+static const CkNNode* proof_next_case(const CkNNode* t, const long long* letters, int count)
+{
+  if (!t) return NULL;
+  const CkNNode* found = proof_next_case(t->c, letters, count);
+  if (!found) found = proof_next_case(t->a, letters, count);
+  if (!found) found = proof_next_case(t->b, letters, count);
+  if (!found && t->kind == CK_N_CASES && ck_g_atom_ok(t->c, letters, count)) found = t->c;
+  return found;
+}
+
+typedef struct {
+  const CkNNode* atom[CK_G_ATOMS];
+  int decided[CK_G_ATOMS], atoms;
+  char leaf[CK_G_LEAVES][CK_G_ATOMS + 1];
+  int leaves, failed;
+  const long long* letters;
+  int count;
+} ProofCases;
+
+/* The leaves of the part under the decisions so far: split on the next case. */
+static void proof_split(ProofCases* cases, const CkNNode* part)
+{
+  if (cases->failed || ck_status != CK_ACCEPTED) return;
+  const CkNNode* decided = proof_decide(part, cases->atom, cases->decided, cases->atoms);
+  const CkNNode* next = proof_next_case(decided, cases->letters, cases->count);
+  if (!next) {
+    if (cases->leaves == CK_G_LEAVES) { cases->failed = 1; return; }
+    for (int i = 0; i < cases->atoms; i++) cases->leaf[cases->leaves][i] = cases->decided[i] < 0 ? '.' : cases->decided[i] ? '+' : '-';
+    cases->leaf[cases->leaves][cases->atoms] = 0;
+    cases->leaves++;
+    return;
+  }
+  int i = 0;
+  while (i < cases->atoms && !proof_same(cases->atom[i], next)) i++;
+  if (i == cases->atoms) {
+    if (cases->atoms == CK_G_ATOMS) { cases->failed = 1; return; }
+    cases->atom[cases->atoms] = next;
+    cases->decided[cases->atoms++] = -1;
+  }
+  for (int value = 1; value >= 0; value--) {
+    cases->decided[i] = value;
+    proof_split(cases, part);
+  }
+  cases->decided[i] = -1;
+}
+
+char* proof_infinite_cases(const char* beginning, const char** why)
+{
+  /* The parts, as the checker makes them: read the beginning with a first
+   * leaf of part 0, which also translates that leaf. */
+  size_t length = strlen(beginning);
+  char* text = malloc(length + 64);
+  if (!text) { if (why) *why = "no memory"; return NULL; }
+  memcpy(text, beginning, length);
+  strcpy(text + length, "part 0\nleaf\nclausify forward\nend\n");
+  ck_begin(text, 0);
+  ck_g_partial = 1;
+  while (isspace((unsigned char)*ck_cursor)) ck_cursor++;
+  if (!ck_word("certificate") || !ck_word("infinite")) ck_reject("not the beginning of a certificate infinite");
+  else ck_g_read();
+  ck_g_partial = 0;
+
+  ProofText out = {0};
+  if (ck_status == CK_ACCEPTED) {
+    proof_put(&out, "parts %d\n", ck_g_conjuncts);
+    for (int k = 0; k < ck_g_conjuncts && ck_status == CK_ACCEPTED; k++) {
+      long long letters[CK_N_QUANTIFIERS];
+      int count = 0;
+      ck_g_leaf_claim(ck_g_conjunct[k], NULL, letters, &count);
+      ProofCases* cases = calloc(1, sizeof *cases);
+      if (!cases) break;
+      cases->letters = letters;
+      cases->count = count;
+      proof_split(cases, ck_g_conjunct[k]);
+      proof_put(&out, "part %d\n", k);
+      if (cases->failed) {
+        /* Too many cases to list: the part as one leaf, which may still be refuted. */
+        proof_put(&out, "leaf\n");
+      } else {
+        for (int i = 0; i < cases->atoms; i++) {
+          proof_put(&out, "atom ");
+          proof_put_numbers(&out, cases->atom[i]);
+          proof_put(&out, "\n");
+        }
+        for (int l = 0; l < cases->leaves; l++) {
+          proof_put(&out, "leaf ");
+          proof_put(&out, "%s", cases->leaf[l]);
+          for (int i = (int)strlen(cases->leaf[l]); i < cases->atoms; i++) proof_put(&out, ".");
+          proof_put(&out, "\n");
+        }
+      }
+      free(cases);
+    }
+  }
+  if (why) *why = ck_reason;
+  ck_finish();
+  free(text);
+  return out.text;
+}
+
