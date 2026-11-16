@@ -205,6 +205,15 @@ check_output_contains "% SZS answers Tuple [[" --proof off -t 10 latex/numbers.t
 check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t 10 latex/numbers.tex
 check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/numbers.tex
+
+# a verdict of the engine without a certificate (statement 1: "for every n there is m
+# with m = n + 1", proved with the rules for quantifiers) is put to Vampire's arithmetic
+# too; it proves the same, and the checker certifies it (from the laws of the integers).
+# Without the confirmation it stays without a certificate
+check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 latex/numbers.tex
+check_output_contains "The engine's verdict had no certificate. Vampire's arithmetic theories proved the same" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 1: TheoremUnverified (engine)" --proof off -t 10 --math_confirm_engine off latex/numbers.tex
+check_output_lacks "proved the opposite of the engine's verdict" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 

@@ -1022,6 +1022,13 @@ Options::Options ()
                       "Vampire's arithmetic theories may work on it (on the statement and on its negation, together), within the time limit. "
                       "Same format as time_limit; 0 does not ask them.",
        .tag = OptionTag::INPUT})
+  , _mathConfirmEngine("math_confirm_engine",this,true,
+      {.short_name = "mce",
+       .description = "With LaTeX input: when the mathematical engine has proved or refuted a statement with quantifiers over numbers "
+                      "without a certificate, ask Vampire's arithmetic theories too, so that the independent checker can certify the verdict "
+                      "(with the numbers Vampire gives, or with a proof from the laws of the integers). A proof of the opposite leaves the "
+                      "statement unsolved, with a warning.",
+       .tag = OptionTag::INPUT})
   , _instantiation("instantiation",this,false,
       {.short_name = "inst",
        .description = "Heuristically instantiate variables. Often wastes a lot of effort. Consider using thi instead.",

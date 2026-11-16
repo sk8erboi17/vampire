@@ -224,7 +224,14 @@ what the statement is, by measurement (see "Measures").
   why that is no weakness): for logic the engine mirrors the checker to
   know them, and a mirror can only agree with it. There is no induction
   among the laws, and none for rationals and reals: what needs them is
-  found, not verified.
+  found, not verified. The same holds for a **verdict of the engine
+  without a certificate** on such a statement ("proved with the rules for
+  quantifiers", "trying all the remainders"): Vampire's arithmetic is asked
+  too (`--math_confirm_engine`), and if what it proves is the engine's
+  verdict and the checker certifies it, with Vampire's numbers or with a
+  proof from the laws of the integers, that is the verdict's certificate.
+  If Vampire proves the opposite, one of the two is wrong: the statement
+  is unsolved, with a warning. That has not happened in any test.
   Variables of two kinds, exponents that are
   letters, divisions by an expression, functions and roots are not handed
   over: they would need a choice the translation must not make.
@@ -327,6 +334,7 @@ English.
 | `--math_model_time T` (`-mmt`) | `2` | seconds of finite-model search beside the proof search; `0` skips it |
 | `--math_recheck_time T` (`-mrt`) | `5` | seconds Vampire may take to refute the checker's clauses again, for the recheck of a proof it has found; `0` skips the recheck |
 | `--math_numbers_time T` (`-mnt`) | `5` | seconds Vampire's arithmetic theories may work on a statement about numbers that the engine could not decide; `0` does not ask them |
+| `--math_confirm_engine on/off` (`-mce`) | `on` | also put to Vampire's arithmetic a statement about numbers that the engine proved or refuted without a certificate, so that the checker can certify the verdict; a proof of the opposite leaves it unsolved, with a warning |
 
 There is no option to have the engine decide a statement that Vampire can be
 given: that would be a second prover for the same statements.
@@ -650,6 +658,9 @@ Not done, and not claimed:
   refute them, and a false fact offered as `compute` must be refused (it
   also needs a C compiler, for the small program that asks the checker for
   its clauses). A line `BUG` is a false proof or a false refutation.
+- `checks/latex-sanity` also: statement 1 of numbers.tex, which the engine
+  proves without a certificate, certified by the confirmation, and not
+  with `--math_confirm_engine off`; no proof of the opposite of the engine.
 - `checks/sanity` and the unit tests of Vampire are unchanged and must pass
   as before.
 
@@ -683,13 +694,17 @@ they are. No statement is answered one way by one and the other way by the
 other. Among the statements the engine decides alone, 28 verdicts about
 integers that had no certificate now have one: each has one integer
 variable, and the checker's complete count says what the engine said. The
-count never said the opposite. On all the 309 documents that the Quaerens
+count never said the opposite. Asking Vampire's arithmetic about the
+other verdicts of the engine on numbers that had no certificate gives
+certificates to 114 more (on the 309 documents below), and it never
+proved the opposite of the engine. On all the 309 documents that the Quaerens
 repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
 word for word, and `certificate-checker`, the checker as a program of its
-own, accepts all the certificates the run writes: 3503 (3492 before the
-proofs from the laws of the integers, which add three, and the infinite
-counter-models, which add eight). In the run that measured the infinite
+own, accepts all the certificates the run writes: 3617 (3492 before the
+proofs from the laws of the integers, which add three, the infinite
+counter-models, which add eight, and the verdicts of the engine confirmed
+by Vampire's arithmetic, which add 114). In the run that measured the infinite
 counter-models, with the machine under a load of 130, the search of
 Vampire's arithmetic for "if x = k + 100 then x = m + 101"
 (`false_rare_witnesses.tex`, 14) ran out of its five seconds and that
@@ -787,6 +802,14 @@ arithmetic theories. Where it goes:
   having the engine rebuild the proofs, which is what happened before and
   still happens without the recheck (160.5 s with it, 170.3 s with
   `--math_recheck_time 0`).
+
+- confirming the engine's verdicts about numbers without a certificate
+  (`--math_confirm_engine`) costs the most: on the 309 documents, six at a
+  time, 674 s of processor time instead of 133 s, and 2:48 instead of
+  2:00, for the 114 certificates it adds. Each of the 358 such statements
+  gets two searches of Vampire's arithmetic, which use their whole five
+  seconds when they prove nothing; `--math_confirm_engine off` gives the
+  time back.
 
 No improvement in speed is claimed; what is gained is in the tables above.
 

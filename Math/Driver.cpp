@@ -1768,7 +1768,16 @@ std::optional<int> Driver::run()
         countByChecker(statement.numbers, count);
         if (count.certified && count.denied && conditional) count.certified = false;
       }
-      if (undecided && !count.certified && !statement.clausesOnly && statement.notTranslated.empty()) {
+      /* A verdict of the engine without a certificate, on a statement with
+       * quantifiers over numbers that the count does not settle: Vampire's
+       * arithmetic is asked too, and what it proves is put to the checker
+       * as for a statement the engine did not decide. If the checker
+       * certifies the same verdict, that is the certificate of the
+       * engine's; if Vampire proves the opposite, one of the two is
+       * wrong, and nothing is claimed (below). */
+      bool confirming = uncertified && !count.certified && !statement.clausesOnly && statement.notTranslated.empty()
+                     && env.options->mathConfirmEngine();
+      if ((undecided && !count.certified && !statement.clausesOnly && statement.notTranslated.empty()) || confirming) {
         /* Mathematics that the engine neither proved nor refuted, or read
          * and had no method for: if it is a statement with quantifiers
          * over numbers of one kind, Vampire's arithmetic theories are
@@ -1782,6 +1791,9 @@ std::optional<int> Driver::run()
         if (arithmetic.found && arithmetic.denied && conditional) arithmetic.found = false;
       }
       bool agrees = count.certified && uncertified && count.denied == (statement.verdict.outcome == QR_REFUTED);
+      bool refutedByEngine = statement.verdict.outcome == QR_REFUTED;
+      bool confirmed = confirming && arithmetic.found && arithmetic.certified && arithmetic.denied == refutedByEngine;
+      bool opposed = confirming && arithmetic.found && arithmetic.denied != refutedByEngine;
       if (count.certified && undecided) {
         /* The checker's count is the answer. */
         bool italian = run.language == Language::ITALIAN;
@@ -1801,7 +1813,7 @@ std::optional<int> Driver::run()
         decidedBy = "checker";
         addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
         reportLogic(outcome);
-      } else if (arithmetic.found) {
+      } else if (arithmetic.found && !confirming) {
         bool italian = run.language == Language::ITALIAN;
         LogicOutcome outcome;
         outcome.status = arithmetic.certified ? (arithmetic.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED)
@@ -1873,6 +1885,8 @@ std::optional<int> Driver::run()
          * claimed of the statement. */
         if (agrees) status = count.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED;
         else if (count.certified && uncertified) status = Status::UNSOLVED;
+        else if (confirmed) status = refutedByEngine ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED;
+        else if (opposed) status = Status::UNSOLVED;
         addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
         addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
                                         << " [" << statusCode(status) << "]" << std::endl;
@@ -1884,6 +1898,17 @@ std::optional<int> Driver::run()
         } else if (count.certified && uncertified) {
           addCommentSignForSZS(std::cout) << "WARNING: the independent checker's count over the one integer variable of the statement says the opposite"
                                              " of the engine's verdict; nothing is claimed of the statement" << std::endl;
+        } else if (confirmed) {
+          addCommentSignForSZS(std::cout) << "The engine's verdict had no certificate. Vampire's arithmetic theories proved the same (a problem over "
+                                          << arithmetic.sort << "), and the independent checker "
+                                          << (arithmetic.byLaws ? "followed a proof of it from the laws of the integers ("
+                                                                    + std::to_string(arithmetic.steps) + " steps)"
+                                                                : "recomputed the statement on the numbers that show it")
+                                          << std::endl;
+          if (run.certificates.is_open()) run.certificates << arithmetic.certificate << "\n";
+        } else if (opposed) {
+          addCommentSignForSZS(std::cout) << "WARNING: Vampire's arithmetic theories proved the opposite of the engine's verdict; nothing is claimed"
+                                             " of the statement" << std::endl;
         }
         if (!statement.notTranslated.empty())
           addCommentSignForSZS(std::cout) << "Not given to Vampire as a first-order problem: " << statement.notTranslated << std::endl;

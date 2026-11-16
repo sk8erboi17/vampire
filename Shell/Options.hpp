@@ -1260,6 +1260,7 @@ public:
   int mathModelTime() const { return _mathModelTime.actualValue; }
   int mathRecheckTime() const { return _mathRecheckTime.actualValue; }
   int mathNumbersTime() const { return _mathNumbersTime.actualValue; }
+  bool mathConfirmEngine() const { return _mathConfirmEngine.actualValue; }
   bool normalize() const { return _normalize.actualValue; }
   void setNormalize(bool normalize) { _normalize.actualValue = normalize; }
   GoalGuess guessTheGoal() const { return _guessTheGoal.actualValue; }
@@ -1781,6 +1782,7 @@ private:
   TimeLimitOptionValue _mathModelTime;
   TimeLimitOptionValue _mathRecheckTime;
   TimeLimitOptionValue _mathNumbersTime;
+  BoolOptionValue _mathConfirmEngine;
   BoolOptionValue _instantiation;
 
   ChoiceOptionValue<Induction> _induction;
