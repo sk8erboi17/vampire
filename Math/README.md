@@ -523,7 +523,9 @@ Not done, and not claimed:
   splittings meet written with an equation the two ways round cannot be
   followed either (the checker compares literal by literal, and no step
   turns an equation round). Where the recheck fails the engine rebuilds
-  the proof, or the theorem is reported as not verified.
+  the proof, or the theorem is reported as not verified. On the 309
+  documents of the corpus no recheck fails, so following more of
+  Vampire's inferences would add nothing there.
 - **"Not a theorem" by saturation is verified only with a counter-model
   over the integers from a short list.** Every set is the integers from 0
   on, every symbol one of a few expressions or conditions; a counter-model
@@ -543,15 +545,25 @@ Not done, and not claimed:
   proof that needs induction (the laws do not have it), a statement about
   rationals or reals (the checker has no laws for them), or one that
   Vampire does not prove from the laws within the time of a recheck, is
-  found, not verified. The engine's own proofs of such statements are not
-  handed to Vampire for that: only what Vampire's theories proved is.
+  found, not verified. A verdict of the engine about numbers that has no
+  certificate is put to Vampire's arithmetic as well
+  (`--math_confirm_engine`), and takes the certificate of what Vampire
+  proves the same way. Mixing the kinds would not help on the corpus: its
+  12 statements that mix integers and rationals and that the engine leaves
+  undecided, written for Vampire with `$is_int` and again with `$to_rat`,
+  are decided by none of its strategies in 5 to 10 s, `casc` included.
 - **A bijection is proved only if it can be written.** Vampire proves that
   two sets are equipotent from the pairs of maps the engine offers: maps of
   the statement, Skolem functions, the maps of other equipotences, up to
   two composed. A bijection defined by cases, or one that exists without
   being written, is not found. Two writings of the same equipotence are not
   recognised as one, and an equipotence with a product of sets is not
-  handed over.
+  handed over. On the corpus the statements about equipotence that have
+  no answer do not reach that point: the engine does not read them. Of
+  the 13 of `infinite_sets.tex`, 9 speak of finiteness, |X| < \infty,
+  which needs induction on the number of elements, 2 of maps from a
+  product or from a union, 1 of an equipotence to a set of numbers, and 1
+  has a LaTeX command the engine does not know.
 - **On the parts of a set Vampire only proves.** It works with the parts
   the engine proposes; that it finds no refutation says nothing.
 - **The engine's worked solutions are in English only**, and the engine's
