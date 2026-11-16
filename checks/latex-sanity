@@ -146,7 +146,7 @@ check_output_contains "comprehend 0 (clause (eq (f 2 (v 0)) (v 0)))" --proof off
 # two sets supposed equipotent: the engine goes first (statement 10). Where it has no
 # answer (statement 9) Vampire proves the statement with the bijection given as two
 # maps inverse to each other, and the checker follows its refutation of the clauses,
-# among which an equipotence can be used and not proved. Without that recheck the
+# among which a supposed equipotence gives two maps to use. Without that recheck the
 # proof is found, not verified, and the output says from what it was proved
 check_output_contains "% Result 9: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
 check_output_contains "% Result 9: TheoremUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/parts.tex
@@ -154,6 +154,18 @@ check_output_contains "with each supposed bijection given as two maps inverse to
 check_output_contains "% Result 10: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
 check_output_contains "psi1(phi1(X0)) = X0" --mode output --math_model_time 0 latex/parts.tex
 check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/parts.tex
+
+# two sets to be proved equipotent: among the clauses of the checker an equipotence
+# follows only from a bijection that is written down. The engine offers the pairs of
+# maps that could be one and its inverse (statement 11: f and g; statement 12: f and the
+# Skolem function of "f is surjective"), Vampire refutes the clauses with them, and the
+# checker follows. A map that is only half of a bijection proves nothing: the engine
+# finds the counterexample (false.tex 11 and 12)
+check_output_contains "% Result 11: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 12: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
+check_output_contains "biject 0 (f 0 (v 0)) (f 1 (v 0))" --proof off -t 10 --math_certificates /dev/stdout latex/parts.tex
+check_output_contains "% Result 11: CounterexampleVerified (engine)" --proof off -t 10 latex/false.tex
+check_output_contains "% Result 12: CounterexampleVerified (engine)" --proof off -t 10 latex/false.tex
 
 # a statement on numbers that the engine cannot decide goes to Vampire's arithmetic
 # theories, as it is and as its negation: what is proved there is found, not verified,

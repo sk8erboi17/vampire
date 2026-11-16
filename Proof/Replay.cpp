@@ -180,15 +180,16 @@ std::string Replay::printClause(const Clause& clause) const
 bool Replay::start(const std::string& handedOver)
 {
   /* The beginning of the certificate: up to the line "clausify", and the
-   * lines "comprehend" that may follow it (instances of a formula on the
-   * parts of a set, which the checker turns into clauses by itself). */
+   * lines that may follow it and that the checker turns into clauses by
+   * itself: "comprehend" (an instance of a formula on the parts of a set)
+   * and "biject" (a pair of maps offered as a bijection and its inverse). */
   std::istringstream lines(handedOver);
   std::string line;
   bool clausified = false, listed = false;
   while (!listed && std::getline(lines, line)) {
     listed = line.compare(0, 8, "symbols ") == 0;
     if (listed) break;
-    if (clausified && line.compare(0, 11, "comprehend ") != 0) return false;
+    if (clausified && line.compare(0, 11, "comprehend ") != 0 && line.compare(0, 7, "biject ") != 0) return false;
     _prefix += line + "\n";
     clausified = clausified || line.compare(0, 8, "clausify") == 0;
   }

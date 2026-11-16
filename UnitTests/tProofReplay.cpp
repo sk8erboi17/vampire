@@ -383,9 +383,43 @@ TEST_FUN(the_checker_follows_a_refutation_that_uses_an_equipotence_and_no_other)
   ASS(proof_check_certificate((head + "statement (implies (and (not (equipotent S T)) true) (exists y T (= y y)))\n" + steps).c_str(), &why) != PROOF_CHECK_ACCEPTED);
   ASS(proof_check_certificate((head + "statement (implies (and (equipotent S T) true) (exists y T (not (= y y))))\n" + steps).c_str(), &why) != PROOF_CHECK_ACCEPTED);
 
-  /* An equipotence is used, never proved: not by itself, and not from another writing of itself. */
+  /* Without a bijection written in the certificate an equipotence is never proved: not by itself, and not from
+   * another writing of itself. */
   ASS(proof_check_certificate("certificate saturation\nsort S\nstatement (equipotent S S)\nclausify\nend\n", &why) != PROOF_CHECK_ACCEPTED);
   ASS(proof_check_certificate("certificate saturation\nsort S\nsort T\nstatement (implies (equipotent S T) (equipotent S T))\nclausify\nend\n", &why) != PROOF_CHECK_ACCEPTED);
+}
+
+TEST_FUN(an_equipotence_to_prove_comes_with_the_bijections_to_try)
+{
+  qr_init();
+
+  /* "If g(f(x)) = x on S and f(g(y)) = y on T, then S and T are equipotent." The engine offers the pairs of
+   * maps that go from S to T and back (11m-f of the checker): f with g, the symbols 0 and 1, first. */
+  std::string item = "$\\displaystyle (f \\colon S \\to T \\land g \\colon T \\to S \\land \\forall x \\in S\\ (g(f(x)) = x) "
+                     "\\land \\forall y \\in T\\ (f(g(y)) = y)) \\implies (S \\sim T)$";
+  QrVerdict handedOver = qr_clauses_item(item.c_str(), item.c_str() + item.size());
+  ASS(handedOver.logic != nullptr);
+  std::string text = handedOver.logic;
+  ASS(contains(text, "\nclausify\nbiject 0 (f 0 (v 0)) (f 1 (v 0))\n"));
+
+  /* The checker builds the clauses of those lines by itself, and a bijection that is only offered proves
+   * nothing: without a refutation the certificate is not accepted. */
+  Replay replay;
+  ASS(replay.start(text));
+  const char* why = "";
+  ASS(proof_check_certificate(replay.certificate().c_str(), &why) != PROOF_CHECK_ACCEPTED);
+
+  /* The pair made of the two maps of the equipotence itself is not offered: it would say "if it holds, it holds". */
+  std::string bare = "$\\displaystyle (a \\in S) \\implies (S \\sim T)$";
+  handedOver = qr_clauses_item(bare.c_str(), bare.c_str() + bare.size());
+  ASS(handedOver.logic != nullptr);
+  ASS(!contains(handedOver.logic, "biject"));
+
+  /* Two sets that are the same set: the identity is offered. */
+  std::string same = "$\\displaystyle (a \\in S) \\implies (S \\sim S)$";
+  handedOver = qr_clauses_item(same.c_str(), same.c_str() + same.size());
+  ASS(handedOver.logic != nullptr);
+  ASS(contains(handedOver.logic, "\nbiject 0 (v 0) (v 0)\n"));
 }
 
 TEST_FUN(an_equipotence_with_a_product_of_sets_has_no_clauses_to_hand_over)

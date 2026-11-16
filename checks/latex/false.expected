@@ -8,4 +8,6 @@
 % Result 8: Unsolved (engine)
 % Result 9: CounterexampleVerified (vampire)
 % Result 10: CounterexampleVerified (engine)
-% Summary of false.tex: 10 statements; CounterexampleVerified 5; CounterexampleUnverified 4; Unsolved 1
+% Result 11: CounterexampleVerified (engine)
+% Result 12: CounterexampleVerified (engine)
+% Summary of false.tex: 12 statements; CounterexampleVerified 7; CounterexampleUnverified 4; Unsolved 1

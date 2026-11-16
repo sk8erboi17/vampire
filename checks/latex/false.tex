@@ -9,7 +9,8 @@ condition of existence that is ignored, an inequality that holds only from
 some point on, a converse that fails, a condition on all the parts of a set
 that says less than it seems (it holds in every finite set), a statement on
 integers that the engine cannot decide and Vampire's arithmetic refutes, a
-claim that does not follow from two sets being equipotent.
+claim that does not follow from two sets being equipotent, and two sets said
+to be equipotent because of a map that is only half of a bijection.
 None may be reported as proved.
 \begin{enumerate}
 \item $\displaystyle \sum_{k=1}^{n} k = \frac{n(n+2)}{2}$
@@ -22,5 +23,7 @@ None may be reported as proved.
 \item $\displaystyle (f \colon S \to S \land \forall X, Y \subseteq S\ (f(X) \subseteq f(Y) \implies X \subseteq Y)) \implies \forall y \in S\ \exists x \in S\ (f(x) = y)$
 \item $\displaystyle \forall x, y \in \mathbb{Z}\ ((\exists k \in \mathbb{Z}\ (x = k^{2} + 7) \land \exists k \in \mathbb{Z}\ (y = k^{2} + 7)) \implies x = y)$
 \item $\displaystyle (S \sim T \land \forall x, y \in S\ (x = y)) \implies \forall u \in T\ (u \neq u)$
+\item $\displaystyle (f \colon S \to T \land g \colon T \to S \land \forall x \in S\ (g(f(x)) = x)) \implies (S \sim T)$
+\item $\displaystyle (f \colon S \to T \land (\forall y \in T\ \exists x \in S\ (f(x) = y))) \implies (S \sim T)$
 \end{enumerate}
 \end{document}

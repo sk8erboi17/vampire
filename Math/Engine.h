@@ -168,7 +168,10 @@ QrVerdict qr_adopt_model(const char* item, const char* end, const QrModel* model
  *     the empty part and the whole set, and the parts that the ground
  *     literals of the statement suggest (a first-order prover cannot choose
  *     a part by itself; each instance only says "what holds for every part
- *     holds for this one");
+ *     holds for this one"); and, if the statement speaks of two sets being
+ *     equipotent, the lines "biject" of the pairs of maps that could be a
+ *     bijection between them and its inverse (each only says "if these two
+ *     maps undo each other between the two sets, the sets are equipotent");
  *   - a line "symbols N" and N lines "ARITY PREDICATE" (PREDICATE is 1 or
  *     0), one for each symbol of the translation, in the order of their
  *     numbers: the declared symbols, one predicate per set saying "is an

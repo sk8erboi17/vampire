@@ -6629,6 +6629,25 @@ typedef struct {
     SpLiteral property;
 } SpExpansion;
 
+/* Un'applicazione di un solo argomento tra i simboli delle clausole, con
+ * gli insiemi che la traduzione le conosce: manda l'insieme from in to
+ * (indici di sort_data). Lo sono le funzioni dichiarate di un argomento,
+ * le funzioni di Skolem di un "esiste" sotto un solo "per ogni", e le due
+ * funzioni di un'equipotenza (11m-e). Servono a proporre biiezioni
+ * (sp_static_bijections()). */
+typedef struct { int symbol, from, to; } SpMap;
+
+/* Un'equipotenza diventata una proposizione (11m-e di checker.c):
+ * proposition è il termine della proposizione, from e to gli insiemi
+ * (indici di sort_data), there e back i simboli delle sue due funzioni. Il
+ * posto nel vettore è il numero con cui la nomina una riga biject. */
+typedef struct { int proposition, from, to, there, back; } SpEquipotence;
+
+/* Una biiezione proposta (11m-f di checker.c): per l'equipotenza numero
+ * equipotence, i termini there e back, con la sola variabile v0, che il
+ * deposito della ricerca possiede. */
+typedef struct { int equipotence, there, back; } SpBijection;
+
 /* Un comando che introduce simboli dopo la clausificazione iniziale.
  * kind e COMPONENT o COMPREHEND; index individua la voce corrispondente.
  * L'ordine posseduto dal vettore e quello della firma del certificato. */
@@ -6717,6 +6736,13 @@ typedef struct {
     int *unit;                  /* clausole unitarie disponibili, anche universalmente quantificate */
     int units, unit_cursor;     /* numero di unitarie e prossimo indice da semplificare */
     size_t unit_cap;
+    int *universal_sort;        /* parallelo a universals: l'insieme di ogni "per ogni" attivo, -1 se non è noto */
+    size_t universal_sort_cap;
+    SpMap *map;                 /* applicazioni di un argomento, con i loro insiemi */
+    SpEquipotence *equipotence; /* equipotenze diventate proposizioni, nell'ordine della traduzione */
+    SpBijection *bijection;     /* biiezioni proposte, nell'ordine delle righe biject */
+    int maps, equipotences, bijections;
+    size_t map_cap, equipotence_cap, bijection_cap;
     SpArena storage, scratch;
 } SpState;
 
@@ -6809,6 +6835,7 @@ static void sp_clear(SpState *s) {
     free(s->property); free(s->schema); free(s->expansion);
     free(s->introduction);
     free(s->unit);
+    free(s->universal_sort); free(s->map); free(s->equipotence); free(s->bijection);
     sat_clear(&s->sat);
     SpArena *arenas[2] = {&s->storage, &s->scratch};
     for (int i = 0; i < 2; i++) for (SpBlock *b = arenas[i]->first; b;) {
@@ -7421,6 +7448,13 @@ static SpLiteral sp_property_member(SpState *s, const Elem *e) {
     return member;
 }
 
+/* Registra che il simbolo symbol è un'applicazione da from a to (indici di
+ * sort_data): vedi SpMap. */
+static void sp_map(SpState *s, int symbol, int from, int to) {
+    if (s->maps == INT_MAX || !sp_reserve(s, (void **)&s->map, &s->map_cap, (size_t)s->maps + 1, sizeof *s->map)) return;
+    s->map[s->maps++] = (SpMap){symbol, from, to};
+}
+
 /* NNF, Skolem e Tseitin sull'albero. positive indica la polarita richiesta.
  * Un quantificatore su S diventa un quantificatore del dominio comune con
  * il vincolo D_S: lo Skolem di un esiste non impone mai D_S incondizionatamente.
@@ -7452,12 +7486,18 @@ static SpLiteral sp_formula(SpState *s, const Sentence *n, int positive) {
         return sp_connect(s, a, sp_connect(s, b, sp_formula(s, n->b, !positive), 0), 1);
     case S_FORALL: case S_EXISTS: {
         int every = (n->kind == S_FORALL) == positive;
-        if (s->variables == INT_MAX || !sp_reserve(s, (void **)&s->universals, &s->universal_cap, (size_t)s->universal + 1, sizeof *s->universals)) {
+        if (s->variables == INT_MAX || !sp_reserve(s, (void **)&s->universals, &s->universal_cap, (size_t)s->universal + 1, sizeof *s->universals) ||
+            !sp_reserve(s, (void **)&s->universal_sort, &s->universal_sort_cap, (size_t)s->universal + 1, sizeof *s->universal_sort)) {
             s->limited = 1; return constant;
         }
-        int value = every ? -1 - s->variables++ : sp_term(s, sp_symbol(s, s->universal, 0), s->universals);
+        int skolem = every ? 0 : sp_symbol(s, s->universal, 0);
+        int value = every ? -1 - s->variables++ : sp_term(s, skolem, s->universals);
+        /* Un "esiste y in T" sotto un solo "per ogni x in S" dà una funzione
+         * da S a T: tra le biiezioni da proporre (sp_static_bijections()) è
+         * l'inversa che un'ipotesi di suriettività promette. */
+        if (!every && s->universal == 1 && s->universal_sort[0] >= 0) sp_map(s, skolem, s->universal_sort[0], slot_data[n->slot].sort);
         int saved = s->binding[n->slot]; s->binding[n->slot] = value;
-        if (every) s->universals[s->universal++] = value;
+        if (every) { s->universal_sort[s->universal] = slot_data[n->slot].sort; s->universals[s->universal++] = value; }
         a = (SpLiteral){sp_term(s, s->inputs + slot_data[n->slot].sort, &value), 0, every};
         b = sp_formula(s, n->a, positive);
         if (every) s->universal--;
@@ -7482,6 +7522,13 @@ static SpLiteral sp_formula(SpState *s, const Sentence *n, int positive) {
         int proposition = sp_term(s, name, NULL), x = -1;
         int image = sp_term(s, there, &x), returned = sp_term(s, back, &image);
         int preimage = sp_term(s, back, &x), again = sp_term(s, there, &preimage);
+        /* L'equipotenza e le sue due funzioni, per chi poi propone le
+         * biiezioni: lo stesso numero d'ordine che le dà il verificatore. */
+        int from_sort = slot_data[n->side_slot[0][0]].sort, to_sort = slot_data[n->side_slot[1][0]].sort;
+        if (s->equipotences == INT_MAX || !sp_reserve(s, (void **)&s->equipotence, &s->equipotence_cap,
+                (size_t)s->equipotences + 1, sizeof *s->equipotence)) { s->limited = 1; return constant; }
+        s->equipotence[s->equipotences++] = (SpEquipotence){proposition, from_sort, to_sort, there, back};
+        sp_map(s, there, from_sort, to_sort); sp_map(s, back, to_sort, from_sort);
         SpLiteral unless = {proposition, 0, 1};
         sp_emit(s, unless, (SpLiteral){sp_term(s, from, &x), 0, 1}, (SpLiteral){sp_term(s, to, &image), 0, 0}, 3);
         sp_emit(s, unless, (SpLiteral){sp_term(s, from, &x), 0, 1}, (SpLiteral){returned, x, 0}, 3);
@@ -7532,6 +7579,7 @@ static int sp_prepare(SpState *s, const Sentence *root, const Sentence *const *l
         if (f->range == TRUTH) continue;
         int vars[2] = {-1, -2}, value = sp_term(s, i, vars);
         SpLiteral c[3];
+        if (f->arity == 1) sp_map(s, i, f->domain[0], f->range);
         c[0] = (SpLiteral){sp_term(s, s->inputs + f->range, &value), 0, 0};
         for (int j = 0; j < f->arity; j++) c[j + 1] = (SpLiteral){sp_term(s, s->inputs + f->domain[j], &vars[j]), 0, 1};
         sp_keep(s, c, f->arity + 1, (SpStep){.rule=SP_INPUT}, -1);
@@ -7716,6 +7764,10 @@ static int sp_comprehend(SpState *s, int id, SpLiteral literal) {
     if (slot_count) memcpy(s->binding, schema.binding, (size_t)slot_count * sizeof *s->binding);
     if (declared_symbols) memcpy(s->property, schema.property, (size_t)declared_symbols * sizeof *s->property);
     if (schema.universal) memcpy(s->universals, schema.universals, (size_t)schema.universal * sizeof *s->universals);
+    /* Di questi "per ogni" lo schema non conserva l'insieme: una funzione
+     * di Skolem che nasce sotto uno di loro non è proposta come biiezione. */
+    if (!sp_reserve(s, (void **)&s->universal_sort, &s->universal_sort_cap, (size_t)schema.universal, sizeof *s->universal_sort)) return 0;
+    for (int i = 0; i < schema.universal; i++) s->universal_sort[i] = -1;
     s->universal = schema.universal;
     int part = schema.source->part;
     s->property[part] = (SpProperty){literal, symbols[part].domain[0]};
@@ -9040,6 +9092,97 @@ static int sp_static_comprehensions(SpState *s) {
     return !s->limited && !s->unsupported;
 }
 
+/* Dentro Vampire (LOGIC_CLAUSES). Aggiunge alle clausole la riga biject di
+ * 11m-f di checker.c, che spiega perché è lecita: per l'equipotenza numero
+ * equipotence tra A e B, con e la sua proposizione, e i termini there e
+ * back nella variabile v0, due costanti nuove a e b e le quattro clausole
+ * di "se there e back si disfano a vicenda tra A e B, allora e". Stessi
+ * simboli e stesse clausole del verificatore, nello stesso ordine: i
+ * numeri devono coincidere. Ritorna 0 se la memoria o il lavoro non
+ * bastano. */
+static int sp_biject(SpState *s, int equipotence, int there, int back) {
+    if (s->bijections == INT_MAX || !sp_reserve(s, (void **)&s->bijection, &s->bijection_cap,
+            (size_t)s->bijections + 1, sizeof *s->bijection)) { s->limited = 1; return 0; }
+    SpEquipotence e = s->equipotence[equipotence];
+    int from = s->inputs + e.from, to = s->inputs + e.to;
+    int a = sp_term(s, sp_symbol(s, 0, 0), NULL), b = sp_term(s, sp_symbol(s, 0, 0), NULL);
+    if (s->limited) return 0;
+    int image = sp_replace_term(s, there, -1, a), returned = sp_replace_term(s, back, -1, image);
+    int preimage = sp_replace_term(s, back, -1, b), again = sp_replace_term(s, there, -1, preimage);
+    SpLiteral holds = {e.proposition, 0, 0};
+    SpLiteral a_in = {sp_term(s, from, &a), 0, 0}, b_in = {sp_term(s, to, &b), 0, 0};
+    SpLiteral image_out = {sp_term(s, to, &image), 0, 1}, not_returned = {returned, a, 1};
+    SpLiteral preimage_out = {sp_term(s, from, &preimage), 0, 1}, not_again = {again, b, 1};
+    SpLiteral first[] = {holds, a_in, b_in};
+    SpLiteral second[] = {holds, a_in, preimage_out, not_again};
+    SpLiteral third[] = {holds, image_out, not_returned, b_in};
+    SpLiteral fourth[] = {holds, image_out, not_returned, preimage_out, not_again};
+    SpStep step = {.rule=SP_INPUT};
+    sp_keep(s, first, 3, step, -1); sp_keep(s, second, 4, step, -1);
+    sp_keep(s, third, 4, step, -1); sp_keep(s, fourth, 5, step, -1);
+    if (s->limited || s->unsupported) return 0;
+    s->bijection[s->bijections++] = (SpBijection){equipotence, there, back};
+    return 1;
+}
+
+/* I cammini di applicazioni da from a to, come termini nella variabile v0:
+ * nessuna applicazione se i due insiemi sono lo stesso (v0), una (f(v0)),
+ * o due (g(f(v0))). Non usa le due funzioni dell'equipotenza own, quella
+ * che si vuole dimostrare: di loro si sa qualcosa solo se l'equipotenza
+ * vale. Ne scrive al più MAX_MAP_PATHS in path, i più corti per primi, e
+ * ritorna quanti. */
+static int sp_map_paths(SpState *s, SpEquipotence own, int from, int to, int *path) {
+    int count = 0, x = -1;
+    if (from == to) path[count++] = x;
+    for (int i = 0; i < s->maps && count < MAX_MAP_PATHS; i++)
+        if (s->map[i].from == from && s->map[i].to == to && s->map[i].symbol != own.there && s->map[i].symbol != own.back)
+            path[count++] = sp_term(s, s->map[i].symbol, &x);
+    for (int i = 0; i < s->maps && count < MAX_MAP_PATHS; i++) {
+        if (s->map[i].from != from || s->map[i].symbol == own.there || s->map[i].symbol == own.back) continue;
+        int inner = sp_term(s, s->map[i].symbol, &x);
+        for (int j = 0; j < s->maps && count < MAX_MAP_PATHS; j++)
+            if (s->map[j].from == s->map[i].to && s->map[j].to == to && s->map[j].symbol != own.there && s->map[j].symbol != own.back)
+                path[count++] = sp_term(s, s->map[j].symbol, &inner);
+    }
+    return count;
+}
+
+/* Dentro Vampire (LOGIC_CLAUSES, più sotto). Propone, per ogni equipotenza
+ * dell'enunciato, le biiezioni che si possono scrivere senza cercare.
+ *
+ * A che cosa serve. Tra le clausole un'equipotenza è una proposizione che
+ * si può usare e non ricavare (11m-e): "f e g sono una l'inversa
+ * dell'altra, quindi S e T sono equipotenti" resterebbe senza prova,
+ * perché chi cerca la refutazione, Vampire, non inventa una biiezione. La
+ * biiezione però è quasi sempre scritta nell'enunciato: è un'applicazione
+ * dichiarata, la composta di due, l'inversa che un'ipotesi di suriettività
+ * promette (una funzione di Skolem), o la biiezione di un'altra
+ * equipotenza tra le ipotesi. Qui si propongono tutte le coppie (t, u) di
+ * cammini di al più due applicazioni, t da A a B e u da B ad A; ogni
+ * coppia è una riga biject (11m-f di checker.c), che non assume nulla:
+ * dice "se t e u si disfano a vicenda tra A e B, allora A e B sono
+ * equipotenti", ed è la refutazione a dover mostrare che lo fanno.
+ *
+ * Che cosa non trova. Una biiezione definita per casi (due insiemi di due
+ * elementi), o costruita con più di due applicazioni, o che esiste senza
+ * potersi scrivere (Cantor-Bernstein): lì l'enunciato resta senza prova.
+ *
+ * Le due funzioni dell'equipotenza stessa non entrano nei cammini: una
+ * coppia fatta con loro direbbe "se vale, vale". Ritorna 0 se la memoria
+ * o il lavoro non bastano: chi chiama riparte allora dalle sole clausole
+ * iniziali. */
+static int sp_static_bijections(SpState *s) {
+    for (int e = 0; e < s->equipotences && !s->limited && !s->unsupported; e++) {
+        SpEquipotence q = s->equipotence[e];
+        int there[MAX_MAP_PATHS], back[MAX_MAP_PATHS];
+        int there_count = sp_map_paths(s, q, q.from, q.to, there), back_count = sp_map_paths(s, q, q.to, q.from, back);
+        for (int i = 0; i < there_count; i++)
+            for (int j = 0; j < back_count; j++)
+                if (!sp_biject(s, e, there[i], back[j])) return 0;
+    }
+    return !s->limited && !s->unsupported;
+}
+
 int logic_task = LOGIC_DECIDE;
 const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore che ospita il motore";
 
@@ -9196,9 +9339,12 @@ Verdict prove_abstract(const char *formula) {
         if (syntax_error != before_laws) { axiom_count = 0; syntax_error = before_laws; }
         SpState clauses = {0};
         int prepared = sp_prepare(&clauses, claimed, axioms, axiom_count);
-        /* Le istanze delle formule su parti; se una resta a metà si riparte
-         * dalle sole clausole iniziali (sp_static_comprehensions()). */
-        if (prepared && clauses.schemas && !sp_static_comprehensions(&clauses)) {
+        /* Le istanze delle formule su parti e le biiezioni proposte per le
+         * equipotenze; se un gruppo resta a metà si riparte dalle sole
+         * clausole iniziali (sp_static_comprehensions(),
+         * sp_static_bijections()). */
+        if (prepared && ((clauses.schemas && !sp_static_comprehensions(&clauses)) ||
+                         (clauses.equipotences && !sp_static_bijections(&clauses)))) {
             sp_clear(&clauses);
             clauses = (SpState){0};
             prepared = sp_prepare(&clauses, claimed, axioms, axiom_count);
@@ -9218,6 +9364,13 @@ Verdict prove_abstract(const char *formula) {
             SpExpansion e = clauses.expansion[clauses.introduction[i].index];
             SpClause property = {.count=1, .literal=&e.property};
             cert_add("comprehend %d ", e.schema); sp_cert_clause(&clauses, property); cert_add("\n");
+        }
+        /* Le righe biject, dopo le comprehend: è l'ordine in cui i loro
+         * simboli e le loro clausole sono nati. */
+        for (int i = 0; i < clauses.bijections; i++) {
+            SpBijection b = clauses.bijection[i];
+            cert_add("biject %d ", b.equipotence); sp_cert_term(&clauses, b.there);
+            cert_add(" "); sp_cert_term(&clauses, b.back); cert_add("\n");
         }
         cert_add("symbols %d\n", clauses.symbols);
         for (int i = 0; i < clauses.symbols; i++) cert_add("%d %d\n", clauses.symbol[i].arity, clauses.symbol[i].predicate);

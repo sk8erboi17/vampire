@@ -67,6 +67,7 @@
 #define CERTIFICATE_BYTES 262144 /* deposito iniziale dei certificati, poi crescita dinamica */
 #define MAX_BRICKS 32        /* fattori suggeriti in un certificato: di più il verificatore non ne legge */
 #define MAX_MAPS 4           /* applicazioni dichiarate in un enunciato */
+#define MAX_MAP_PATHS 8      /* cammini di applicazioni da un insieme a un altro, tra cui si propone una biiezione (28u) */
 #define MAX_PARAMETERS 4     /* parametri dichiarati tra le ipotesi con "k \in A" (17s) */
 #define MAX_UNFOLDINGS 24    /* enunciati tra reali in cui 18v-8 svolge uno con applicazioni */
 #define MAX_WITNESS_LETTERS 4  /* "esiste" tra i reali a cui 18v-11 dà un razionale, in testa a un enunciato */

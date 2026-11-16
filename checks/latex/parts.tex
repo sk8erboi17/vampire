@@ -9,10 +9,14 @@ logic cannot say: the mathematical engine goes first, and Vampire is asked
 only when the engine has no answer, for a proof from the laws of those sets.
 The last two statements quantify over the parts of a set: there Vampire
 looks for a refutation of the clauses that the independent checker builds
-from the statement, with the parts that the engine proposes. The last two
-suppose two sets equipotent: the engine proves the second; the first it does
-not, and Vampire proves it with the bijection given as two maps inverse to
-each other.
+from the statement, with the parts that the engine proposes. Statements 9
+and 10 suppose two sets equipotent: the engine proves the second; the first
+it does not, and Vampire proves it with the bijection given as two maps
+inverse to each other. The last two conclude that two sets are equipotent:
+the engine offers the pairs of maps that could be a bijection and its
+inverse (two maps of the statement; a map and the Skolem function of "it is
+surjective"), Vampire refutes the clauses of the checker with them, and the
+checker follows.
 \begin{enumerate}
 \item $\displaystyle S \neq \emptyset \implies (\exists! X \in \mathcal{P}(S)\ \forall x \in S\ (x \in X))$
 \item $\displaystyle \forall x \in S\ \exists X \in \mathcal{P}(S)\ (x \in X)$
@@ -24,5 +28,7 @@ each other.
 \item $\displaystyle \exists S \neq \emptyset\ \exists f \colon S \to S\ (\forall X \subseteq S\ (f(X) \neq X))$
 \item $\displaystyle (S \sim T \land \forall x, y, z, t \in S\ (x = y \lor x = z \lor x = t \lor y = z \lor y = t \lor z = t)) \implies \forall x, y, z, t \in T\ (x = y \lor x = z \lor x = t \lor y = z \lor y = t \lor z = t)$
 \item $\displaystyle (S \sim T \land \forall x, y \in S\ (x = y)) \implies \forall u, v \in T\ (u = v)$
+\item $\displaystyle (f \colon S \to T \land g \colon T \to S \land \forall x \in S\ (g(f(x)) = x) \land \forall y \in T\ (f(g(y)) = y)) \implies (S \sim T)$
+\item $\displaystyle (f \colon S \to T \land (\forall a, b \in S\ (f(a) = f(b) \implies a = b)) \land (\forall y \in T\ \exists x \in S\ (f(x) = y))) \implies (S \sim T)$
 \end{enumerate}
 \end{document}
