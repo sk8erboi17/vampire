@@ -22,6 +22,21 @@
 # where is Vampire? passed by CI
 vampire="`pwd`/$1 --traceback on"
 
+# the time limit of a run, on the clock: ten seconds, and thirty for a build
+# for debugging, about four times slower. Statement 9 of parts.tex (an
+# equipotence Vampire proves from the bijection) takes 1.1 s with the
+# release build and 4.2 s with the debug one, which needs at least 2 s of
+# processor for it; under a load of 150 from other programs ten seconds of
+# the clock were not always enough. Thirty seconds of the debug build buy
+# less processor work than ten of the release one, so no result expected
+# here can change with them. LATEX_SANITY_TIME sets another limit.
+limit=10
+version=`"$PWD/$1" --version 2>/dev/null | head -1`
+case "$version" in
+*"Debug build"*) limit=30 ;;
+esac
+limit=${LATEX_SANITY_TIME:-$limit}
+
 scratch=`mktemp -d "${TMPDIR:-/tmp}/vampire-latex-sanity.XXXXXX"` || exit 1
 trap 'rm -rf "$scratch"' EXIT
 trap 'rm -rf "$scratch"; exit 130' INT
@@ -45,7 +60,7 @@ run_vampire() {
 check_results() {
 	name=$1
 	shift
-	run_vampire --proof off -t 10 $@ latex/$name.tex
+	run_vampire --proof off -t $limit $@ latex/$name.tex
 	grep '^% Result\|^% Summary' "$scratch/vampire-stdout" > "$scratch/results"
 	diff=`diff checks/latex/$name.expected "$scratch/results"`
 	if test -n "$diff"
@@ -96,11 +111,11 @@ check_results numbers
 # (Where Vampire's arithmetic refutes a statement by proving its negation, the status
 # Vampire prints is of the problem named "the negation of ...", and is the only
 # "Theorem" allowed here.)
-check_output_lacks ": Theorem" --proof off -t 10 latex/false.tex
-check_output_lacks "Theorem for false.tex" --proof off -t 10 latex/false.tex
-check_output_contains "% SZS status Theorem for the negation of false.tex#9" --proof off -t 10 latex/false.tex
-check_output_lacks "Theorem" --proof off -t 10 latex/invalid.tex
-check_output_lacks "CounterSatisfiable" --proof off -t 10 latex/invalid.tex
+check_output_lacks ": Theorem" --proof off -t $limit latex/false.tex
+check_output_lacks "Theorem for false.tex" --proof off -t $limit latex/false.tex
+check_output_contains "% SZS status Theorem for the negation of false.tex#9" --proof off -t $limit latex/false.tex
+check_output_lacks "Theorem" --proof off -t $limit latex/invalid.tex
+check_output_lacks "CounterSatisfiable" --proof off -t $limit latex/invalid.tex
 
 # a statement of logic is Vampire's problem in every mode: here it is only printed, as TPTP
 check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax latex latex/logic.tex
@@ -109,49 +124,49 @@ check_output_contains "tff(hypothesis_1,axiom" --mode output --input_syntax late
 # own inferences one by one: Vampire refutes again the clauses the checker builds
 # from the statement, and each inference becomes a step of the certificate.
 # Statements 10 and 11 need Vampire's splitting, which the checker follows too
-check_output_contains "% Result 1: TheoremCertified (vampire)" -t 10 latex/logic.tex
-check_output_contains "% Result 10: TheoremCertified (vampire)" -t 10 latex/logic.tex
-check_output_contains "% Result 11: TheoremCertified (vampire)" -t 10 latex/logic.tex
-check_output_contains "% Vampire's inferences rechecked by the independent checker" -t 10 latex/logic.tex
+check_output_contains "% Result 1: TheoremCertified (vampire)" -t $limit latex/logic.tex
+check_output_contains "% Result 10: TheoremCertified (vampire)" -t $limit latex/logic.tex
+check_output_contains "% Result 11: TheoremCertified (vampire)" -t $limit latex/logic.tex
+check_output_contains "% Vampire's inferences rechecked by the independent checker" -t $limit latex/logic.tex
 
 # without that recheck the engine rebuilds the proof as a certificate of its own,
 # and only then is the theorem certified: statement 10 is proved by Vampire and the
 # engine cannot rebuild it, so it is "found but not independently verified"
-check_output_contains "% Result 1: TheoremCertified (vampire)" -t 10 --math_recheck_time 0 latex/logic.tex
-check_output_contains "% Result 10: TheoremUnverified (vampire)" -t 10 --math_recheck_time 0 latex/logic.tex
-check_output_contains "proof found but not independently verified" -t 10 --math_recheck_time 0 latex/logic.tex
-check_output_contains "prova trovata ma non verificata indipendentemente" -t 10 --math_recheck_time 0 --math_language it latex/logic.tex
-check_output_lacks "inferences rechecked" -t 10 --math_recheck_time 0 latex/logic.tex
+check_output_contains "% Result 1: TheoremCertified (vampire)" -t $limit --math_recheck_time 0 latex/logic.tex
+check_output_contains "% Result 10: TheoremUnverified (vampire)" -t $limit --math_recheck_time 0 latex/logic.tex
+check_output_contains "proof found but not independently verified" -t $limit --math_recheck_time 0 latex/logic.tex
+check_output_contains "prova trovata ma non verificata indipendentemente" -t $limit --math_recheck_time 0 --math_language it latex/logic.tex
+check_output_lacks "inferences rechecked" -t $limit --math_recheck_time 0 latex/logic.tex
 
 # Vampire's proof is told step by step, in both languages
-check_output_contains "Superposition: an equation of one clause" -t 10 latex/logic.tex
-check_output_contains "Superposizione: un'equazione di una clausola" -t 10 --math_language it latex/logic.tex
+check_output_contains "Superposition: an equation of one clause" -t $limit latex/logic.tex
+check_output_contains "Superposizione: un'equazione di una clausola" -t $limit --math_language it latex/logic.tex
 
 # with sets of parts the engine goes first; where it has no answer Vampire is asked.
 # Statement 4 asks for an example that does not exist: Vampire refutes it from the
 # engine's laws, and the checker follows the refutation. Without the recheck the
 # refutation is reported as Vampire's own, unverified
-check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 4: RefutationCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/parts.tex
+check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t $limit latex/parts.tex
+check_output_contains "% Result 4: RefutationCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "% Result 4: CounterexampleUnverified (vampire)" --proof off -t $limit --math_recheck_time 0 latex/parts.tex
 
 # a quantifier on the parts of a set has no first-order form of its own. Where the
 # engine has no answer Vampire refutes the clauses of the checker, with the parts the
 # engine proposes: statement 7 is induction (the part of the x with f(x) = x), and
 # statement 8 asks for an example that the empty part rules out
-check_output_contains "% Result 7: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 8: RefutationCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "comprehend 0 (clause (eq (f 2 (v 0)) (v 0)))" --proof off -t 10 --math_certificates /dev/stdout latex/parts.tex
+check_output_contains "% Result 7: TheoremCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "% Result 8: RefutationCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "comprehend 0 (clause (eq (f 2 (v 0)) (v 0)))" --proof off -t $limit --math_certificates /dev/stdout latex/parts.tex
 
 # two sets supposed equipotent: the engine goes first (statement 10). Where it has no
 # answer (statement 9) Vampire proves the statement with the bijection given as two
 # maps inverse to each other, and the checker follows its refutation of the clauses,
 # among which a supposed equipotence gives two maps to use. Without that recheck the
 # proof is found, not verified, and the output says from what it was proved
-check_output_contains "% Result 9: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 9: TheoremUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/parts.tex
-check_output_contains "with each supposed bijection given as two maps inverse to each other" --proof off -t 10 --math_recheck_time 0 latex/parts.tex
-check_output_contains "% Result 10: TheoremCertified (engine)" --proof off -t 10 latex/parts.tex
+check_output_contains "% Result 9: TheoremCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "% Result 9: TheoremUnverified (vampire)" --proof off -t $limit --math_recheck_time 0 latex/parts.tex
+check_output_contains "with each supposed bijection given as two maps inverse to each other" --proof off -t $limit --math_recheck_time 0 latex/parts.tex
+check_output_contains "% Result 10: TheoremCertified (engine)" --proof off -t $limit latex/parts.tex
 check_output_contains "psi1(phi1(X0)) = X0" --mode output --math_model_time 0 latex/parts.tex
 check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/parts.tex
 
@@ -161,29 +176,29 @@ check_output_contains "tff(law_1,axiom" --mode output --math_model_time 0 latex/
 # Skolem function of "f is surjective"), Vampire refutes the clauses with them, and the
 # checker follows. A map that is only half of a bijection proves nothing: the engine
 # finds the counterexample (false.tex 11 and 12)
-check_output_contains "% Result 11: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "% Result 12: TheoremCertified (vampire)" --proof off -t 10 latex/parts.tex
-check_output_contains "biject 0 (f 0 (v 0)) (f 1 (v 0))" --proof off -t 10 --math_certificates /dev/stdout latex/parts.tex
-check_output_contains "% Result 11: CounterexampleVerified (engine)" --proof off -t 10 latex/false.tex
-check_output_contains "% Result 12: CounterexampleVerified (engine)" --proof off -t 10 latex/false.tex
+check_output_contains "% Result 11: TheoremCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "% Result 12: TheoremCertified (vampire)" --proof off -t $limit latex/parts.tex
+check_output_contains "biject 0 (f 0 (v 0)) (f 1 (v 0))" --proof off -t $limit --math_certificates /dev/stdout latex/parts.tex
+check_output_contains "% Result 11: CounterexampleVerified (engine)" --proof off -t $limit latex/false.tex
+check_output_contains "% Result 12: CounterexampleVerified (engine)" --proof off -t $limit latex/false.tex
 
 # a statement on numbers that the engine cannot decide goes to Vampire's arithmetic
 # theories, as it is and as its negation: what is proved there is found, not verified,
 # and says which of the two was proved. Variables of two kinds are not handed over
-check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/numbers.tex
-check_output_contains "as a problem over \$int, and Vampire proved the statement" --proof off -t 10 latex/numbers.tex
-check_output_contains "as a problem over \$int, and Vampire proved its negation" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t $limit --math_recheck_time 0 latex/numbers.tex
+check_output_contains "as a problem over \$int, and Vampire proved the statement" --proof off -t $limit latex/numbers.tex
+check_output_contains "as a problem over \$int, and Vampire proved its negation" --proof off -t $limit latex/numbers.tex
 
 # among integers the checker follows a proof from their laws (20f of checker.c): Vampire
 # refutes, with no theory, the clauses the checker makes of the statement with those laws,
 # and the checker follows it step by step. Statements 3 and 4 hold for every value of
 # several variables, and no number shows that: they are certified this way, and only
 # this way (without the recheck they are found, not verified, as above)
-check_output_contains "% Result 3: TheoremCertified (vampire)" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 4: TheoremCertified (vampire)" --proof off -t 10 latex/numbers.tex
-check_output_contains "the clauses that the independent checker builds from the statement with the laws of the integers" --proof off -t 10 latex/numbers.tex
-check_output_contains "certificate arithmetic" --proof off -t 10 --math_certificates /dev/stdout latex/numbers.tex
-check_output_lacks "TheoremCertified (vampire)" --proof off -t 10 --math_recheck_time 0 latex/numbers.tex
+check_output_contains "% Result 3: TheoremCertified (vampire)" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 4: TheoremCertified (vampire)" --proof off -t $limit latex/numbers.tex
+check_output_contains "the clauses that the independent checker builds from the statement with the laws of the integers" --proof off -t $limit latex/numbers.tex
+check_output_contains "certificate arithmetic" --proof off -t $limit --math_certificates /dev/stdout latex/numbers.tex
+check_output_lacks "TheoremCertified (vampire)" --proof off -t $limit --math_recheck_time 0 latex/numbers.tex
 
 # where numbers settle the statement Vampire is asked for them too, and the checker
 # recomputes the statement on them: statement 5 is false with x = 101, y = 102 (and the
@@ -191,31 +206,31 @@ check_output_lacks "TheoremCertified (vampire)" --proof off -t 10 --math_recheck
 # there is x": m = 0 refutes it only because no positive x works, which no number
 # shows. The checker settles that by itself: one integer variable is left, and it
 # tries every integer that can matter. Vampire is asked for m in a second search
-check_output_contains "% Result 5: CounterexampleVerified (vampire)" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 6: CounterexampleVerified (vampire)" --proof off -t 10 latex/numbers.tex
-check_output_contains "and settled the quantifier that is left, over one integer, by trying every integer that can matter" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 5: CounterexampleVerified (vampire)" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 6: CounterexampleVerified (vampire)" --proof off -t $limit latex/numbers.tex
+check_output_contains "and settled the quantifier that is left, over one integer, by trying every integer that can matter" --proof off -t $limit latex/numbers.tex
 
 # a statement in one integer variable needs nobody's numbers: the checker settles it
 # by itself, when the engine has no method for it (statement 2) and whatever time is
 # given to Vampire's arithmetic
-check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
-check_output_contains "statement (forall (var 110) (set ge 1) (lesseq (var 110) (pow (var 110) 2)))" --proof off -t 10 --math_certificates /dev/stdout latex/numbers.tex
-check_output_contains "% SZS answers Tuple [[" --proof off -t 10 latex/numbers.tex
-check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t 10 latex/numbers.tex
-check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t $limit --math_numbers_time 0 latex/numbers.tex
+check_output_contains "statement (forall (var 110) (set ge 1) (lesseq (var 110) (pow (var 110) 2)))" --proof off -t $limit --math_certificates /dev/stdout latex/numbers.tex
+check_output_contains "% SZS answers Tuple [[" --proof off -t $limit latex/numbers.tex
+check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t $limit latex/numbers.tex
+check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 7: Unsolved (engine)" --proof off -t $limit latex/numbers.tex
 
 # a verdict of the engine without a certificate (statement 1: "for every n there is m
 # with m = n + 1", proved with the rules for quantifiers) is put to Vampire's arithmetic
 # too; it proves the same, and the checker certifies it (from the laws of the integers).
 # Without the confirmation it stays without a certificate
-check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t 10 latex/numbers.tex
-check_output_contains "The engine's verdict had no certificate. Vampire's arithmetic theories proved the same" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 1: TheoremUnverified (engine)" --proof off -t 10 --math_confirm_engine off latex/numbers.tex
-check_output_lacks "proved the opposite of the engine's verdict" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
-check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
+check_output_contains "% Result 1: TheoremCertified (engine)" --proof off -t $limit latex/numbers.tex
+check_output_contains "The engine's verdict had no certificate. Vampire's arithmetic theories proved the same" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 1: TheoremUnverified (engine)" --proof off -t $limit --math_confirm_engine off latex/numbers.tex
+check_output_lacks "proved the opposite of the engine's verdict" --proof off -t $limit latex/numbers.tex
+check_output_contains "% Result 3: Unsolved (engine)" --proof off -t $limit --math_numbers_time 0 latex/numbers.tex
+check_output_lacks "(vampire)" --proof off -t $limit --math_numbers_time 0 latex/numbers.tex
 
 # "an injective map of a set into itself is onto" (statement 3 of logic.tex) holds in
 # every finite set: Vampire's saturation ends without a contradiction and there is no
@@ -223,17 +238,17 @@ check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/num
 # the checker certifies it (certificate infinite, 20g of checker.c), with the claim that
 # the statement is false there proved from the laws of the integers. Without the
 # arithmetic theories, which find the interpretation, it is refuted, not verified
-check_output_contains "% Result 3: CounterexampleVerified (vampire)" --proof off -t 10 latex/logic.tex
-check_output_contains 'Counterexample (LaTeX): $S = \mathbb{N}_0$, $f(x) = x + 1$' --proof off -t 10 latex/logic.tex
-check_output_contains "certificate infinite" --proof off -t 10 --math_certificates /dev/stdout latex/logic.tex
-check_output_contains "% Result 3: CounterexampleUnverified (vampire)" --proof off -t 10 --math_numbers_time 0 latex/logic.tex
+check_output_contains "% Result 3: CounterexampleVerified (vampire)" --proof off -t $limit latex/logic.tex
+check_output_contains 'Counterexample (LaTeX): $S = \mathbb{N}_0$, $f(x) = x + 1$' --proof off -t $limit latex/logic.tex
+check_output_contains "certificate infinite" --proof off -t $limit --math_certificates /dev/stdout latex/logic.tex
+check_output_contains "% Result 3: CounterexampleUnverified (vampire)" --proof off -t $limit --math_numbers_time 0 latex/logic.tex
 
 # a model found by Vampire is judged by the engine as its own, and the empty set is a set
-check_output_contains '% Engine verdict: FALSO: controesempio $S = \{\}$; $f = \emptyset$; certificato verificato' --proof off -t 10 latex/logic.tex
+check_output_contains '% Engine verdict: FALSO: controesempio $S = \{\}$; $f = \emptyset$; certificato verificato' --proof off -t $limit latex/logic.tex
 
 # TPTP input is untouched by all this: no verification line, the usual status
-check_output_lacks "Verification status" -t 10 Problems/PUZ/PUZ001+1.p
-check_output_contains "% SZS status Theorem for PUZ001+1" -t 10 Problems/PUZ/PUZ001+1.p
+check_output_lacks "Verification status" -t $limit Problems/PUZ/PUZ001+1.p
+check_output_contains "% SZS status Theorem for PUZ001+1" -t $limit Problems/PUZ/PUZ001+1.p
 
 # the certificates: accepted by the checker on its own, rejected once altered.
 # The checker is the program built next to Vampire (target certificate-checker);
@@ -249,7 +264,7 @@ if test -x "$scratch/checker"
 then
 	for name in logic mathematics false parts numbers
 	do
-		run_vampire --proof off -t 10 --math_certificates "$scratch/$name.cert" latex/$name.tex
+		run_vampire --proof off -t $limit --math_certificates "$scratch/$name.cert" latex/$name.tex
 		written=`grep -c '^certificate' "$scratch/$name.cert"`
 		accepted=`"$scratch/checker" "$scratch/$name.cert" | grep -c 'ACCETTATO'`
 		if test "$written" -eq 0 || test "$written" -ne "$accepted"
@@ -298,7 +313,7 @@ then
 	done
 
 	# a model with one value changed is another model: the checker must not accept it for the statement
-	run_vampire --proof off -t 10 --math_certificates "$scratch/logic.cert" latex/logic.tex
+	run_vampire --proof off -t $limit --math_certificates "$scratch/logic.cert" latex/logic.tex
 	sed 's/^sort \([A-Za-z0-9]*\) 2$/sort \1 1/' "$scratch/logic.cert" > "$scratch/logic.resized"
 	before=`"$scratch/checker" "$scratch/logic.cert" | grep -c 'ACCETTATO'`
 	after=`"$scratch/checker" "$scratch/logic.resized" | grep -c 'ACCETTATO'`

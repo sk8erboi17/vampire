@@ -678,7 +678,14 @@ Not done, and not claimed:
   accepted a certificate, with and without the recheck of Vampire's
   inferences; certificates are accepted by `certificate-checker` and
   rejected once altered, and every rechecked refutation is rejected once
-  its last step is removed; TPTP input is untouched.
+  its last step is removed; TPTP input is untouched. Each run has ten
+  seconds of the clock, thirty with a debug build (its version line says
+  so; `LATEX_SANITY_TIME` sets another limit): statement 9 of parts.tex
+  needs 1.1 s with Release and 4.2 s with Debug, and with 36 copies of it
+  at once on 12 cores, ten seconds certified it 18 times out of 36 with
+  Debug and thirty 36 times. Thirty seconds of the debug build are less
+  work than ten of the release one, so the expected results are the same.
+  The debug run takes 8 minutes instead of 6.
 - `python3 -I Math/tools/engine_modules.py check Math/quaerens Math/Engine.c`:
   the modules of the engine keep their discipline (what is exported is
   declared, named for the linker and used elsewhere; no cycle of
