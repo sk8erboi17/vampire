@@ -15,6 +15,7 @@
 #include "Driver.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -38,6 +39,7 @@
 
 #include "Engine.h"
 #include "LogicProblem.hpp"
+#include "Names.hpp"
 #include "NumberStatement.hpp"
 #include "Proof/IndependentChecker.h"
 #include "Proof/Replay.hpp"
@@ -215,6 +217,7 @@ struct LogicOutcome {
   std::string notRechecked; // if it did not, and the theorem is certified another way: where the recheck stopped
   bool byNumbers = false;   // a statement about numbers settled by numbers that the checker recomputed (askArithmetic())
   bool byCount = false;     // a statement in one integer variable settled by the checker's complete count (countByChecker())
+  bool byInfinite = false;  // settled in an infinite interpretation over the integers (certifyInfinite())
 };
 
 /**
@@ -505,7 +508,7 @@ struct Recheck {
  * must return at once so that the process goes on to refute them.
  */
 bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
-                         const std::vector<std::pair<std::string, std::string>>& strategy = {});
+                         const std::vector<std::pair<std::string, std::string>>& strategy = {}, int deciseconds = 0);
 
 bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, bool proved, Recheck& recheck)
 {
@@ -523,10 +526,12 @@ bool refuteCheckerClauses(const Parse::LaTeX::Item& item, const std::string& pro
  * for a statement of logic, and from the checker itself for a statement
  * about integers proved from their laws (certifyByLaws()). @b strategy is
  * options of Vampire set after those that make its inferences followable,
- * for a search that is known to need them.
+ * for a search that is known to need them; @b deciseconds, if not zero, a
+ * time limit shorter than the one of a recheck, for a search that is one
+ * guess among several.
  */
 bool refuteHandedClauses(const char* handedOver, const std::string& problemName, Run& run, bool proved, Recheck& recheck,
-                         const std::vector<std::pair<std::string, std::string>>& strategy)
+                         const std::vector<std::pair<std::string, std::string>>& strategy, int deciseconds)
 {
   Options& options = *env.options;
   /* A recheck with no time is no recheck (a time limit of zero would be none at all). */
@@ -556,6 +561,7 @@ bool refuteHandedClauses(const char* handedOver, const std::string& problemName,
     options.setMode(Options::Mode::VAMPIRE);
     int total = options.timeLimitInDeciseconds();
     if (proved) options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathRecheckTime()) : options.mathRecheckTime());
+    if (deciseconds > 0) options.setTimeLimitInDeciseconds(std::min(options.timeLimitInDeciseconds(), deciseconds));
     static const char* const FOLLOWABLE[][2] = {
       {"sat_solver", "minisat"}, {"splitting_congruence_closure", "off"}, {"function_definition_elimination", "none"},
       {"unused_predicate_definition_removal", "off"}, {"blocked_clause_elimination", "off"}, {"equality_proxy", "off"},
@@ -661,11 +667,49 @@ struct ArithmeticAnswer {
  * Returns false in a child process, with the clauses loaded: the caller
  * must return at once.
  */
+bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick = false);
+
 bool certifyByLaws(const NumberStatement& statement, bool denied, const std::string& problemName, Run& run, Recheck& recheck)
 {
   std::string beginning = statement.arithmeticBeginning(denied);
   recheck.problem = "the statement is not about integers";
   if (beginning.empty()) return true;
+  return certifyBeginning(beginning, problemName, run, recheck);
+}
+
+/**
+ * The listing of proof_arithmetic_clauses() without its lines "claim" and
+ * "numerals", which are not for Proof::Replay; the values of the numerals
+ * go to @b numerals.
+ */
+std::string clausesListed(const char* listing, std::vector<long long>& numerals)
+{
+  std::istringstream lines(listing);
+  std::string line, rest;
+  bool started = false;
+  while (std::getline(lines, line)) {
+    if (!started && line.compare(0, 9, "numerals ") == 0) {
+      started = true;
+      std::istringstream values(line.substr(9));
+      for (long long value; values >> value;) numerals.push_back(value);
+      continue;
+    }
+    if (started) rest += line + "\n";
+  }
+  return rest;
+}
+
+/**
+ * Has the independent checker follow a proof by Vampire of the claim of a
+ * certificate "arithmetic" or "infinite" whose @b beginning is given, up
+ * to its line "clausify": the clauses from the checker, the facts about
+ * the numerals, the refutation from Vampire, the steps from Proof::Replay
+ * (see certifyByLaws()). With @b quick, one search of two seconds with the
+ * first strategy, for a beginning that is one guess among several.
+ * Returns false in a child process.
+ */
+bool certifyBeginning(const std::string& beginning, const std::string& problemName, Run& run, Recheck& recheck, bool quick)
+{
   const char* why = "";
   char* first = proof_arithmetic_clauses((beginning + "end\n").c_str(), &why);
   if (!first) {
@@ -673,10 +717,7 @@ bool certifyByLaws(const NumberStatement& statement, bool denied, const std::str
     return true;
   }
   std::vector<long long> numerals;
-  std::istringstream line(std::string(first, std::strcspn(first, "\n")));
-  std::string word;
-  line >> word;
-  for (long long value; line >> value;) numerals.push_back(value);
+  clausesListed(first, numerals);
   std::free(first);
 
   std::string facts = NumberStatement::arithmeticFacts(numerals);
@@ -685,8 +726,8 @@ bool certifyByLaws(const NumberStatement& statement, bool denied, const std::str
     recheck.problem = std::string("the checker does not accept the facts about the numerals: ") + why;
     return true;
   }
-  const char* listed = std::strchr(clauses, '\n');   // what follows the line "numerals"
-  std::string handed = beginning + facts + (listed ? listed + 1 : "");
+  std::vector<long long> again;
+  std::string handed = beginning + facts + clausesListed(clauses, again);
   std::free(clauses);
 
   /* Two searches, one after the other, each with the time of a recheck.
@@ -705,9 +746,9 @@ bool certifyByLaws(const NumberStatement& statement, bool denied, const std::str
   static const std::vector<std::vector<std::pair<std::string, std::string>>> STRATEGIES = {
     {{"selection", "1"}, {"saturation_algorithm", "discount"}, {"age_weight_ratio", "1:4"}}, {}};
   std::string problems;   // where each search stopped, for a reader
-  for (size_t i = 0; i < STRATEGIES.size(); i++) {
+  for (size_t i = 0; i < (quick ? 1 : STRATEGIES.size()); i++) {
     recheck = Recheck();
-    if (!refuteHandedClauses(handed.c_str(), problemName, run, /* proved */ true, recheck, STRATEGIES[i])) return false;
+    if (!refuteHandedClauses(handed.c_str(), problemName, run, /* proved */ true, recheck, STRATEGIES[i], quick ? 20 : 0)) return false;
     if (recheck.certified) return true;
     problems += (i ? "; then " : "") + recheck.problem;
   }
@@ -1017,6 +1058,287 @@ bool askArithmetic(const std::string& handedOver, const std::string& problemName
 }
 
 /**
+ * Has Vampire's arithmetic theories try, in two child processes at once,
+ * to prove the TPTP problem @b claim and the TPTP problem @b negation,
+ * within @b deciseconds; the first proof ends the other search. With
+ * @b count > 0 the search of the claim also asks for the values of the
+ * variables of its conjecture (question answering), and @b tuples receives
+ * those that are numbers, @b count in each (answeredTuples()). @b result
+ * is 1 if the claim was proved, -1 if its negation was, 0 if neither.
+ * Returns false in a child, with the problem loaded: the caller must
+ * return at once.
+ */
+bool proveNumbers(const std::string& claim, const std::string& negation, size_t count, int deciseconds,
+                  const std::string& problemName, Run& run, int& result, std::vector<std::vector<std::string>>& tuples)
+{
+  Options& options = *env.options;
+  std::string base = (std::filesystem::temp_directory_path()
+    / ("vampire-latex-" + std::to_string(getpid()) + "-" + std::to_string(run.statements) + "-interpretation")).string();
+  struct Search { const std::string* tptp; bool answers; std::string answerPath, outputPath; pid_t process; bool running; };
+  Search searches[2] = {{&claim, count > 0, base + "-0.answer", base + "-0.out", -1, false},
+                        {&negation, false, base + "-1.answer", base + "-1.out", -1, false}};
+  for (Search& search : searches) {
+    /* Nothing buffered may cross the fork (see searchWithVampire()). */
+    std::cout.flush();
+    if (run.certificates.is_open()) run.certificates.flush();
+    fflush(nullptr);
+    pid_t child = Lib::Sys::fork();
+    if (child != 0) {
+      search.process = child;
+      search.running = true;
+      continue;
+    }
+    Lib::System::registerForSIGHUPOnParentDeath();
+    int file = open(search.outputPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (file < 0 || dup2(file, STDOUT_FILENO) < 0) _exit(1);
+    close(file);
+    options.problemName = problemName;
+    options.setMode(Options::Mode::VAMPIRE);
+    options.setTimeLimitInDeciseconds(deciseconds);
+    if (search.answers) {
+      try {
+        options.set("question_answering", "plain");
+      } catch (Lib::Exception&) {
+      }
+    }
+    std::istringstream problem(*search.tptp);
+    UIHelper::parseStream(problem, "", Options::InputSyntax::TPTP, /* verbose */ false, /* preferSMTonAuto */ false);
+    LogicProblem::Settings settings;
+    settings.explain = false;
+    settings.answerPath = search.answerPath;
+    LogicProblem::installLoaded(settings);
+    return false;
+  }
+
+  result = 0;
+  while (!result && (searches[0].running || searches[1].running)) {
+    Lib::Sys::Headstone ended = Lib::Sys::waitForChildTermination(-1);
+    for (int i = 0; i < 2; i++) {
+      Search& search = searches[i];
+      if (!search.running || search.process != ended.pid) continue;
+      search.running = false;
+      VampireAnswer found;
+      VampireAnswer::read(search.answerPath, found);
+      if (found.kind == VampireAnswer::Kind::REFUTATION) result = i == 0 ? 1 : -1;
+    }
+  }
+  for (Search& search : searches) {
+    if (!search.running) continue;
+    Lib::Sys::kill(search.process, SIGINT);
+    Lib::Sys::waitForChildTermination(search.process);
+    search.running = false;
+  }
+  if (result == 1 && count) answeredTuples(searches[0].outputPath, count, tuples);
+  for (const Search& search : searches) {
+    std::remove(search.answerPath.c_str());
+    std::remove(search.outputPath.c_str());
+  }
+  return true;
+}
+
+/** What the search for an infinite interpretation over the integers gave (certifyInfinite()). */
+struct InfiniteAnswer {
+  bool certified = false;
+  std::string certificate;    // the certificate "infinite" the checker accepted
+  unsigned steps = 0;         // the steps of Vampire's refutation it followed
+  std::string interpretation; // the interpretation, as LaTeX: "$S = \mathbb{N}_0$, $f(x) = x + 1$"
+  std::string problem;        // if none was found: why, for a reader
+};
+
+/**
+ * Looks for an infinite interpretation over the integers in which a
+ * statement of logic is false, and has the independent checker certify it
+ * (certificate "infinite", 20g of checker.c).
+ *
+ * WHEN. Vampire's saturation ended without a contradiction and no finite
+ * model was found: "an injective map of a set into itself is onto" holds
+ * in every finite set, and its counter-models are infinite. Such a
+ * statement used to be reported as refuted on Vampire's word alone.
+ *
+ * HOW. The statement as the checker writes it (the beginning that
+ * qr_clauses_item() hands over: its sets, its symbols, the statement) is
+ * given a few interpretations to try, each set the integers from 0 on and
+ * each symbol one of a short list by its kind (unary maps: x + 1, then x -
+ * 1 except at 0, then x and 0; elements: 0 and 1; parts: {0}, the
+ * positive ones, all, none; and so on). For each the checker writes the
+ * claim "the symbols are maps of those sets, and the statement is false
+ * there", a statement about integers (proof_arithmetic_clauses(), line
+ * claim). Vampire's arithmetic theories are asked to prove it, briefly: a
+ * claim they do not prove is not tried further. Its quantifiers that are a
+ * "there is" at the outermost level are asked for values too (question
+ * answering): they become the witnesses of the certificate, which make the
+ * proof the checker follows much shorter ("f(0) = f(1) with 0 != 1"). Then
+ * Vampire proves the claim once more from the laws of the integers on the
+ * checker's clauses, as for a statement about numbers (certifyBeginning()),
+ * and the certificate is what the checker accepts.
+ *
+ * The interpretations tried are few on purpose: every one costs a search
+ * of Vampire, and the statements this is for have simple counter-models.
+ * None of this is trusted: a wrong interpretation is a claim nobody proves,
+ * and the certificate is the checker's verdict.
+ *
+ * Returns false in a child process.
+ */
+bool certifyInfinite(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, InfiniteAnswer& answer)
+{
+  Options& options = *env.options;
+  static const size_t MAX_INTERPRETATIONS = 12, MAX_TUPLES = 4;
+  answer.problem = "the arithmetic theories were not asked (math_numbers_time 0)";
+  if (!options.mathNumbersTime() || !options.mathRecheckTime()) return true;
+  int deciseconds = std::min(options.mathNumbersTime(), 50);
+
+  /* The sets, the symbols and the statement, as the checker writes them. */
+  QrVerdict handed = qr_clauses_item(item.text.c_str(), item.text.c_str() + item.text.size());
+  answer.problem = "the statement has no translation for the checker";
+  if (!handed.logic) return true;
+  struct Symbol { std::string name; int arity; bool predicate; };
+  std::vector<std::string> sorts;
+  std::vector<Symbol> symbols;
+  std::string declarations, statementLine;
+  std::istringstream lines(handed.logic);
+  std::string line;
+  while (std::getline(lines, line) && line != "clausify" && line != "clausify forward") {
+    std::istringstream words(line);
+    std::vector<std::string> word;
+    for (std::string w; words >> w;) word.push_back(w);
+    if (word.empty() || line == "certificate saturation") continue;
+    if (word[0] == "sort" && word.size() == 2) {
+      sorts.push_back(word[1]);
+    } else if (word[0] == "symbol" && word.size() >= 3 && word.size() <= 5) {
+      symbols.push_back({word[1], (int)word.size() - 3, word.back() == "bool"});
+    } else if (word[0] == "statement") {
+      statementLine = line;
+      continue;
+    } else {
+      answer.problem = "the statement has sets of parts or of maps, written numbers or laws, which are not interpreted here";
+      return true;
+    }
+    declarations += line + "\n";
+  }
+  if (statementLine.empty() || sorts.empty()) return true;
+
+  /* The candidates of each kind of symbol: the checker's notation, and the
+   * LaTeX of "NAME(x) = ..." with the name in place of %s. */
+  struct Candidate { const char* definition; const char* latex; };
+  static const std::vector<Candidate> ELEMENTS = {{"0", "%s = 0"}, {"1", "%s = 1"}};
+  static const std::vector<Candidate> MAPS = {
+    {"(add (var 0) 1)", "%s(x) = x + 1"},
+    {"(cases (less 0 (var 0)) (sub (var 0) 1) 0)", "%s(x) = x - 1 \\text{ for } x > 0,\\ %s(0) = 0"},
+    {"(var 0)", "%s(x) = x"},
+    {"0", "%s(x) = 0"}};
+  static const std::vector<Candidate> OPERATIONS = {
+    {"(add (var 0) (var 1))", "%s(x, y) = x + y"}, {"(mul (var 0) (var 1))", "%s(x, y) = x y"},
+    {"(var 0)", "%s(x, y) = x"}, {"(var 1)", "%s(x, y) = y"}};
+  static const std::vector<Candidate> PARTS = {
+    {"(= (var 0) 0)", "%s = \\{0\\}"}, {"(less 0 (var 0))", "%s = \\{x \\mid x > 0\\}"},
+    {"(= 0 0)", "%s = \\mathbb{N}_0"}, {"(neq 0 0)", "%s = \\emptyset"}};
+  static const std::vector<Candidate> RELATIONS = {
+    {"(less (var 0) (var 1))", "%s(x, y) \\iff x < y"}, {"(lesseq (var 0) (var 1))", "%s(x, y) \\iff x \\le y"},
+    {"(= (var 0) (var 1))", "%s(x, y) \\iff x = y"}, {"(neq (var 0) (var 1))", "%s(x, y) \\iff x \\neq y"}};
+  std::vector<const std::vector<Candidate>*> lists;
+  for (const Symbol& symbol : symbols)
+    lists.push_back(symbol.predicate ? (symbol.arity == 1 ? &PARTS : &RELATIONS)
+                                     : (symbol.arity == 0 ? &ELEMENTS : symbol.arity == 1 ? &MAPS : &OPERATIONS));
+  if (symbols.empty()) return true;
+
+  std::string interpret;
+  for (const std::string& sort : sorts) interpret += "interpret " + sort + " (set ge 0)\n";
+  /* The interpretations to try, those with the first candidates of every
+   * symbol first: by the sum of the places of the candidates chosen. A
+   * counter-model of two maps, one a candidate's first and the other its
+   * second, is then the third tried, not the fifth. */
+  std::vector<std::vector<size_t>> order(1, std::vector<size_t>(symbols.size(), 0));
+  for (size_t k = 0; k < order.size() && order.size() < 4096; k++)
+    for (size_t i = 0; i < symbols.size(); i++) {
+      std::vector<size_t> next = order[k];
+      if (++next[i] >= lists[i]->size()) continue;
+      if (std::find(order.begin(), order.end(), next) == order.end()) order.push_back(next);
+    }
+  std::stable_sort(order.begin(), order.end(), [](const std::vector<size_t>& a, const std::vector<size_t>& b) {
+    size_t x = 0, y = 0;
+    for (size_t v : a) x += v;
+    for (size_t v : b) y += v;
+    return x < y;
+  });
+  answer.problem = "no interpretation of those tried makes the statement false, as far as Vampire proves";
+  /* All of it within a budget: six times the time of the arithmetic
+   * theories, thirty seconds by default. */
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(600 * (long)options.mathNumbersTime());
+  for (size_t tried = 0; tried < MAX_INTERPRETATIONS && tried < order.size(); tried++) {
+    if (std::chrono::steady_clock::now() > deadline) { answer.problem += " (within its time)"; break; }
+    const std::vector<size_t>& choice = order[tried];
+    std::string defines;
+    for (size_t i = 0; i < symbols.size(); i++) defines += "define " + symbols[i].name + " " + (*lists[i])[choice[i]].definition + "\n";
+    std::string head = "certificate infinite\n" + declarations + statementLine + "\n" + interpret + defines;
+
+    /* The claim, as the checker makes it. */
+    const char* why = "";
+    char* listing = proof_arithmetic_clauses((head + "clausify forward\nend\n").c_str(), &why);
+    std::string claim;
+    if (listing) {
+      std::string text(listing);
+      std::free(listing);
+      if (text.compare(0, 6, "claim ") == 0) claim = text.substr(6, text.find('\n') - 6);
+    }
+    NumberStatement statement = NumberStatement::read("numbers int \n" + claim + "\n");
+    if (statement.ok()) {
+      /* Vampire's arithmetic first, with the values of the outer "there is". */
+      NumberStatement::WitnessProblem outer = statement.outerWitnessProblem();
+      int result = 0;
+      std::vector<std::vector<std::string>> tuples;
+      if (!proveNumbers(outer.tptp.empty() ? statement.tptp(false) : outer.tptp, statement.tptp(true), outer.quantifiers.size(),
+                        deciseconds, problemName, run, result, tuples)) return false;
+      /* The values to try: Vampire's, if it proved the claim; if it proved
+       * neither the claim nor its negation, small ones, each tried with one
+       * short search from the laws (for "f(g(x)) = x but not g(f(x)) = x"
+       * the arithmetic theories prove nothing in twenty seconds, and the
+       * laws with x = 0 in a hundredth of one). */
+      bool guessed = false;
+      if (result == 0 && !outer.quantifiers.empty() && outer.quantifiers.size() <= 2) {
+        guessed = true;
+        for (int sum = 0; sum <= 2 * (int)outer.quantifiers.size(); sum++)
+          for (int a = 0; a <= 2; a++)
+            for (int b = 0; b <= (outer.quantifiers.size() > 1 ? 2 : 0); b++) {
+              if (a + b != sum) continue;
+              std::vector<std::string> tuple = {std::to_string(a)};
+              if (outer.quantifiers.size() > 1) tuple.push_back(std::to_string(b));
+              tuples.push_back(tuple);
+            }
+      }
+      if (outer.tptp.empty() && result == 1) tuples.push_back({});
+      for (size_t t = 0; t < tuples.size() && t < (guessed ? 9 : MAX_TUPLES); t++) {
+        if (std::chrono::steady_clock::now() > deadline) break;
+        std::string witnesses;
+        bool whole = true;
+        for (size_t i = 0; i < tuples[t].size(); i++) {
+          whole = whole && tuples[t][i].find('/') == std::string::npos;
+          witnesses += "witness " + std::to_string(outer.quantifiers[i]) + " " + tuples[t][i] + "\n";
+        }
+        if (!whole) continue;
+        Recheck recheck;
+        if (!certifyBeginning(head + witnesses + "clausify forward\n", problemName, run, recheck, guessed)) return false;
+        if (!recheck.certified) { answer.problem = "an interpretation was found, and its proof from the laws of the integers not followed: " + recheck.problem; continue; }
+        answer.certified = true;
+        answer.certificate = recheck.certificate;
+        answer.steps = recheck.steps;
+        std::string latex;
+        for (const std::string& sort : sorts) latex += (latex.empty() ? "" : ", ") + ("$" + latexName(sort).latex + " = \\mathbb{N}_0$");
+        for (size_t i = 0; i < symbols.size(); i++) {
+          std::string name = latexName(symbols[i].name).latex, written = (*lists[i])[choice[i]].latex;
+          for (size_t at = written.find("%s"); at != std::string::npos; at = written.find("%s", at + name.size()))
+            written.replace(at, 2, name);
+          latex += ", $" + written + "$";
+        }
+        answer.interpretation = latex;
+        return true;
+      }
+    }
+
+  }
+  return true;
+}
+
+/**
  * Decides a statement of first-order logic, the two parts of the program
  * working on it together.
  *
@@ -1193,14 +1515,43 @@ bool decideLogic(const LogicStatement& statement, const Parse::LaTeX::Item& item
   }
 
   if (answer.kind == VampireAnswer::Kind::SATURATED || answer.kind == VampireAnswer::Kind::MODEL) {
-    /* Saturation without a contradiction, and no model that could be
-     * confirmed: "not a theorem" on Vampire's word alone. */
+    /* Saturation without a contradiction, and no finite model that could
+     * be confirmed: perhaps an infinite one over the integers, which the
+     * checker certifies (certifyInfinite()). For a request for an example
+     * the checker's statement is "not E", and an interpretation where it
+     * fails is an example of E. */
+    InfiniteAnswer infinite;
+    if (!certifyInfinite(item, problemName, run, infinite)) return false;
+    if (infinite.certified) {
+      bool example = statement.wantsExample();
+      outcome.status = example ? Status::THEOREM_CERTIFIED : Status::COUNTEREXAMPLE_VERIFIED;
+      outcome.certificate = infinite.certificate;
+      outcome.byInfinite = true;
+      outcome.detail = infinite.interpretation;
+      outcome.reason = italian
+        ? std::string("La ricerca di Vampire è finita senza contraddizione e senza un modello finito. ")
+          + (example ? "L'enunciato vale" : "L'enunciato è falso") + " in un'interpretazione infinita sugli interi (" + infinite.interpretation
+          + "): Vampire lo ha dimostrato dalle leggi degli interi, e il verificatore indipendente ha seguito la dimostrazione ("
+          + std::to_string(infinite.steps) + " passi)."
+        : std::string("Vampire's search ended without a contradiction and without a finite model. The statement ")
+          + (example ? "holds" : "is false") + " in an infinite interpretation over the integers (" + infinite.interpretation
+          + "): Vampire proved it from the laws of the integers, and the independent checker followed the proof ("
+          + std::to_string(infinite.steps) + " steps).";
+      outcome.proof = std::string(example ? (italian ? "\\textbf{Dimostrazione.} Un esempio, infinito: " : "\\textbf{Proof.} An example, infinite: ")
+                                          : (italian ? "\\textbf{L'enunciato \\`e falso.} Un controesempio infinito: " : "\\textbf{The statement is false.} An infinite counterexample: "))
+        + infinite.interpretation
+        + (italian ? ". Che lo sia lo ha dimostrato Vampire dalle leggi degli interi, e il verificatore indipendente ne ha seguito i "
+                   : ". That it is one Vampire proved from the laws of the integers, and the independent checker followed the ")
+        + std::to_string(infinite.steps) + (italian ? " passi." : " steps.") + (example ? " $\\Box$" : "");
+      return true;
+    }
     outcome.status = statement.wantsExample() ? Status::THEOREM_UNVERIFIED : Status::COUNTEREXAMPLE_UNVERIFIED;
     outcome.reason = italian
       ? "La ricerca di Vampire è finita senza contraddizione, il che per una strategia completa vuol dire che c'è un'interpretazione che soddisfa le formule date; "
         "non è stato prodotto un modello finito che il motore matematico potesse ricalcolare."
       : "Vampire's search ended without a contradiction, which for a complete strategy means that some interpretation satisfies the given formulas; "
         "no finite model was produced for the mathematical engine to recompute.";
+    outcome.reason += (italian ? " Interpretazioni infinite sugli interi: " : " Infinite interpretations over the integers: ") + infinite.problem + ".";
     return true;
   }
 
@@ -1245,6 +1596,7 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
       else
         page = outcome.proof;
       qr_document_external_item(begin, end, QR_PROVED, outcome.byCount ? "con il conto completo del verificatore"
+                                                       : outcome.byInfinite ? "da Vampire, con un esempio infinito sugli interi seguito dal verificatore"
                                                        : outcome.byNumbers ? "da Vampire, con i numeri ricalcolati dal verificatore"
                                                                            : "da Vampire, con la prova riscritta dal motore",
                                 nullptr, nullptr, page.c_str(), certificate);

@@ -83,16 +83,79 @@ static void proof_put_term(ProofText* out, int term)
   proof_put(out, ")");
 }
 
+/* A set of numbers in the notation of chapter 20: (set [ge L | gt L] [except P/Q]...). */
+static void proof_put_set(ProofText* out, const CkNSet* set)
+{
+  proof_put(out, "(set");
+  if (set->bounded) proof_put(out, " %s %lld", set->strict ? "gt" : "ge", set->low);
+  for (int i = 0; i < set->holes; i++)
+    proof_put(out, " except %lld/%lld", (long long)set->hole[i].num, (long long)set->hole[i].den);
+  proof_put(out, ")");
+}
+
+/* A statement about numbers in the notation of chapter 20, as the checker reads it back. */
+static void proof_put_numbers(ProofText* out, const CkNNode* n)
+{
+  static const char* const words[] = {
+    [CK_N_FORALL] = "forall", [CK_N_EXISTS] = "exists", [CK_N_AND] = "and", [CK_N_OR] = "or", [CK_N_IMPLIES] = "implies",
+    [CK_N_IFF] = "iff", [CK_N_NOT] = "not", [CK_N_EQ] = "=", [CK_N_NEQ] = "neq", [CK_N_LESS] = "less",
+    [CK_N_LESSEQ] = "lesseq", [CK_N_IN] = "in", [CK_N_DIVIDES] = "divides", [CK_N_ADD] = "add", [CK_N_SUB] = "sub",
+    [CK_N_NEG] = "neg", [CK_N_MUL] = "mul", [CK_N_POW] = "pow"};
+  switch (n->kind) {
+    case CK_N_NUMBER: proof_put(out, "%lld", n->value); return;
+    case CK_N_VAR: proof_put(out, "(var %lld)", n->value); return;
+    case CK_N_FORALL: case CK_N_EXISTS:
+      proof_put(out, "(%s (var %lld) ", words[n->kind], n->value);
+      proof_put_set(out, &n->set);
+      proof_put(out, " ");
+      proof_put_numbers(out, n->a);
+      proof_put(out, ")");
+      return;
+    case CK_N_IN:
+      proof_put(out, "(in ");
+      proof_put_numbers(out, n->a);
+      proof_put(out, " ");
+      proof_put_set(out, &n->set);
+      proof_put(out, ")");
+      return;
+    case CK_N_POW:
+      proof_put(out, "(pow ");
+      proof_put_numbers(out, n->a);
+      proof_put(out, " %lld)", n->value);
+      return;
+    case CK_N_NOT: case CK_N_NEG:
+      proof_put(out, "(%s ", words[n->kind]);
+      proof_put_numbers(out, n->a);
+      proof_put(out, ")");
+      return;
+    default:
+      proof_put(out, "(%s ", words[n->kind] ? words[n->kind] : "?");
+      proof_put_numbers(out, n->a);
+      proof_put(out, " ");
+      proof_put_numbers(out, n->b);
+      proof_put(out, ")");
+      return;
+  }
+}
+
 char* proof_arithmetic_clauses(const char* beginning, const char** why)
 {
   ck_begin(beginning, 0);
+  ck_g_claim = NULL;
   while (isspace((unsigned char)*ck_cursor)) ck_cursor++;
-  if (!ck_word("certificate") || !ck_word("arithmetic")) ck_reject("not the beginning of a certificate arithmetic");
-  else ck_a_read();
+  if (!ck_word("certificate")) ck_reject("not the beginning of a certificate");
+  else if (ck_word("arithmetic")) ck_a_read();
+  else if (ck_word("infinite")) ck_g_read();
+  else ck_reject("not the beginning of a certificate arithmetic or infinite");
   if (ck_status == CK_ACCEPTED && !ck_r.started) ck_reject("the beginning has no line clausify");
 
   ProofText out = {0};
   if (ck_status == CK_ACCEPTED) {
+    if (ck_g_claim) {
+      proof_put(&out, "claim ");
+      proof_put_numbers(&out, ck_g_claim);
+      proof_put(&out, "\n");
+    }
     proof_put(&out, "numerals");
     for (int i = 0; i < ck_a_numerals; i++) proof_put(&out, " %lld", ck_a_numeral[i]);
     proof_put(&out, "\nsymbols %d\n", ck_r.symbols);

@@ -208,6 +208,17 @@ check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/nu
 check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 
+# "an injective map of a set into itself is onto" (statement 3 of logic.tex) holds in
+# every finite set: Vampire's saturation ends without a contradiction and there is no
+# finite model. Its counter-model is infinite, S the integers from 0 on and f(x) = x + 1:
+# the checker certifies it (certificate infinite, 20g of checker.c), with the claim that
+# the statement is false there proved from the laws of the integers. Without the
+# arithmetic theories, which find the interpretation, it is refuted, not verified
+check_output_contains "% Result 3: CounterexampleVerified (vampire)" --proof off -t 10 latex/logic.tex
+check_output_contains 'Counterexample (LaTeX): $S = \mathbb{N}_0$, $f(x) = x + 1$' --proof off -t 10 latex/logic.tex
+check_output_contains "certificate infinite" --proof off -t 10 --math_certificates /dev/stdout latex/logic.tex
+check_output_contains "% Result 3: CounterexampleUnverified (vampire)" --proof off -t 10 --math_numbers_time 0 latex/logic.tex
+
 # a model found by Vampire is judged by the engine as its own, and the empty set is a set
 check_output_contains '% Engine verdict: FALSO: controesempio $S = \{\}$; $f = \emptyset$; certificato verificato' --proof off -t 10 latex/logic.tex
 
@@ -267,7 +278,7 @@ then
 	do
 		awk '{ if (held != "" && !($0 == "end" && held ~ /^step /)) print held; held = $0 } END { print held }' \
 		    "$scratch/$name.cert" > "$scratch/$name.cut"
-		saturations=`grep -c '^certificate \(saturation\|arithmetic\)' "$scratch/$name.cert"`
+		saturations=`grep -c '^certificate \(saturation\|arithmetic\|infinite\)' "$scratch/$name.cert"`
 		before=`"$scratch/checker" "$scratch/$name.cert" | grep -c 'ACCETTATO'`
 		after=`"$scratch/checker" "$scratch/$name.cut" | grep -c 'ACCETTATO'`
 		if test "$saturations" -eq 0 || test `expr "$before" - "$after"` -ne "$saturations"

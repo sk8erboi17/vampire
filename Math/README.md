@@ -39,6 +39,9 @@ LaTeX -> Parse/LaTeX: read, unfold, type (Math/LogicStatement)
            |      Vampire: proof search and finite-model search, together
            |        model -> engine: loaded into its own structure for models,
            |                 recomputed (also as written), certified
+           |        saturated, no finite model -> an interpretation over the
+           |                 integers, the claim that it is a counterexample
+           |                 proved from their laws, followed by the checker
            |        proof -> checker: Vampire's inferences as its steps (Proof/Replay);
            |                 failing that, the engine rebuilds a proof
            |
@@ -105,6 +108,21 @@ what the statement is, by measurement (see "Measures").
   - a **refutation of a request for an example** ("there are a set and a
     map such that ...") is a theorem too, that the condition never holds,
     and is rechecked the same way: the certificate says "not ...".
+  - a **saturation without a contradiction and without a finite model**
+    ("an injective map of a set into itself is onto" holds in every finite
+    set) may have an infinite counter-model. A few interpretations over the
+    integers are tried (every set the integers from 0 on, every symbol one
+    of a short list by its kind: for a map x + 1, then x - 1 except at 0,
+    and so on), and for each the checker writes by itself the claim "the
+    symbols are maps of those sets, and the statement is false there", a
+    statement about integers (certificate `infinite`, 20g of `checker.c`).
+    Vampire's arithmetic theories try the claim and its negation at once,
+    and give values for the claim's outer "there is" (where f takes the
+    same value twice); a claim whose negation they prove is dropped. Then
+    Vampire proves the claim once more from the laws of the integers, as
+    for numbers (below), and the checker follows it: the counterexample is
+    verified. For a request for an example the same interpretation is the
+    example.
 - **Logic with sets of all the parts or of all the maps of a set, or with
   written numbers.** The engine leads: a model must have every part and
   every map, which the engine builds and a first-order model builder does
@@ -257,7 +275,10 @@ Rules that are not negotiable:
 - **"Not a theorem" without a model is not a verified refutation.** When
   saturation ends without a contradiction there may be only infinite
   counter-models ("an injective map of a set into itself is onto"): the status
-  is `CounterexampleUnverified`.
+  is `CounterexampleUnverified`, unless an infinite counter-model over the
+  integers is certified (20g): the checker writes by itself what it means
+  for the interpretation to be a counterexample, a statement about
+  integers, and follows its proof from the laws of the integers.
 - **With sets of parts or of maps, no proof from Vampire means nothing.**
   It reasons from finitely many laws about sets that have all their parts.
 - **If Vampire has a proof and the engine a certified counterexample**, one
@@ -429,16 +450,17 @@ A third is two lines of `engine_foundations.c`: the engine includes
 `checker.c` and `plot.c` only when it is built alone; here it is given
 their interfaces instead. The other four files, the checker among them, are
 byte for byte those of Quaerens. Vampire's proofs are written in the steps
-the checker already had, and among integers in one more, compute. Five things were added to the checker, in Quaerens
+the checker already had, and among integers in one more, compute. Six things were added to the checker, in Quaerens
 too, each with its justification and its tests: a rule to use an
 equipotence among the clauses of a proof by saturation (11m-e in
 `checker.c`) and one to prove it from a bijection that is written down
 (11m-f); a kind of certificate for a statement about numbers that a few
 numbers settle (chapter 20), in it the complete count that settles a
-quantifier over one integer (20e), and the proof of a statement about
+quantifier over one integer (20e), the proof of a statement about
 integers from their laws (20f), with `compute`, its one step that
 computes, and the clausification without domain predicates that one set
-which is the whole domain allows (`whole` in `ck_r`).
+which is the whole domain allows (`whole` in `ck_r`), and the infinite
+counterexample over the integers (20g), whose claim is checked as 20f.
 
 ## Migration: what is where, and what is not done
 
@@ -447,7 +469,7 @@ which is the whole domain allows (`whole` in `ck_r`).
 | Reading LaTeX: expressions, sets, quantifiers, solution sets, `\item` | `Parse/LaTeX` over `parser.c` | in use, in C behind `Math/Engine.h` |
 | Unfolding the notation of the books, rechecked on finite models | frontend | in use, before a statement is handed to Vampire |
 | Logic over plain sets: the search for a proof and for a finite model | **Vampire** (saturation, AVATAR, finite model builder) | Vampire leads; the engine's model finder is not used here |
-| Logic over plain sets: making the answer checkable | checker, engine | the checker follows Vampire's inferences one by one (`Proof/Replay`); the engine's structure for models judges Vampire's models; its certifying provers rebuild a proof only where the inferences cannot be followed |
+| Logic over plain sets: making the answer checkable | checker, engine | the checker follows Vampire's inferences one by one (`Proof/Replay`); the engine's structure for models judges Vampire's models; its certifying provers rebuild a proof only where the inferences cannot be followed; an infinite counter-model over the integers is certified by a proof from their laws (20g) |
 | Logic with sets of *all* parts or *all* maps, written numbers | engine first, then **Vampire** | the engine leads (measured); Vampire proves from the engine's laws what the engine cannot |
 | Logic with a quantifier over the parts of a set | engine first, then **Vampire** | Vampire refutes the checker's clauses, with the parts the engine proposes |
 | Two sets supposed equipotent | engine first, then **Vampire** | the engine leads; Vampire proves what the engine cannot, with the bijection as two maps inverse to each other, and the checker follows the proof |
@@ -486,8 +508,12 @@ Not done, and not claimed:
   followed either (the checker compares literal by literal, and no step
   turns an equation round). Where the recheck fails the engine rebuilds
   the proof, or the theorem is reported as not verified.
-- **"Not a theorem" by saturation is still not verified**: there is no
-  finite model to recompute and no refutation to follow.
+- **"Not a theorem" by saturation is verified only with a counter-model
+  over the integers from a short list.** Every set is the integers from 0
+  on, every symbol one of a few expressions or conditions; a counter-model
+  that needs elements of another kind (the monoid with an element that has
+  two right inverses, whose elements are maps of the naturals) is not
+  found, and then the refutation is Vampire's word alone.
 - **No reasoning inside one proof across the two.** They pass statements,
   models and proofs to each other; Vampire cannot ask the engine for a
   computation in the middle of a proof.
@@ -551,6 +577,19 @@ Not done, and not claimed:
   `compute` against an oracle that computes; the laws true on a window of
   integers; the translation of random statements evaluated among the
   integers, against an oracle that counts.)
+- `UnitTests/tMathNumbers.cpp` also: the claim of an infinite
+  interpretation (x + 1 on the integers from 0 on, for "an injective map of
+  S into itself is onto"), read as the engine's statements are, its outer
+  "there is" asked of Vampire, a witness taken where it counts as a "there
+  is" and refused for the closure, a definition with a letter that is not
+  an argument refused. (Chapter 20g is tested in the Quaerens repository,
+  `tests/checker/test_infinite_models.c`: two certificates written by
+  Vampire, accepted, and refused with another interpretation, with one that
+  maps out of its set, with the statement denied, without the last step,
+  with a wrong witness; the rules of the lines; and the claim of 3000
+  random statements and interpretations evaluated on a window of integers
+  against an oracle that applies the interpretation itself, with and
+  without a witness.)
 - `UnitTests/tMathNumbers.cpp` (ctest `MathNumbers`): what the engine hands
   over of a statement on numbers (the sets with their bounds and removed
   points, divisibility, the three sorts) and the TPTP problem written from
@@ -631,11 +670,11 @@ answer through Vampire.
 
 | | The engine alone | Together |
 |---|---|---|
-| Theorems certified | 141 | 146 |
-| Counterexamples verified | 88 | 96 |
+| Theorems certified | 141 | 147 |
+| Counterexamples verified | 88 | 103 |
 | Requests for an example refuted, certified | 0 | 7 |
-| Theorems found, not verified | 0 | 1 |
-| Refutations found, not verified | 0 | 8 |
+| Theorems found, not verified | 0 | 0 |
+| Refutations found, not verified | 0 | 1 |
 | No answer, or no method | 30 | 1 |
 
 Every certified answer of the engine is still certified, by the same checker;
@@ -648,9 +687,15 @@ count never said the opposite. On all the 309 documents that the Quaerens
 repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
 word for word, and `certificate-checker`, the checker as a program of its
-own, accepts all the 3495 certificates the run writes (3492 before the
-proofs from the laws of the integers, which add the three of those
-theorems).
+own, accepts all the certificates the run writes: 3503 (3492 before the
+proofs from the laws of the integers, which add three, and the infinite
+counter-models, which add eight). In the run that measured the infinite
+counter-models, with the machine under a load of 130, the search of
+Vampire's arithmetic for "if x = k + 100 then x = m + 101"
+(`false_rare_witnesses.tex`, 14) ran out of its five seconds and that
+statement was left unsolved, so that run had 3502 certificates and 102
+counterexamples verified; run alone the statement is verified, three
+times out of three. The tables count it verified.
 
 **Size.** The executable is 14.3 MB; Vampire alone is 12.0 MB. It was
 15.0 MB with the checker compiled twice, once inside the engine, and 14.6 MB
@@ -670,8 +715,13 @@ The 29 answers that are new were looked at one by one, and all are right:
 
 - 8 statements that hold in every finite set and fail in an infinite one
   ("an injective map of a set into itself is onto", and the like): Vampire's
-  saturation ends without a contradiction, there is no finite model to
-  check, and they are reported as refuted, not verified;
+  saturation ends without a contradiction and there is no finite model.
+  7 have a counter-model over the integers, certified (20g): S the integers
+  from 0 on, and f(x) = x + 1, or f(x) = x - 1 except f(0) = 0, or both
+  (for "f(g(x)) = x gives g(f(x)) = x"), or x + 1 with Y = {0} (for
+  "f(f^{-1}(Y)) = Y"). The eighth, a monoid in which an element has two
+  right inverses, has counter-models whose elements are maps of the
+  naturals, not integers: it is refuted, not verified;
 - 7 requests for an example of something that cannot exist (two sets that
   are equal by definition and should differ, a reflexive relation with an
   element not related to itself, a map that moves every part of a set, the
@@ -680,7 +730,8 @@ The 29 answers that are new were looked at one by one, and all are right:
 - 1 counterexample with six elements, verified, which the engine's own
   search did not reach;
 - 1 request for an example that exists only in an infinite set (an
-  injective map that is not onto): found by saturation, not verified;
+  injective map that is not onto): found by saturation, and certified with
+  the same interpretation over the integers, which is the example;
 - 2 theorems the engine could not prove, both certified: an order between
   the maps of two sets, from the engine's laws on sets of maps; and
   "f(z) = z and f(s(y)) = s(f(y)) give f(y) = y for every y" with the

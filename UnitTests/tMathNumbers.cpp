@@ -318,3 +318,39 @@ TEST_FUN(a_statement_on_integers_has_the_clauses_of_the_checker_with_the_laws_of
   ASS(rational.ok());
   ASS(rational.arithmeticBeginning(false).empty());
 }
+
+TEST_FUN(an_infinite_interpretation_is_a_claim_about_integers_with_its_witnesses)
+{
+  /* "An injective map of S into itself is onto", with S the integers from 0 on and f(x) = x + 1: the checker
+   * writes the claim (f maps S into S, and the statement fails there), a statement about integers. */
+  std::string head = "certificate infinite\nsort S\nsymbol f S S\n"
+                     "statement (implies (forall a S (forall b S (implies (= (f a) (f b)) (= a b)))) (forall y S (exists x S (= (f x) y))))\n"
+                     "interpret S (set ge 0)\ndefine f (add (var 0) 1)\n";
+  const char* why = "";
+  char* listing = proof_arithmetic_clauses((head + "clausify forward\nend\n").c_str(), &why);
+  ASS(listing);
+  std::string text(listing);
+  std::free(listing);
+  ASS(text.compare(0, 6, "claim ") == 0);
+  std::string claim = text.substr(6, text.find('\n') - 6);
+  ASS(claim.find("(in (add (var 2000) 1) (set ge 0))") != std::string::npos);   // the closure
+  ASS(text.find("\nnumerals 0 1\n") != std::string::npos);
+
+  /* The claim is read as the engine's statements are; its outer "there is" is the y that is no value of f,
+   * a "for all" under a negation: Vampire is asked for it. */
+  NumberStatement statement = NumberStatement::read("numbers int \n" + claim + "\n");
+  ASS(statement.ok());
+  NumberStatement::WitnessProblem outer = statement.outerWitnessProblem();
+  ASS(outer.quantifiers.size() == 1 && outer.quantifiers[0] == 3);
+  ASS(outer.tptp.compare(0, 37, "tff(statement, conjecture, ?[W3:$int]") == 0);
+
+  /* A witness there is taken; one for the closure, a "for all" that must hold, is refused; and so is a
+   * definition with a letter that is not an argument of f. */
+  listing = proof_arithmetic_clauses((head + "witness 3 0\nclausify forward\nend\n").c_str(), &why);
+  ASS(listing);
+  std::free(listing);
+  ASS(!proof_arithmetic_clauses((head + "witness 0 0\nclausify forward\nend\n").c_str(), &why));
+  std::string bad = head;
+  bad.replace(bad.find("(add (var 0) 1)"), 15, "(add (var 1) 1)");
+  ASS(!proof_arithmetic_clauses((bad + "clausify forward\nend\n").c_str(), &why));
+}

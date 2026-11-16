@@ -1,6 +1,6 @@
 % Result 1: TheoremCertified (vampire)
 % Result 2: CounterexampleVerified (vampire)
-% Result 3: CounterexampleUnverified (vampire)
+% Result 3: CounterexampleVerified (vampire)
 % Result 4: CounterexampleVerified (vampire)
 % Result 5: CounterexampleVerified (vampire)
 % Result 6: TheoremCertified (vampire)
@@ -9,4 +9,4 @@
 % Result 9: CounterexampleVerified (vampire)
 % Result 10: TheoremCertified (vampire)
 % Result 11: TheoremCertified (vampire)
-% Summary of logic.tex: 11 statements; TheoremCertified 5; CounterexampleVerified 5; CounterexampleUnverified 1
+% Summary of logic.tex: 11 statements; TheoremCertified 5; CounterexampleVerified 6

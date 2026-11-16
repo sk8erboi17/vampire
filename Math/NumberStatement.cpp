@@ -35,7 +35,8 @@ public:
    *   (see condition()): the formula returned then has their variables
    *   free, named W0, W1, ... by the number of the quantifier.
    */
-  Reader(const std::string& text, size_t at, int kind, bool lift = false) : _text(text), _at(at), _kind(kind), _lift(lift) {}
+  Reader(const std::string& text, size_t at, int kind, bool lift = false, bool outer = false)
+    : _text(text), _at(at), _kind(kind), _lift(lift), _outer(outer) {}
 
   bool failed() const { return _failed; }
   bool atEnd() { skip(); return _at == _text.size(); }
@@ -74,14 +75,18 @@ public:
       bool universal = head == "forall";
       unsigned number = _quantifiers++;
       std::string letter = this->letter();
-      bool lifted = _lift && want == (universal ? FALSE : TRUE);
+      /* With outer, only those that no quantifier left in place encloses: a
+       * value may not depend on a variable of the formula. */
+      bool lifted = _lift && want == (universal ? FALSE : TRUE) && (!_outer || _kept == 0);
       std::string variable = lifted ? "W" + std::to_string(number) : "X" + letter;
       if (lifted) { _lifted.push_back(number); _liftedLetters.push_back(letter); }
       std::string guard = set(variable);
       _scope.push_back({letter, variable});
+      if (!lifted) _kept++;
       std::string body = condition(depth + 1, want);
+      if (!lifted) _kept--;
       _scope.pop_back();
-      if (_lift && !lifted) {
+      if (_lift && !lifted && !_outer) {
         if (_kind == INTEGERS && _quantifiers == number + 1) _counted++;
         else _settled = false;
       }
@@ -125,6 +130,8 @@ private:
   size_t _at;
   int _kind;
   bool _lift;
+  bool _outer;                // with _lift: lift only quantifiers that no quantifier left in place encloses
+  unsigned _kept = 0;         // quantifiers left in place around the point being read
   bool _failed = false;
   bool _settled = true;
   unsigned _counted = 0;      // quantifiers left to the checker's count
@@ -317,6 +324,21 @@ NumberStatement::WitnessProblem NumberStatement::witnessProblem(bool denied) con
   problem.quantifiers = reader.lifted();
   problem.letters = reader.liftedLetters();
   problem.counted = reader.counted();
+  return problem;
+}
+
+NumberStatement::WitnessProblem NumberStatement::outerWitnessProblem() const
+{
+  WitnessProblem problem;
+  if (!ok()) return problem;
+  Reader reader(_text, 0, _kind, /* lift */ true, /* outer */ true);
+  std::string formula = reader.condition(0, Reader::TRUE);
+  if (reader.failed() || !reader.atEnd() || reader.lifted().empty()) return problem;
+  std::string variables;
+  for (unsigned number : reader.lifted()) variables += (variables.empty() ? "" : ", ") + ("W" + std::to_string(number)) + ":" + _sort;
+  problem.tptp = "tff(statement, conjecture, ?[" + variables + "]: (" + formula + ")).\n";
+  problem.quantifiers = reader.lifted();
+  problem.letters = reader.liftedLetters();
   return problem;
 }
 

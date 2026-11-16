@@ -76,8 +76,9 @@ ProofCheck proof_check_certificate(const char* certificate, const char** why);
 ProofCheck proof_check_next(const char** text, const char** why, long long steps);
 
 /**
- * For whoever writes a certificate "arithmetic" (chapter 20f of
- * Math/quaerens/checker.c): the clauses the checker starts from.
+ * For whoever writes a certificate "arithmetic" or "infinite" (chapters
+ * 20f and 20g of Math/quaerens/checker.c): the clauses the checker starts
+ * from.
  *
  * @b beginning is the beginning of such a certificate, up to and including
  * its line "clausify" and any line "step" after it, followed by "end". The
@@ -86,6 +87,10 @@ ProofCheck proof_check_next(const char** text, const char** why, long long steps
  * and, if nothing in it is wrong, the result is a text on the heap, to be
  * released with free(), of these lines:
  *
+ *     claim C               for a certificate "infinite" only: the statement
+ *                           about integers the checker made of it (20g), the
+ *                           one whose proof is then checked, in the notation of
+ *                           qr_numbers_item()
  *     numerals V0 V1 ...    the value of each numeral of the translation, in the
  *                           order of their symbols, which come after add, neg,
  *                           mul and less (0, 1, 2, 3)
@@ -94,8 +99,8 @@ ProofCheck proof_check_next(const char** text, const char** why, long long steps
  *     clauses M             then M lines "(clause LITERAL...)", the clauses the
  *                           checker has at the end of the beginning, by index
  *
- * which is what Proof::Replay reads after the beginning (without the line
- * numerals). NULL otherwise, with the reason in *why (if not NULL).
+ * which is what Proof::Replay reads after the beginning (without the lines
+ * claim and numerals). NULL otherwise, with the reason in *why (if not NULL).
  *
  * WHY THIS IS NOT A WEAKNESS. A certificate by saturation starts from
  * clauses that the checker builds from the statement; whoever writes the

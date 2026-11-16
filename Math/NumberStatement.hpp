@@ -113,6 +113,16 @@ public:
   WitnessProblem witnessProblem(bool denied) const;
 
   /**
+   * The statement as a problem whose proof names values for the quantifiers
+   * that are a "there is" where they stand and that no other quantifier
+   * encloses; the other quantifiers stay where they are, to be proved. The
+   * values are the witnesses of a certificate "infinite" (20g of
+   * checker.c), whose claim this statement is. No problem (an empty tptp)
+   * if there is no such quantifier.
+   */
+  WitnessProblem outerWitnessProblem() const;
+
+  /**
    * The certificate "numbers" that says the statement holds (or, with
    * @b denied, fails) and gives @b values, written as the checker reads
    * numbers ("7", "-3", "1/2"), to the quantifiers of @b problem.
