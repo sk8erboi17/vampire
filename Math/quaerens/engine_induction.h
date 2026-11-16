@@ -105,6 +105,7 @@ extern _Thread_local unsigned certificate_sequences;
 extern _Thread_local char certificate_problem[256];
 extern _Thread_local int cert_signs;
 extern _Thread_local int cert_real;
+extern _Thread_local int cert_declared;
 void cert_add(const char *format, ...);
 void cert_letter(long long name);
 void cert_node(const Node *n);

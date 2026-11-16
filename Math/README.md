@@ -760,12 +760,18 @@ the opposite of the engine. On all the 309 documents that the Quaerens
 repository has by now (7470 statements) the same 259 statements get their
 answer through Vampire, the other 7211 verdict lines are those of Quaerens
 word for word, and `certificate-checker`, the checker as a program of its
-own, accepts all the certificates the run writes: 3681 in the last run
+own, accepts all the certificates the run writes: 3695 in the last run
 (3492 before the proofs from the laws of the integers, which add three,
 the infinite counter-models, which add nine, the engine's
-counterexamples, which add 116, and the verdicts of the engine confirmed
-by Vampire's arithmetic, which add 60 to 63: three of those searches
-finish within their five seconds at a load of 30 and not at one of 90). In the run that measured the infinite
+counterexamples, which add 116, the verdicts of the engine confirmed by
+Vampire's arithmetic, which add 60 to 63: three of those searches finish
+within their five seconds at a load of 30 and not at one of 90, and the
+closed forms of sequences by recurrence, which add 15: the certificate of
+induction has the entry "recurrence", with which the checker rewrites the
+identity of the rule from the closed form and checks the initial values,
+"a recurrence determines its sequence"; 9 closed forms stay without it,
+because their identity has none, with sines and hyperbolic cosines in the
+rule or an exponent such as 2^n). In the run that measured the infinite
 counter-models, with the machine under a load of 130, the search of
 Vampire's arithmetic for "if x = k + 100 then x = m + 101"
 (`false_rare_witnesses.tex`, 14) ran out of its five seconds and that

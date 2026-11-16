@@ -2473,6 +2473,12 @@ _Thread_local int cert_signs;
  * come nel capitolo 27. */
 _Thread_local int cert_real;
 
+/* 26a. Diverso da zero mentre si scrive la regola di una successione
+ * dichiarata (recurrence_certificate()): è il suo nome, e allora un suo
+ * termine si scrive (seq S indice), come nella voce "recurrence" del
+ * verificatore. */
+_Thread_local int cert_declared;
+
 /* Aggiunge un pezzo al certificato, con la sintassi di printf. */
 void cert_add(const char *format, ...) {
     if (certificate_broken) return;
@@ -2562,6 +2568,12 @@ void cert_node(const Node *n) {
         else cert_letter(n->name);
         return;
     case N_SEQ:
+        if (cert_declared && n->name == cert_declared) {
+            cert_add("(seq %c ", cert_declared);
+            cert_node(n->a);
+            cert_add(")");
+            return;
+        }
         for (int i = 0; i < LIBRARY_COUNT; i++)
             if (library[i].name == n->name) { cert_term(i, n->a); return; }
         certificate_broken = 1;

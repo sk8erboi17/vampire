@@ -78,6 +78,7 @@
 #define cert_letter qre_cert_letter
 #define cert_node qre_cert_node
 #define cert_real qre_cert_real
+#define cert_declared qre_cert_declared
 #define cert_signs qre_cert_signs
 #define certificate_broken qre_certificate_broken
 #define certificate_capacity qre_certificate_capacity
