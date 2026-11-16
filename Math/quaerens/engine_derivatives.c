@@ -34,13 +34,13 @@
 Node *derivatives_expanded(Node *tree);
 void formula_derivatives_expanded(Formula *f);
 const char *derivative_doubt(const Formula *thesis);
-int derivative_signs;
+_Thread_local int derivative_signs;
 
 /* 1 se derivative_doubt() ha trovato un estremo del dominio di una funzione
  * in cui la derivata (da tutte e due le parti) non esiste: il verdetto lo
  * dice, perché chi conta la derivata da una parte sola leggerebbe in un
  * altro modo la risposta. */
-int derivative_edges;
+_Thread_local int derivative_edges;
 const char *const DERIVATIVE_EDGES = "negli estremi del dominio la derivata, che chiede la funzione definita da tutte e due le parti, non c'è";
 
 /* =============================================================================
@@ -853,7 +853,7 @@ static Node *node_domain(const Node *f) {
  * segno, l'espressione definita dove lo è la funzione (G) e ciò che ha
  * preso il posto del segno. Valgono finché l'arena non viene svuotata. */
 #define MAX_EXPANDED 8
-static const Node *expanded_function[MAX_EXPANDED], *expanded_value[MAX_EXPANDED];
+static _Thread_local const Node *expanded_function[MAX_EXPANDED], *expanded_value[MAX_EXPANDED];
 
 /* Vedi la dichiarazione in testa a questo file. I segni annidati,
  * \frac{d}{dx}(\frac{d}{dx}(g)), si espandono dal più interno: la funzione
@@ -1175,7 +1175,7 @@ const char *calculus_certificate(const char *kind, int x, const char *order, con
  * due punti diventano virgole: in una riga RISOLTO dopo il primo ": " viene
  * la risposta, e gli script di tools/fuzz/ la cercano lì. */
 void calculus_certify(Verdict *verdict, const char *why, const Node *function, int x) {
-    static char problem[512], note[512];
+    static _Thread_local char problem[512], note[512];
     const char *text = certificate_text;
     if (!why) {
         CkAnswer answer = ck_check(&text, &why, checker_steps());
@@ -1485,7 +1485,7 @@ static void explain_derivative(const Node *f, int x, const char *answer) {
  * rispetto a x, come descritto sopra, e ne ritorna il verdetto: verdict è
  * quello che prove_derivative() ha già preparato. */
 static Verdict solve_derivative(Node *f, int x, int order, Verdict verdict) {
-    static char answer[MAX_FORMULA], note[200];
+    static _Thread_local char answer[MAX_FORMULA], note[200];
     Node *direct[MAX_JET + 1] = {f};
     DerivativeCheck check;
     verdict.variable = 0;
@@ -1575,7 +1575,7 @@ static Verdict solve_derivative(Node *f, int x, int order, Verdict verdict) {
  * respinge il verdetto è NON DIMOSTRATO. Svuota l'arena e la tabella degli
  * atomi: i risultati di chiamate precedenti non sono più validi. */
 Verdict prove_derivative(const char *formula, int variable, int has_base, long long base) {
-    static char text[320];
+    static _Thread_local char text[320];
     Verdict verdict = {UNSUPPORTED, variable, has_base ? base : 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     DerivativeStatement statement;
 
@@ -1807,7 +1807,7 @@ Verdict prove_derivative(const char *formula, int variable, int has_base, long l
  * l'enunciato, già controllato, di cui si sono espansi derivative_signs
  * segni. Lascia il testo della dimostrazione com'era. */
 const char *derivative_doubt(const Formula *thesis) {
-    static char reason[sizeof solution_text + 200];
+    static _Thread_local char reason[sizeof solution_text + 200];
     const Formula *q = thesis;
     while (q->kind == F_NOT) q = q->a;
     if (q->kind != F_FORALL && q->kind != F_EXISTS && q->kind != F_SOLVE)

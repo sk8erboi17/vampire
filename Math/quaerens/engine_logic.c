@@ -377,7 +377,7 @@ static size_t model_element(const Model *m, const Elem *e, const size_t *value) 
  * solo modello cresce come una potenza: venti "per ogni" su tre elementi
  * sono miliardi di prove. Oltre model_step_limit model_holds() smette di
  * calcolare, e chi la chiama deve buttare via la sua risposta. */
-static long long model_steps;
+static _Thread_local long long model_steps;
 
 /* Ritorna 1 se il conto sui modelli in corso è arrivato in fondo. Dopo un
  * conto interrotto il valore ritornato da model_holds() o da book_holds()
@@ -389,7 +389,7 @@ static int model_steps_complete(void) { return model_steps <= model_step_limit; 
  * potuto ricalcolare entro model_step_limit; altrimenti NULL. Un modello
  * così non è un controesempio, ma il verdetto deve dire che cosa è mancato:
  * non la ricerca, il budget del ricalcolo. Lo azzera prove_abstract(). */
-static const char *model_unconfirmed;
+static _Thread_local const char *model_unconfirmed;
 
 /* 28i. Il calcolo di una condizione in un modello: model_holds() per le
  * condizioni svolte, book_holds() (28h) per quelle scritte come nei libri. */
@@ -705,8 +705,8 @@ static int model_composition_values(Model *m,size_t maximum) {
  * celle e cresce con gli slot della formula, non con la cardinalita degli
  * insiemi. Le valutazioni sono sequenziali e non creano slot: il puntatore
  * resta valido fino alla prossima chiamata a model_variables(). */
-static size_t *model_values;
-static size_t model_values_capacity;
+static _Thread_local size_t *model_values;
+static _Thread_local size_t model_values_capacity;
 
 /* Prepara valori iniziali zero per tutti gli slot correnti. Un errore di
  * allocazione non puo essere ignorato da una strategia successiva. */
@@ -1995,7 +1995,7 @@ typedef struct {
 /* La tabella degli elementi. È una sola per tutti i rami della ricerca: un
  * ramo ne usa i primi now->grounds posti, e chi torna a un ramo precedente
  * riusa i posti dopo. */
-static Ground ground[MAX_GROUND];
+static _Thread_local Ground ground[MAX_GROUND];
 
 /* Una sostituzione finita delle variabili astratte con elementi presenti.
  * count e il numero di celle possedute nell'arena, data i valori (indici
@@ -2126,22 +2126,22 @@ typedef struct {
 /* I rami, uno per profondità (una distinzione di casi, una scelta di parti
  * di 28k o un caso provato da 28l ne aggiungono uno), e quello in cui si sta
  * lavorando. */
-static Branch branch[MAX_BRANCHES];
-static Branch *now;
+static _Thread_local Branch branch[MAX_BRANCHES];
+static _Thread_local Branch *now;
 
 /* 1 se la ricerca si è fermata perché una tabella è piena: allora non aver
  * trovato una dimostrazione non dice nulla. */
-static int exhausted;
+static _Thread_local int exhausted;
 
 /* Come si è chiuso l'ultimo ramo: il fatto "diversi" i cui due elementi sono
  * risultati uguali, oppure la disgiunzione di cui ogni parte è falsa. Uno
  * solo dei due non è -1. */
-static int clash_fact, clash_choice;
+static _Thread_local int clash_fact, clash_choice;
 
 /* Tabelle per ritrovare un elemento senza scorrere tutto l'elenco: per
  * scrittura (exact) e, tra una chiusura e l'altra, per classi degli
  * argomenti (classes). Contengono posti di ground[], o -1. */
-static short exact[4 * MAX_GROUND], classes[4 * MAX_GROUND];
+static _Thread_local short exact[4 * MAX_GROUND], classes[4 * MAX_GROUND];
 
 /* Ritorna il posto da cui cominciare a cercare, in una delle due tabelle,
  * il simbolo symbol applicato ad a e b. */
@@ -2664,17 +2664,17 @@ static int truth(const Sentence *s, int negated, SlotValues value) {
  * suo numero d'ordine, name_serial[], che non si ripete nella dimostrazione
  * di un'affermazione: names_given ne conta i nomi. name_known[] è il posto
  * in known[] della condizione K_NAMED che il nome ha aperto. */
-static int *name_serial, *name_known;
-static size_t name_serial_capacity, name_known_capacity;
-static int names_given;
+static _Thread_local int *name_serial, *name_known;
+static _Thread_local size_t name_serial_capacity, name_known_capacity;
+static _Thread_local int names_given;
 
 /* 28r-3. La generazione di ogni simbolo: 0 per quelli dichiarati e per i
  * nomi che l'enunciato dà senza istanze, 1 più la più alta degli elementi
  * dell'istanza per un nome nato dentro un'istanza. Si scrive quando il nome
  * nasce, e vale per quel nome solo (il posto si riusa da un ramo all'altro:
  * lo si riscrive). */
-static unsigned char *symbol_generation;
-static size_t symbol_generation_capacity;
+static _Thread_local unsigned char *symbol_generation;
+static _Thread_local size_t symbol_generation_capacity;
 
 /* 28r-3. Ritorna la generazione dell'elemento presente id: la più alta dei
  * simboli che lo scrivono. */
@@ -2710,11 +2710,11 @@ static int known_law(int i);
 /* 28n. symbol_law[s] è 1 se il nome di posto s è nato da una legge delle
  * parti: una parte data da una comprensione, o un elemento che distingue
  * due parti. */
-static unsigned char *symbol_law;
-static size_t symbol_law_capacity;
+static _Thread_local unsigned char *symbol_law;
+static _Thread_local size_t symbol_law_capacity;
 /* Quanti simboli ha letto l'enunciato: gli altri sono nomi dati dalla
  * dimostrazione (28-2, e le parti di 28j). */
-static int declared_symbols;
+static _Thread_local int declared_symbols;
 
 /* Dimensiona i metadati dei simboli della ricerca. Il parser possiede le
  * dichiarazioni, il motore questi dati delle dimostrazioni: nessuno dei
@@ -3390,7 +3390,7 @@ static void instance_survey(const Sentence *s, SlotValues value, int *missing, i
  * falsa (allora l'istanza è vera senza dire nulla) e al più una non si sa:
  * le altre aspettano che se ne sappia di più. Ritorna 1 se l'istanza di
  * rule con gli elementi di value[] è da tenere. */
-static int split_lookahead;
+static _Thread_local int split_lookahead;
 static int instance_guarded(const Rule *rule, SlotValues value) {
     int unknown = 0;
     if (rule->negated) return 1;
@@ -3411,9 +3411,9 @@ static int instance_guarded(const Rule *rule, SlotValues value) {
 static int instance_choices(const Rule *rule, int named) {
     /* Depositi sullo heap riusati fra i giri; nessun Known ne conserva un
      * indirizzo. La routine non richiama ricorsivamente questa ricerca. */
-    static short *candidate;
-    static int *index;
-    static size_t candidate_capacity, index_capacity;
+    static _Thread_local short *candidate;
+    static _Thread_local int *index;
+    static _Thread_local size_t candidate_capacity, index_capacity;
     size_t sorts = (size_t)sort_count;
     if (!work_reserve((void **)&candidate, &candidate_capacity, (size_t)now->grounds, sizeof *candidate) ||
         !work_reserve((void **)&index, &index_capacity, 2 * sorts + (size_t)rule->slots, sizeof *index)) {
@@ -3633,21 +3633,21 @@ typedef struct {
     int next;               /* il termine da to in poi (w2), o -1 */
     int size;               /* i passi, compresi quelli dentro w3 e w4 */
 } Bij;
-static Bij bij[MAX_BIJ];
-static int bij_count;
+static _Thread_local Bij bij[MAX_BIJ];
+static _Thread_local int bij_count;
 
 /* 28q. Le variabili delle definizioni: due per insieme, nate una volta per
  * enunciato da bijection_prepare(); bij_ready è 0 se non ci sono. */
-static int (*bij_slot)[2],bij_ready;
-static size_t bij_slot_capacity;
+static _Thread_local int (*bij_slot)[2],bij_ready;
+static _Thread_local size_t bij_slot_capacity;
 
 /* 28q. Quale testimone provare, dal più corto (0), e quanti se ne sono
  * trovati al più in un ramo: li usa claim_attempts(). */
-static int witness_choice, witness_options;
+static _Thread_local int witness_choice, witness_options;
 
 /* 28q. Le visite di bij_terms() per l'equipotenza in corso: le azzera
  * bijection_witness(), e oltre MAX_BIJ_VISITS la ricerca si ferma. */
-static long bij_visits;
+static _Thread_local long bij_visits;
 
 /* 28q. Ritorna il posto in bij[] di una copia di b, o -1 se non c'è posto. */
 static int bij_new(Bij b) {
@@ -3972,7 +3972,7 @@ static void bijection_prepare(const Sentence *root) {
 
 /* 1 durante le prove di questo paragrafo: instantiate() sceglie le istanze
  * con il modello candidato. */
-static int model_guided;
+static _Thread_local int model_guided;
 
 /* Il valore, nel modello candidato, di un simbolo applicato che non è
  * presente: "altro", diverso da ogni posto di ground[]. */
@@ -3981,16 +3981,16 @@ static int model_guided;
 /* Le generazioni ammesse nelle prove successive (28r-3), e quella ammessa
  * nella prova in corso. */
 static const int model_generations[] = {2, 4};
-static int generation_limit;
+static _Thread_local int generation_limit;
 
 /* Il modello candidato del ramo in corso: per ogni insieme, un elemento
  * presente per ogni classe (il più vecchio, posto in ground[]), in ordine di
  * età, e quanti sono. Lo rifà candidate_prepare(). candidate_steps conta i
  * passi del calcolo, fino a MAX_CANDIDATE_STEPS per giro di istanze. */
-static short (*candidate_domain)[MAX_GROUND];
-static int *candidate_size;
-static size_t candidate_domain_capacity,candidate_size_capacity;
-static long long candidate_steps;
+static _Thread_local short (*candidate_domain)[MAX_GROUND];
+static _Thread_local int *candidate_size;
+static _Thread_local size_t candidate_domain_capacity,candidate_size_capacity;
+static _Thread_local long long candidate_steps;
 
 /* Ritorna il valore dell'elemento e nel modello candidato, con le variabili
  * agli elementi di value[]: il rappresentante della sua classe, oppure
@@ -4101,8 +4101,8 @@ static int candidate_complete(void) {
  * nessuna. Ritorna 1 se l'ha aggiunta. Un'istanza falsa che c'è già (una
  * disgiunzione in attesa) non conta, e si passa alla scelta successiva. */
 static int instance_model(const Rule *rule) {
-    static int *pick;
-    static size_t capacity;
+    static _Thread_local int *pick;
+    static _Thread_local size_t capacity;
     if (!work_reserve((void **)&pick, &capacity, (size_t)rule->slots, sizeof *pick)) { exhausted = 1; return 0; }
     long long tuples = 1;
     SlotValues value = SLOT_VALUES_EMPTY;
@@ -4327,8 +4327,8 @@ static int deduction_read(int premise, const Sentence *conclusion, int negated, 
 
 /* Le condizioni note che servono alla contraddizione del ramo, e il numero
  * con cui ognuna è citata nella dimostrazione scritta. */
-static char needed[MAX_KNOWN];
-static short label[MAX_KNOWN];
+static _Thread_local char needed[MAX_KNOWN];
+static _Thread_local short label[MAX_KNOWN];
 
 /* Scrive il riferimento alla condizione nota di posto i: (H3) per la terza
  * ipotesi, che è la condizione di posto 2, e il suo numero per le altre. */
@@ -4733,8 +4733,8 @@ typedef struct {
 
 /* I cammini delle foglie scritte per l'affermazione in corso; 1 in
  * case_overflow se una non ci stava, e allora la copertura non si può dire. */
-static CasePath case_path[MAX_CASE_LEAVES];
-static int case_paths, case_overflow;
+static _Thread_local CasePath case_path[MAX_CASE_LEAVES];
+static _Thread_local int case_paths, case_overflow;
 
 /* Annota il cammino del ramo corrente, appena chiuso e scritto. */
 static void case_path_record(void) {
@@ -4793,8 +4793,8 @@ static int case_paths_complete(void) {
  * 0 il testo scritto va cancellato da chi chiama. Annota il cammino dei
  * casi della foglia (28p). */
 static int leaf_write(int leaf) {
-    static Deduction d;
-    static Reason reason;
+    static _Thread_local Deduction d;
+    static _Thread_local Reason reason;
     memset(needed, 0, sizeof needed);
 
     /* Da dove nasce la contraddizione: un fatto "diversi" tra due elementi
@@ -5001,7 +5001,7 @@ static int leaf_write(int leaf) {
 
 /* name_written[n] è 1 se la voce witness del nome di numero d'ordine n è
  * già nel certificato dell'affermazione in corso. */
-static unsigned char name_written[MAX_NAMES_GIVEN + 1];
+static _Thread_local unsigned char name_written[MAX_NAMES_GIVEN + 1];
 
 /* Scrive un'etichetta univoca dell'insieme. I nomi arbitrari conservano
  * lettera e pedice; quelli derivati hanno un prefisso con underscore e
@@ -5401,9 +5401,9 @@ static Verdict abstract_certified(Verdict verdict) {
 
 /* Gli assiomi dell'enunciato in corso, aggiunti alle sue ipotesi, e la
  * legge di cui ognuno è un caso. */
-static const Sentence *axioms[MAX_AXIOMS];
-static Law axiom_law[MAX_AXIOMS];
-static int axiom_count;
+static _Thread_local const Sentence *axioms[MAX_AXIOMS];
+static _Thread_local Law axiom_law[MAX_AXIOMS];
+static _Thread_local int axiom_count;
 
 /* Ritorna la legge da cui viene la condizione nota di posto i: quella
  * dell'assioma, se è un assioma o una sua istanza; LAW_NONE altrimenti. */
@@ -5612,11 +5612,11 @@ static void cert_axioms(void) {
 
 /* Quanti rami sono stati chiusi finora nella dimostrazione in corso: serve
  * a numerare i casi. */
-static int leaves_closed;
+static _Thread_local int leaves_closed;
 
 /* Quanti giri di istanze (28-3) un ramo fa prima di distinguere dei casi
  * (28-5): MAX_ROUNDS, o di meno nelle prove di 28n. */
-static int rounds_before_split = MAX_ROUNDS;
+static _Thread_local int rounds_before_split = MAX_ROUNDS;
 
 /* Copia nel ramo di profondità depth + 1 quello di profondità depth, con
  * i suoi elementi e i suoi nomi, e ci si sposta. Delle tabelle si copia
@@ -5713,8 +5713,8 @@ typedef struct {
  * prima volta che servono, con una lettera che l'enunciato non usa; -1
  * finché mancano. Tutte le definizioni le condividono: ognuna è una
  * condizione chiusa, che le lega. */
-static int (*definition_slot)[2];
-static size_t definition_slot_capacity;
+static _Thread_local int (*definition_slot)[2];
+static _Thread_local size_t definition_slot_capacity;
 
 /* Dimensiona i depositi della sola ricerca legacy per istanze. Sono
  * separati dai modelli e da Sp, che non devono pagarne le cache. */
@@ -5746,7 +5746,7 @@ static int part_named(int symbol) {
 /* Mette in element[] gli elementi di sort con un nome nel ramo corrente,
  * uno per classe di elementi uguali, e ritorna quanti sono. */
 static int named_elements(int sort, int *element) {
-    static int *rep; static size_t capacity;
+    static _Thread_local int *rep; static _Thread_local size_t capacity;
     size_t need = (size_t)(symbol_count < now->grounds ? symbol_count : now->grounds);
     if (!work_reserve((void **)&rep, &capacity, need, sizeof *rep)) { exhausted = 1; return 0; }
     int count = 0;
@@ -5763,7 +5763,7 @@ static int named_elements(int sort, int *element) {
 /* Mette in out[] le parti di sort da provare, nell'ordine della testa del
  * paragrafo, al più MAX_PART_CANDIDATES, e ritorna quante sono. */
 static int part_candidates(int sort, PartCandidate *out) {
-    static int *element; static size_t capacity;
+    static _Thread_local int *element; static _Thread_local size_t capacity;
     size_t need = (size_t)(symbol_count < now->grounds ? symbol_count : now->grounds);
     if (!work_reserve((void **)&element, &capacity, need, sizeof *element)) { exhausted = 1; return 0; }
     int count = 0, elements;
@@ -5879,11 +5879,11 @@ static int refute(int depth, int splits, int choices);
 /* Le scelte provate finora per l'affermazione in corso, e 1 se una scelta,
  * o una prova di 28l, si è fermata a un limite del programma (exhausted):
  * allora non aver trovato la dimostrazione non dice nulla. */
-static int part_attempts, part_interrupted;
+static _Thread_local int part_attempts, part_interrupted;
 
 /* Quante scelte di parti una dentro l'altra sono ammesse in un ramo nella
  * ricerca in corso: da 1 a MAX_PART_CHOICES (vedi abstract_claim()). */
-static int part_limit;
+static _Thread_local int part_limit;
 
 /* Il punto a cui torna un tentativo non riuscito (una scelta di parti, 28k,
  * o una prova di 28l): quanto erano lunghi la dimostrazione scritta e il
@@ -6080,7 +6080,7 @@ static int split_choice(int depth, int *closing) {
  * non si è chiuso: allora nemmeno il ramo si chiuderebbe (l'altro caso sa
  * tutto ciò che sa il ramo, e una cosa in più), e non lascia nulla. */
 static int cheap_split(int depth, int splits, int choices) {
-    static SearchMark mark[MAX_BRANCHES];
+    static _Thread_local SearchMark mark[MAX_BRANCHES];
     Branch *here = &branch[depth];
     for (int open = 0, probes = 0; open < here->knowns && probes < MAX_PROBES && !failure; open++) {
         if (here->known[open].stage != K_WAITING) continue;
@@ -6348,8 +6348,8 @@ static int conjuncts(const Sentence *s, const Sentence **list, int count, int ma
 
 /* Il testo di un modello, per il verdetto in una riga: una copia posseduta
  * qui, riusata tra gli enunciati e valida fino al modello successivo. */
-static char *model_text;
-static size_t model_text_capacity;  /* Byte posseduti in model_text. */
+static _Thread_local char *model_text;
+static _Thread_local size_t model_text_capacity;  /* Byte posseduti in model_text. */
 
 /* Consegna un modello gia trovato: ricalcola ipotesi, tesi e notazione
  * scritta, poi scrive il documento e il certificato indipendente. La stessa
@@ -9183,7 +9183,7 @@ static int sp_static_bijections(SpState *s) {
     return !s->limited && !s->unsupported;
 }
 
-int logic_task = LOGIC_DECIDE;
+_Thread_local int logic_task = LOGIC_DECIDE;
 const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore che ospita il motore";
 
 /* Il modello ricevuto per LOGIC_ADOPT_MODEL, preso in prestito da chi
@@ -9191,10 +9191,10 @@ const char *const LOGIC_HANDED_OVER = "la ricerca è consegnata al dimostratore 
  * dell'enunciato consegnato, e una tabella per simbolo dichiarato,
  * nell'ordine delle voci symbol, con le celle nell'ordine dei modelli di
  * questo capitolo (il primo argomento cambia più in fretta). */
-const size_t *adopted_sizes;
-const size_t *const *adopted_tables;
-const size_t *adopted_cells;   /* quante celle ha ogni tabella */
-int adopted_sorts, adopted_symbols;
+_Thread_local const size_t *adopted_sizes;
+_Thread_local const size_t *const *adopted_tables;
+_Thread_local const size_t *adopted_cells;   /* quante celle ha ogni tabella */
+_Thread_local int adopted_sorts, adopted_symbols;
 
 /* Carica in m il modello ricevuto. Ritorna 0 se non è un'interpretazione
  * dei simboli dell'enunciato in corso: un numero diverso di insiemi o di
@@ -9234,7 +9234,7 @@ static int model_adopt(Model *m) {
  * Svuota l'arena: i risultati di chiamate precedenti non sono più validi. */
 Verdict prove_abstract(const char *formula) {
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "con istanze delle ipotesi e uguali al posto di uguali", NULL, NULL};
-    static Model model;
+    static _Thread_local Model model;
     const Sentence *hypothesis[MAX_KNOWN / 8], *claim[MAX_KNOWN / 8];
     SlotValues nothing = SLOT_VALUES_EMPTY;
     long long tried;

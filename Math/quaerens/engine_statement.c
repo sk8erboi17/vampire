@@ -263,12 +263,12 @@ static int has_derivative_sign(const char *text) {
 
 /* Le lettere legate nel punto dell'enunciato che numbers_formula() sta
  * scrivendo, dalla più esterna: un'espressione può usare solo queste. */
-static int numbers_bound[64], numbers_bound_count;
+static _Thread_local int numbers_bound[64], numbers_bound_count;
 
 /* Il genere dei numeri dell'enunciato consegnato: 0 non ancora fissato, poi
  * 1 interi, 2 razionali, 3 reali. Lo fissa il primo insieme incontrato, e
  * tutti gli altri devono avere lo stesso. */
-static int numbers_base;
+static _Thread_local int numbers_base;
 
 /* Scrive l'insieme di numeri set. Ritorna 0 se non è del genere degli altri
  * insiemi dell'enunciato, o è \mathbb{C}. */
@@ -559,7 +559,7 @@ static Verdict prove_core(const char *formula, int variable, int has_base, long 
      * solo è fuori posto per un enunciato di 17r, e "troppo lungo" da solo
      * nasconde un errore di scrittura vero. */
     if (stack_guard) {
-        static char both[512];
+        static _Thread_local char both[512];
         int parts = uses_parts_relations(formula);
         if (!parts && !uses_elements(formula)) return too_long;
         Verdict verdict = prove_abstract(formula);

@@ -107,7 +107,7 @@ static int value_now(Rat chosen, Frac *value) {
 
 /* Quanti elementi di ogni insieme prova la verifica: SAMPLE_SIZE, oppure meno
  * quando i quantificatori annidati sono tanti. Lo fissa decide_quantified(). */
-static int sample_width;
+static _Thread_local int sample_width;
 
 /* Mette in out i valori che la verifica prova per una variabile di set, e
  * ritorna quanti sono: i primi width elementi (numbers_sample()), più il
@@ -139,7 +139,7 @@ static int check_sample(const NumberSet *set, Frac *out, int width) {
 /* Quante volte la verifica ha trovato vera la tesi di un'implicazione dopo
  * averne trovata vera l'ipotesi: le prove che hanno controllato qualcosa
  * (vedi "Quante prove servono", in testa al capitolo). */
-static long sample_theses;
+static _Thread_local long sample_theses;
 
 /* Ritorna holds, la tesi di un'implicazione calcolata sul campione con
  * l'ipotesi vera, e la conta se è vera. */
@@ -346,8 +346,8 @@ static int sample_candidates(int name, const NumberSet *set, const Wanted *list,
  * limita le combinazioni usuali, ma due valori per 40 lettere sono gia
  * oltre un trilione. Ogni visita reale ha quindi un budget separato,
  * configurabile; esaurirlo e mancata verifica, mai conferma parziale. */
-static unsigned long long verification_left;
-static int verification_limited;
+static _Thread_local unsigned long long verification_left;
+static _Thread_local int verification_limited;
 static const char verification_problem[] = "budget di lavoro della verifica indipendente esaurito";
 
 /* Conta una visita del verificatore numerico, senza traboccare il contatore. */
@@ -690,7 +690,7 @@ static int map_holds_on_sample(const Map *map) {
  * nulla, o se le condizioni non si calcolano con i numeri, perché nominano
  * un parametro (17s). */
 static const char *cases_fault(const Map *map) {
-    static char reason[160];
+    static _Thread_local char reason[160];
     Frac sample[2 * SAMPLE_SIZE];
     Num value, other;
     numbers_sample(&map->domain, sample, 2 * SAMPLE_SIZE);
@@ -743,8 +743,8 @@ static int sample_with_parameters(const Formula *thesis, int negated, int level)
 }
 
 /* Il testo delle scelte fatte, per esempio "a = 0, b = 3". */
-static char *choice_text;
-static size_t choice_capacity;
+static _Thread_local char *choice_text;
+static _Thread_local size_t choice_capacity;
 
 /* Scrive in choice_text i numeri scelti dalla dimostrazione e ne ritorna
  * l'indirizzo, oppure NULL se non ce ne sono. */
@@ -886,7 +886,7 @@ static int residue_failure(const Formula *f) {
 
 /* Il testo di ciò che decide_by_residues() ha da riportare: un controesempio
  * come "x = 5, y = 0", oppure le soluzioni come condizione in LaTeX. */
-static char residue_text[64 * MAX_CLASSES];
+static _Thread_local char residue_text[64 * MAX_CLASSES];
 
 /* 18r, per \{x \in A \mid c\}: l'insieme delle soluzioni di una condizione c
  * del linguaggio di 18r, con A un insieme di interi. solve è il nodo F_SOLVE,
@@ -902,7 +902,7 @@ static char residue_text[64 * MAX_CLASSES];
  * (period_holds()); e le soluzioni scritte vengono rilette dal lettore del
  * programma e calcolate, sugli stessi interi, come una condizione qualsiasi. */
 static void solve_by_residues(const Formula *solve, Verdict *verdict) {
-    static char good[MAX_PERIOD];
+    static _Thread_local char good[MAX_PERIOD];
     const NumberSet *set = &solve->numbers;
     long long period = residue_period, shortest = period, classes = 0;
     int name = solve->variable, length = 0, confirmed = 1;
@@ -1712,7 +1712,7 @@ static Verdict witnesses_tried(const Unfolded *u, int k, char *values, size_t si
         }
 
         /* Il testo con i numeri: nasce nella bozza del lettore. */
-        static char closed[MAX_FORMULA];
+        static _Thread_local char closed[MAX_FORMULA];
         syntax_error = NULL;
         draft_length = 0;
         draft_rewrite(u->rest[k], u->rest[k] + strlen(u->rest[k]), u->letter[k], to, letters);
@@ -1785,8 +1785,8 @@ static int definitions_unfolded(Unfolded *u) {
  * svolto si decide da capo con prove_quantified(): al ritorno le
  * applicazioni e gli alberi dell'enunciato non valgono più. */
 static Verdict decide_real_maps(const Formula *thesis) {
-    static Unfolded u;
-    static char composed[PROOF_BYTES], counterexample[400];
+    static _Thread_local Unfolded u;
+    static _Thread_local char composed[PROOF_BYTES], counterexample[400];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "con la tabella dei segni, sulla definizione svolta", NULL, NULL};
     verdict.reason = "la definizione svolta non si scrive: troppo lunga, o con applicazioni che lo svolgimento non tratta";
 
@@ -1794,7 +1794,7 @@ static Verdict decide_real_maps(const Formula *thesis) {
      * zero, e gli alberi non varrebbero più. Il controesempio di un
      * enunciato precedente non vale per questo: prima restava, e un
      * enunciato falso per un'altra ragione lo riportava (fuzz_cases.py). */
-    static char reading[200];
+    static _Thread_local char reading[200];
     u.count = u.definitions = 0;
     counterexample[0] = 0;
     snprintf(reading, sizeof reading, "%s", pairs_note);
@@ -1805,7 +1805,7 @@ static Verdict decide_real_maps(const Formula *thesis) {
     size_t length = 0;
     int refuted = -1;
     for (int k = 0; k < u.count && refuted < 0; k++) {
-        static char values[400];
+        static _Thread_local char values[400];
         Verdict part = prove_quantified(u.text[k]);
         int definition = k < u.definitions, witnessed = 0;
         if (!definition && part.outcome != PROVED && part.outcome != REFUTED && u.letters[k]) {

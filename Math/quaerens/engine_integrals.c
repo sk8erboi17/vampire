@@ -297,7 +297,7 @@ static PrimitiveCheck primitive_check(const Node *f, const Node *F, int x) {
  * rilegge e non passa la verifica. */
 
 /* Il metodo che ha trovato l'ultima primitiva, per il verdetto. */
-static const char *primitive_method;
+static _Thread_local const char *primitive_method;
 
 /* Aggiunge a text, di size byte, il razionale v in LaTeX: 3, -\frac{5}{2}. */
 void frac_latex(Frac v, char *text, size_t size) {
@@ -728,7 +728,7 @@ static int rational_primitive(QPoly num, QPoly den, int letter, char *text, size
     /* La matrice dei due sistemi lineari: statica perché è grande (10 KB)
      * per la pila di una ricerca ricorsiva. Non è mai in uso durante una
      * chiamata ricorsiva: ogni sistema si risolve prima di andare avanti. */
-    static Frac m[MAX_QPOLY + 1][MAX_QPOLY + 2];
+    static _Thread_local Frac m[MAX_QPOLY + 1][MAX_QPOLY + 2];
     Frac y[MAX_QPOLY + 1];
     char power_text[16];
     text[0] = 0;
@@ -981,8 +981,8 @@ typedef struct {
     Num coef;        /* il coefficiente, complesso */
 } ExpTerm;
 
-static ExpTerm exp_term[MAX_EXP_TERMS];
-static int exp_terms;
+static _Thread_local ExpTerm exp_term[MAX_EXP_TERMS];
+static _Thread_local int exp_terms;
 
 /* Aggiunge alla primitiva il termine coef x^power e^{(a + i b) x}
  * constant, sommandolo a quello con gli stessi esponenti se c'è già. */
@@ -1691,7 +1691,7 @@ static int trig_method(const Node *f, int x, int depth, char *text, size_t size)
     Node *argument = letter_node(x);
     if (half.num != 1) argument = node_new(N_MUL, node_num(half.num), argument);
     if (half.den != 1) argument = node_new(N_DIV, argument, node_num(half.den));
-    static char label[128];
+    static _Thread_local char label[128];
     char written[64];
     if (!substitute_back(inner, t, node_call(FN_TAN, argument, NULL), text, size) || !node_latex(argument, written, sizeof written)) return 0;
     snprintf(label, sizeof label, "con la sostituzione t = \\tan\\left(%s\\right)", written);
@@ -1751,7 +1751,7 @@ static int (*const primitive_methods[])(const Node *, int, int, char *, size_t) 
  * metodo può chiamarla su altre funzioni, e senza un tetto i tentativi
  * crescerebbero come una potenza della profondità: finito il conto, la
  * ricerca si arrende. */
-static int primitive_budget;
+static _Thread_local int primitive_budget;
 
 /* 30c. Scrive in text, di size byte, una primitiva di f nella variabile x,
  * provando i metodi di primitive_methods[] uno dopo l'altro. Ritorna 1 se
@@ -2233,7 +2233,7 @@ static int put_primitive_check(const Node *f, const Node *F, int x, const Primit
 
 /* Il verdetto di una verifica, con il motivo e il punto. */
 static Verdict primitive_verdict(const PrimitiveCheck *check, int x) {
-    static char where[96];
+    static _Thread_local char where[96];
     Verdict verdict = {check->outcome, 0, 0, 0, check->reason, NULL, NULL, NULL, NULL, NULL};
     if (check->outcome == REFUTED) {
         snprintf(where, sizeof where, "%c = %lld/%lld, dove la derivata della primitiva non è la funzione integranda", x, check->point.num, check->point.den);
@@ -2260,7 +2260,7 @@ static Node *found_primitive(const Node *f, int x, char *text, size_t size, Prim
         check->reason = "la primitiva trovata è smentita dalla verifica: un errore del programma";
     }
     if (check->outcome != PROVED) {
-        static char reason[256];
+        static _Thread_local char reason[256];
         snprintf(reason, sizeof reason, "la primitiva trovata non è verificata: %s", check->reason ? check->reason : "");
         check->reason = reason;
         check->outcome = NOT_PROVED;
@@ -2275,7 +2275,7 @@ static Node *found_primitive(const Node *f, int x, char *text, size_t size, Prim
  * continua su tutto [a, b]: allora l'integrale va trattato come improprio
  * (30k), e il verdetto ritornato non conta. */
 static Verdict prove_definite(const Node *f, const Node *lower, const Node *upper, const Node *claim, int x, int *improper) {
-    static char answer[ANSWER_BYTES], detail[ANSWER_BYTES + 128];
+    static _Thread_local char answer[ANSWER_BYTES], detail[ANSWER_BYTES + 128];
     char primitive[ANSWER_BYTES];
     Verdict verdict = {NOT_PROVED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
 
@@ -2535,8 +2535,8 @@ typedef enum {
 
 /* Gli estremi delle parti, da sinistra a destra: la parte i va da
  * improper_point[i] a improper_point[i + 1]. */
-static EndText improper_point[MAX_IMPROPER_PIECES + 1];
-static int improper_pieces;
+static _Thread_local EndText improper_point[MAX_IMPROPER_PIECES + 1];
+static _Thread_local int improper_pieces;
 
 /* Ripartenza da zero per un enunciato sugli integrali: l'arena, la tabella
  * degli atomi e le variabili dei conti; non il testo della dimostrazione. */
@@ -2723,7 +2723,7 @@ static int end_between(const EndText *p, const EndText *c, const EndText *q, int
  * tabella le smentisce. Ritorna 1 se alla fine valgono su ogni parte, 0 se
  * non si sa. La dimostrazione della tabella entra nel testo. */
 static int improper_domain(const char *conditions, int x) {
-    static char question[MAX_FORMULA], low[ANSWER_BYTES], high[ANSWER_BYTES];
+    static _Thread_local char question[MAX_FORMULA], low[ANSWER_BYTES], high[ANSWER_BYTES];
     if (!conditions[0]) {
         proof_add("Every operation in the integrand is defined for every real number, so it is continuous everywhere.\n");
         return 1;
@@ -2769,7 +2769,7 @@ static int improper_domain(const char *conditions, int x) {
  * l'infinito o il valore scritto, e ritorna 1 se il limite è calcolato. La
  * dimostrazione del limite entra nel testo, dopo intro. */
 static int improper_limit(const char *function, int x, const EndText *end, int side, const char *intro, EndText *out) {
-    static char question[MAX_FORMULA];
+    static _Thread_local char question[MAX_FORMULA];
     int wanted = end->infinite ? snprintf(question, sizeof question, "\\lim_{%c \\to %s} %s", x, end->infinite > 0 ? "+\\infty" : "-\\infty", function)
                                : snprintf(question, sizeof question, "\\lim_{%c \\to %s^{%c}} %s", x, end->text, side > 0 ? '+' : '-', function);
     if (wanted < 0 || (size_t)wanted >= sizeof question) return 0;
@@ -2830,7 +2830,7 @@ static int improper_limit(const char *function, int x, const EndText *end, int s
  * vicino a end, IMPROPER_PLUS o IMPROPER_MINUS se vale un infinito,
  * IMPROPER_UNKNOWN se non si sa. Con proof scrive il ragionamento. */
 static ImproperResult improper_compare(const char *function, int x, const EndText *end, int side, int proof) {
-    static char question[MAX_FORMULA], t[ANSWER_BYTES], ell[ANSWER_BYTES], g[2 * ANSWER_BYTES];
+    static _Thread_local char question[MAX_FORMULA], t[ANSWER_BYTES], ell[ANSWER_BYTES], g[2 * ANSWER_BYTES];
     char e_text[64] = "", d_text[64] = "", where[ANSWER_BYTES];
     int wanted = end->infinite ? snprintf(question, sizeof question, "\\lim_{%c \\to %s} %s", x, end->infinite > 0 ? "+\\infty" : "-\\infty", function)
                                : snprintf(question, sizeof question, "\\lim_{%c \\to %s^{%c}} %s", x, end->text, side > 0 ? '+' : '-', function);
@@ -2992,9 +2992,9 @@ static const char *const CONVERGES_WITHOUT_VALUE = "l'integrale converge (per co
 /* 30k. Il verdetto su un integrale improprio, letto da formula: vedi la
  * testa di 30k e di 30l. Svuota l'arena e la tabella degli atomi. */
 static Verdict prove_improper(const char *formula) {
-    static char f_text[ANSWER_BYTES], F_text[ANSWER_BYTES], f_conditions[ANSWER_BYTES], all_conditions[2 * ANSWER_BYTES], answer[ANSWER_BYTES];
-    static EndText from[MAX_IMPROPER_PIECES], to[MAX_IMPROPER_PIECES];
-    static ImproperResult ends[2 * MAX_IMPROPER_PIECES];
+    static _Thread_local char f_text[ANSWER_BYTES], F_text[ANSWER_BYTES], f_conditions[ANSWER_BYTES], all_conditions[2 * ANSWER_BYTES], answer[ANSWER_BYTES];
+    static _Thread_local EndText from[MAX_IMPROPER_PIECES], to[MAX_IMPROPER_PIECES];
+    static _Thread_local ImproperResult ends[2 * MAX_IMPROPER_PIECES];
     Verdict verdict = {NOT_PROVED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     IntegralStatement st;
     PrimitiveCheck check;
@@ -3225,7 +3225,7 @@ static Verdict prove_improper(const char *formula) {
  * formula (vedi 9j e la testa del capitolo). Svuota l'arena e la tabella
  * degli atomi: i risultati di chiamate precedenti non sono più validi. */
 Verdict prove_integral(const char *formula) {
-    static char answer[ANSWER_BYTES + 8];
+    static _Thread_local char answer[ANSWER_BYTES + 8];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     IntegralStatement statement;
 

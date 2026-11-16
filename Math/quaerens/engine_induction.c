@@ -71,10 +71,10 @@
  * gli altri testi destinati a un documento. proof_reset() lo svuota,
  * proof_add() vi aggiunge un pezzo con la sintassi di printf. Un testo più
  * lungo di PROOF_BYTES viene rifiutato, salvo i modelli che crescono sullo heap. */
-static char proof_initial[PROOF_BYTES];
-char *proof_text = proof_initial;
-size_t proof_length, proof_capacity = PROOF_BYTES;
-int proof_growable, proof_broken;
+static _Thread_local char proof_initial[PROOF_BYTES];
+_Thread_local char *proof_text;   /* proof_initial, da engine_texts_init() in ogni thread */
+_Thread_local size_t proof_length, proof_capacity = PROOF_BYTES;
+_Thread_local int proof_growable, proof_broken;
 
 /* Allarga un testo sullo heap entro il budget richiesto. Il deposito
  * iniziale resta statico per i domini che usano testi di lunghezza nota;
@@ -105,7 +105,7 @@ static int text_reserve(char **text, size_t *capacity, char *initial, size_t nee
  * di un enunciato sugli insiemi, di uno su insiemi qualsiasi (28f).
  * Deve restare a zero: un valore diverso vuol dire che una regola ha
  * sbagliato, e i test lo controllano. */
-int unjustified_steps;
+_Thread_local int unjustified_steps;
 
 /* Svuota il documento e restituisce il deposito iniziale; i risultati
  * della chiamata precedente, come per l'arena, non sono piu validi. */
@@ -1066,9 +1066,9 @@ static int bigop_library(int atom) {
 /* I parametri mandati all'infinito, dal più veloce al più lento, e il verso:
  * +1 verso più infinito, -1 verso meno infinito. Vuoto fuori da
  * defined_eventually(). */
-static int far_name[MAX_POINT];
-static int far_count;
-static int far_sign;
+static _Thread_local int far_name[MAX_POINT];
+static _Thread_local int far_count;
+static _Thread_local int far_sign;
 
 /* Ritorna 1 se la lettera name è uno dei parametri mandati all'infinito. */
 static int is_far(long long name) {
@@ -1528,9 +1528,9 @@ static int choose_point(const Statement *statement, long long base) {
  * valori. fixed_count vale -1 se non c'è, perché l'ha stabilito in altro
  * modo (13d). Le chiamate con `every` a zero non lo toccano. Lo usa il
  * certificato (13h), che lo consegna al verificatore perché lo ricontrolli. */
-static int fixed_count = -1;
-static int fixed_name[MAX_POINT];
-static Frac fixed_value[MAX_POINT];
+static _Thread_local int fixed_count = -1;
+static _Thread_local int fixed_name[MAX_POINT];
+static _Thread_local Frac fixed_value[MAX_POINT];
 
 /* 13e. Verifica indipendente di un enunciato già dimostrato, a partire dal
  * caso base `base`. Ritorna NULL se conferma la dimostrazione, altrimenti il
@@ -1575,7 +1575,7 @@ static Frac fixed_value[MAX_POINT];
  *
  * I conti fatti qui non servono dopo: atomi e memoria tornano com'erano. */
 static const char *verify_instances(const Statement *statement, long long base, int every) {
-    static char text[200];
+    static _Thread_local char text[200];
     if (every) fixed_count = -1;
     Scratch mark = scratch_mark();
     const char *problem = NULL;
@@ -1704,8 +1704,8 @@ void put_frac(Frac v) {
 /* La sostituzione in corso mentre put_node() scrive: la variabile shown_name
  * va scritta come l'espressione shown_value. Con shown_value NULL non si
  * sostituisce nulla. */
-int shown_name;
-const Node *shown_value;
+_Thread_local int shown_name;
+_Thread_local const Node *shown_value;
 
 /* Ritorna quanto strettamente il nodo tiene insieme i suoi operandi, per
  * decidere le parentesi: 1 somme e differenze, 2 somme e prodotti scritti con
@@ -1900,7 +1900,7 @@ void put_mono(const Mono *m);
  * sia una potenza di -1. Seni e coseni sono calcolati con gli esponenziali
  * complessi, ma in quella forma non si possono né scrivere in modo leggibile
  * né rileggere: chi chiama rinuncia a scrivere l'espressione. */
-int unwritable;
+_Thread_local int unwritable;
 
 /* Scrive la somma o il prodotto dell'atomo BIGOP `atom` con `shift` termini
  * in più: l'estremo superiore è dilation * n + offset + shift. Le successioni
@@ -2035,7 +2035,7 @@ void put_atom(int atom, Frac exp) {
  * due scritture valgono lo stesso numero, perché u, base di una radice, non
  * è negativo. Serve al capitolo 25: la tabella dei segni (18p) legge le
  * radici quadrate ma non gli esponenti frazionari. */
-int surd_powers;
+_Thread_local int surd_powers;
 
 /* Scrive il monomio m: i suoi fattori, separati da uno spazio sottile. */
 void put_mono(const Mono *m) {
@@ -2433,29 +2433,37 @@ static void put_induction_proof(const Statement *statement, long long base, Rat 
  */
 
 /* Il certificato dell'enunciato in corso, nella notazione di checker.c. */
-static char certificate_initial[CERTIFICATE_BYTES];
-char *certificate_text = certificate_initial;
-size_t certificate_length, certificate_capacity = CERTIFICATE_BYTES;
+static _Thread_local char certificate_initial[CERTIFICATE_BYTES];
+_Thread_local char *certificate_text;   /* certificate_initial, da engine_texts_init() in ogni thread */
+
+/* I testi del documento e del certificato puntano ai loro depositi
+ * iniziali, che sono di ogni thread: il loro indirizzo non è una costante, e
+ * lo si assegna qui, da engine_init(), prima di ogni altro uso. */
+void engine_texts_init(void) {
+    if (!proof_text) proof_text = proof_initial;
+    if (!certificate_text) certificate_text = certificate_initial;
+}
+_Thread_local size_t certificate_length, certificate_capacity = CERTIFICATE_BYTES;
 
 /* Diventa 1 quando il certificato in corso non si può scrivere: una quantità
  * che la notazione non ha, o memoria insufficiente per il testo dinamico. */
-int certificate_broken;
+_Thread_local int certificate_broken;
 
 /* Le successioni del vocabolario nominate nel certificato in corso: il bit i
  * è la riga i di library[]. Vanno definite nel certificato stesso. */
-unsigned certificate_sequences;
+_Thread_local unsigned certificate_sequences;
 _Static_assert(LIBRARY_COUNT <= 32, "certificate_sequences ha un bit per ogni riga del vocabolario");
 
 /* Perché l'ultimo certificato chiesto a certify() non c'è o non vale, in
  * italiano. Resta valido fino alla chiamata successiva. */
-char certificate_problem[256];
+_Thread_local char certificate_problem[256];
 
 /* 1 mentre si scrive il certificato di una tabella dei segni (18p-15): solo
  * allora il valore assoluto e la radice quadrata hanno una parola, (abs a) e
  * (sqrt a), che il verificatore conosce nel suo capitolo 12. In un
  * certificato di induzione resterebbero parole sconosciute: lì il
  * certificato manca, e il verdetto dice perché. */
-int cert_signs;
+_Thread_local int cert_signs;
 
 /* Diverso da zero mentre si scrive il certificato di una derivata, di una
  * primitiva o di un integrale (27m, 30cert): è il nome della variabile reale, e
@@ -2463,7 +2471,7 @@ int cert_signs;
  * capitolo 13: (exp a) per e^a, (sin a), (cos a), (atan a), (root m a),
  * (pi). La lettera e, se non è la variabile, è il numero di Nepero, (exp 1),
  * come nel capitolo 27. */
-int cert_real;
+_Thread_local int cert_real;
 
 /* Aggiunge un pezzo al certificato, con la sintassi di printf. */
 void cert_add(const char *format, ...) {

@@ -168,13 +168,13 @@ typedef struct {
 #define MAX_MODELS 400000    /* tabelle provate per una scelta delle grandezze degli insiemi */
 #define MAX_MODEL_WORK 3000000  /* tabelle provate in tutto per un enunciato */
 
-extern size_t model_memory_limit;
-extern unsigned long long saturation_work_limit;
-extern size_t saturation_memory_limit;
-extern unsigned long long model_work_limit;
-extern long long model_step_limit;
+extern _Thread_local size_t model_memory_limit;
+extern _Thread_local unsigned long long saturation_work_limit;
+extern _Thread_local size_t saturation_memory_limit;
+extern _Thread_local unsigned long long model_work_limit;
+extern _Thread_local long long model_step_limit;
 long long checker_steps(void);
-extern unsigned long long verification_work_limit;
+extern _Thread_local unsigned long long verification_work_limit;
 
 #define MAX_GROUND 2048      /* elementi nominati in una dimostrazione su insiemi qualsiasi (28b) */
 #define MAX_KNOWN 2048       /* condizioni note in un ramo di quella dimostrazione */
@@ -235,23 +235,23 @@ extern unsigned long long verification_work_limit;
  * di due di essi e la somma di due prodotti stanno sempre in un __int128. */
 #define COEF_LIMIT ((__int128)1 << 62)
 
-extern const char *failure;
-extern int work_allocation_failed;
+extern _Thread_local const char *failure;
+extern _Thread_local int work_allocation_failed;
 void fail(const char *reason);
-extern int undefined;
+extern _Thread_local int undefined;
 void fail_undefined(const char *reason);
 extern const char *const OUT_OF_MEMORY;
-extern size_t arena_used;
+extern _Thread_local size_t arena_used;
 void *arena_alloc(size_t bytes);
 void *arena_node(size_t bytes);
 int work_reserve(void **data, size_t *capacity, size_t need, size_t unit);
 void *work_arena_array(size_t count, size_t unit);
-extern size_t stack_budget;
+extern _Thread_local size_t stack_budget;
 extern const char *const STACK_EXHAUSTED;
-extern uintptr_t stack_origin;
-extern size_t stack_chain_levels;
-extern int stack_guard;
-extern int stack_exhausted;
+extern _Thread_local uintptr_t stack_origin;
+extern _Thread_local size_t stack_chain_levels;
+extern _Thread_local int stack_guard;
+extern _Thread_local int stack_exhausted;
 int stack_room(void);
 
 /* Una parola del bitset, zero oltre la sua fine. L'indice i corrisponde
@@ -412,9 +412,9 @@ typedef struct {
     int positive;      /* BIGOP: 1 se è un prodotto di fattori tutti positivi */
 } Atom;
 
-extern Atom atoms[MAX_ATOMS];
-extern int atom_count;
-extern int induction_var;
+extern _Thread_local Atom atoms[MAX_ATOMS];
+extern _Thread_local int atom_count;
+extern _Thread_local int induction_var;
 Mono mono_atom(int atom, Frac exp);
 Mono mono_mul(const Mono *a, const Mono *b);
 Mono mono_pow(const Mono *m, Frac q);
@@ -442,8 +442,8 @@ int poly_proportional(Poly a, Poly b);
 int poly_depends_on_n(Poly p);
 int poly_split(Poly p, int x, Poly *part, int max_degree);
 int poly_coefficients(Poly p, int x, long long *c, long long *scale);
-extern Poly base_polys[MAX_ATOMS];
-extern int base_poly_count;
+extern _Thread_local Poly base_polys[MAX_ATOMS];
+extern _Thread_local int base_poly_count;
 int atom_intern(const Atom *proto);
 int atom_var(int name);
 int atom_bigop(const Node *node, long long dilation, long long offset);
@@ -480,12 +480,12 @@ typedef struct {
     const char *why;
 } Condition;
 
-extern Condition conditions[MAX_CONDITIONS];
-extern int condition_count;
-extern int conditions_on;
-extern int conditions_lost;
+extern _Thread_local Condition conditions[MAX_CONDITIONS];
+extern _Thread_local int condition_count;
+extern _Thread_local int conditions_on;
+extern _Thread_local int conditions_lost;
 extern const char *const REWRITTEN;
-extern int rewriting;
+extern _Thread_local int rewriting;
 void require_product(Requirement kind, const Poly *factor, int count, const char *why);
 void require(Requirement kind, Poly value, const char *why);
 Rat rat_div(Rat a, Rat b);

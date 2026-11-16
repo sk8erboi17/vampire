@@ -340,20 +340,20 @@ static const char *const NEEDS_PRECISION = "lo sviluppo, anche con più termini,
  * di t), l'atomo della lettera L, se una potenza f^g è stata letta come
  * e^{g ln f} (lo dice la dimostrazione), e se la variabile è scritta con la
  * sostituzione di 29l, x = \pm e^{\pm 1/t}. */
-static int lim_x, lim_infinity, lim_side, lim_goal, lim_ell, lim_exponential, lim_moved;
-static Rat lim_point;
+static _Thread_local int lim_x, lim_infinity, lim_side, lim_goal, lim_ell, lim_exponential, lim_moved;
+static _Thread_local Rat lim_point;
 
 /* 1 se il conto in corso ha scritto la lettera L in un coefficiente (lo fa
  * solo value_ln()). Da quel momento un resto "O(t^{E})" vale a meno di una
  * potenza di L: un O(1) moltiplicato per -L, come \sin\frac{1}{x} \ln x, è
  * scritto O(t^{0}) ma non è limitato. Per i limiti non importa (t^{E} L^{m}
  * tende a zero per ogni E > 0), per e^{O(1)} sì: vedi value_exp(). */
-static int lim_logs;
+static _Thread_local int lim_logs;
 
 /* Il valore di L durante il controllo con i numeri (29i), per gli intervalli
  * dei coefficienti che la contengono; "non so" in ogni altro momento, perché
  * L è una lettera e non un numero. */
-static Range lim_ell_range = {1, -1};
+static _Thread_local Range lim_ell_range = {1, -1};
 
 /* Somma di due esponenti: SERIES_FLAT se uno dei due lo è. Due esponenti
  * veri non devono mai arrivare vicino a SERIES_FLAT, che vuol dire "più di
@@ -2385,7 +2385,7 @@ static void limit_certificate(const LimitStatement *st, const SideResult *sides,
  * in testa a 29n). claim, value e truth sono ciò che il certificato
  * afferma. */
 static void limit_certify(const LimitStatement *st, const SideResult *sides, int count, LimitClaim claim, const Node *value, int truth, Verdict *verdict) {
-    static char problem[512];
+    static _Thread_local char problem[512];
     const char *why = "la funzione usa qualcosa che la notazione dei certificati non ha", *text = certificate_text;
     limit_certificate(st, sides, count, claim, value, truth);
     if (!certificate_broken) {
@@ -2417,7 +2417,7 @@ static void limit_certify(const LimitStatement *st, const SideResult *sides, int
  * tabella degli atomi: i risultati di chiamate precedenti non sono più
  * validi. */
 Verdict prove_limit(const char *formula) {
-    static char answer[MAX_FORMULA];
+    static _Thread_local char answer[MAX_FORMULA];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     LimitStatement st;
     SideResult sides[2];

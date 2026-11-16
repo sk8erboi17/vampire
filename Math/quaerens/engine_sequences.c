@@ -446,7 +446,7 @@ static int put_inequality_case(const Statement *statement, long long c, int firs
  * minore di floor. Ogni altro verdetto è già quello definitivo. */
 static Verdict inequality_plan(const Statement *statement, int variable, int has_base, long long base, long long floor,
                                long long *start, char *question, size_t size) {
-    static char text[256];
+    static _Thread_local char text[256];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     int strict = statement->relation == REL_GT || statement->relation == REL_LT;
     const char *relation = statement->relation == REL_GE ? "\\ge" : statement->relation == REL_LE ? "\\le" :
@@ -628,7 +628,7 @@ static Verdict inequality_plan(const Statement *statement, int variable, int has
  * oppure, con keep, quello di prima. Il grafico non viene costruito:
  * sarebbe quello di un passo, non dell'enunciato. */
 Verdict ask_method(Verdict (*method)(const char *), const char *question, const char *short_text, int keep) {
-    static char written[PROOF_BYTES];
+    static _Thread_local char written[PROOF_BYTES];
     static const char box[] = " $\\Box$";
     size_t length = proof_length, closing = sizeof box - 1;
     int wanted = figures_wanted;
@@ -671,7 +671,7 @@ static Verdict ask_sign_table(const char *question) {
  * l'arena e la tabella degli atomi: i risultati di chiamate precedenti non
  * sono più validi. */
 Verdict prove_inequality(const char *formula, int variable, int has_base, long long base) {
-    static char reason[400];
+    static _Thread_local char reason[400];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL}, refusal = verdict;
     long long start = 0;
     int asked = 0;
@@ -985,7 +985,7 @@ Span put_comparison(const Node *lhs, Relation rel, const Node *rhs) {
  * Azzera la tabella degli atomi prima dell'induzione, che la vuole per sé:
  * dopo questa chiamata i polinomi calcolati prima non valgono più. */
 static Verdict prove_closed_form(const Declared *seq, Node *closed, int variable, long long base) {
-    static char text[320];
+    static _Thread_local char text[320];
     Verdict verdict = {NOT_PROVED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     long long low = seq->shift - seq->order;
     int sound = 1;
@@ -1116,7 +1116,7 @@ static Verdict prove_closed_form(const Declared *seq, Node *closed, int variable
  * verdetto è già quello definitivo. */
 static Verdict bound_plan(const SequenceStatement *statement, const Declared *seq, int variable, long long base, int attempt,
                           char *question, size_t size) {
-    static char text[320];
+    static _Thread_local char text[320];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     const char *shape = "una stima sui termini si dimostra solo per una regola a_{n + 1} = f(a_n) in cui n non compare";
     int letter = seq->name;
@@ -1271,7 +1271,7 @@ static Verdict bound_plan(const SequenceStatement *statement, const Declared *se
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate
  * precedenti non sono più validi. */
 Verdict prove_sequence(const char *formula, int variable, int has_base, long long base) {
-    static char reason[400];
+    static _Thread_local char reason[400];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL}, refusal = verdict;
 
     /* Per una stima, un tentativo per ogni invariante (26b): la tabella dei
@@ -1369,7 +1369,7 @@ static int node_iterates(const Node *node) {
  * verdetto. Svuota l'arena, come prove_sequence(): al ritorno le applicazioni
  * e la tesi non valgono più. */
 Verdict decide_iterates(const Formula *thesis) {
-    static char sequence[MAX_FORMULA], prefix[PROOF_BYTES / 4], shown[3][MAX_FORMULA / 3];
+    static _Thread_local char sequence[MAX_FORMULA], prefix[PROOF_BYTES / 4], shown[3][MAX_FORMULA / 3];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "per induzione, sulle iterate come successione", NULL, NULL};
     verdict.reason = "le iterate f^{n} si dimostrano in un'uguaglianza f^{n}(x) = E, per ogni n dal primo indice e per ogni x, "
                      "con f data da una regola sola che manda il codominio nel dominio";

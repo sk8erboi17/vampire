@@ -143,9 +143,9 @@ typedef struct {
     char text[EXPLAIN_BYTES];    /* il deposito dei testi */
 } Explanation;
 
-extern Explanation explanation;
-extern int explanations_wanted;
-extern int explain_wrong, explain_broken;
+extern _Thread_local Explanation explanation;
+extern _Thread_local int explanations_wanted;
+extern _Thread_local int explain_wrong, explain_broken;
 void explain_capture(int on);
 const char *explain_piece(size_t start);
 ExplainStep *explain_step(ExplainKind kind, int group);

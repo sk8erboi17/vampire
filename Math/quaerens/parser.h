@@ -143,8 +143,8 @@ typedef struct {
 } Map;
 
 extern const char *const operation_symbols[9];
-extern Map maps[MAX_MAPS];
-extern int map_count;
+extern _Thread_local Map maps[MAX_MAPS];
+extern _Thread_local int map_count;
 Map *map_find(int name);
 
 /* Come sono messi in relazione i due membri di un enunciato. */
@@ -246,10 +246,10 @@ typedef struct {
     const char *start;  /* dove inizia nel testo */
 } Token;
 
-extern const char *cursor;
-extern Token token;
-extern const char *consumed;
-extern const char *syntax_error;
+extern _Thread_local const char *cursor;
+extern _Thread_local Token token;
+extern _Thread_local const char *consumed;
+extern _Thread_local const char *syntax_error;
 void syntax(const char *message);
 void next_token(void);
 int is_char(int c);
@@ -328,9 +328,9 @@ struct SetNode {
     int supports;       /* quante sono */
 };
 
-extern int set_var_name[MAX_SET_LETTERS];
-extern int set_var_count;
-extern int parts_world;
+extern _Thread_local int set_var_name[MAX_SET_LETTERS];
+extern _Thread_local int set_var_count;
+extern _Thread_local int parts_world;
 
 /* 17r. Una relazione tra le parti di un insieme, G = \{(X, Y) \in
  * \mathcal{P}(S)^{2} \mid c\}, o un'applicazione di \mathcal{P}(S) in sé con
@@ -351,13 +351,13 @@ typedef struct {
                       dichiarata di cui non si è ancora letta la regola */
 } PartRule;
 
-extern PartRule part_rules[MAX_PART_RULES];
-extern int part_rule_count;
-extern SetNode parts_declared;
+extern _Thread_local PartRule part_rules[MAX_PART_RULES];
+extern _Thread_local int part_rule_count;
+extern _Thread_local SetNode parts_declared;
 SetNode *set_formula(void);
 SetType set_join(SetType x, SetType y);
 SetType set_check(SetNode *n);
-extern SetNode *parts_to[MAX_SET_LETTERS];
+extern _Thread_local SetNode *parts_to[MAX_SET_LETTERS];
 SetNode *parts_unfold(const SetNode *n);
 int parts_declaration_left(const SetNode *n);
 void parts_reindex(SetNode *root, int *free_map);
@@ -444,11 +444,11 @@ typedef struct {
 } Bound;
 
 Formula *formula_node(FormulaKind kind, Formula *a, Formula *b, const char *start);
-extern int scope_count;
-extern int pair_set_count;
+extern _Thread_local int scope_count;
+extern _Thread_local int pair_set_count;
 int fresh_letter(void);
-extern char draft[4 * MAX_FORMULA];
-extern size_t draft_length;
+extern _Thread_local char draft[4 * MAX_FORMULA];
+extern _Thread_local size_t draft_length;
 void draft_rewrite(const char *start, const char *end, const int *from, const char *const *to, int count);
 Formula *unfold(void);
 int node_is_numeral(const Node *node);
@@ -467,20 +467,20 @@ typedef struct {
     int complex;             /* 17t-4: 1 se la coppia è un numero complesso */
 } PairVariable;
 
-extern PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
-extern int pairs_seen_count;
-extern char pairs_note[200];
+extern _Thread_local PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
+extern _Thread_local int pairs_seen_count;
+extern _Thread_local char pairs_note[200];
 void pairs_note_write(void);
 Formula *logic_formula(void);
 Formula *logic_statement(void);
-extern int quantifier_depth;
+extern _Thread_local int quantifier_depth;
 int term_is_rational(const Node *node);
 void formula_check(const Formula *f);
-extern Bound statement_parameters[MAX_PARAMETERS];
-extern int statement_parameter_count;
+extern _Thread_local Bound statement_parameters[MAX_PARAMETERS];
+extern _Thread_local int statement_parameter_count;
 void scope_parameters(void);
 Node *node_replaced(Node *tree, const Node *target, Node *by);
-extern char unshadowed_note[200];
+extern _Thread_local char unshadowed_note[200];
 void parameters_unshadowed(Formula *f);
 void read_definitions(const Formula *f);
 void pair_sets_check(void);
@@ -516,9 +516,9 @@ typedef struct {
                        ogni altro simbolo */
 } Symbol;
 
-extern Symbol *symbols;
-extern int symbol_count;
-extern int sort_count;
+extern _Thread_local Symbol *symbols;
+extern _Thread_local int symbol_count;
+extern _Thread_local int sort_count;
 
 /* 17v. Che cosa è l'insieme di posto i. Quasi sempre un insieme qualsiasi,
  * con il nome di una lettera; ma può essere anche l'insieme delle parti di
@@ -554,7 +554,7 @@ typedef struct {
     int symbol;     /* Simbolo di appartenenza o valutazione, -1 se assente. */
 } SortData;
 
-extern SortData *sort_data;
+extern _Thread_local SortData *sort_data;
 
 /* 17u. Che cosa è il simbolo di posto i rispetto ai quantificatori su parti.
  * PART_FREE: un simbolo dichiarato, o un nome dato dalla dimostrazione.
@@ -566,7 +566,7 @@ extern SortData *sort_data;
  * certificato. */
 enum { PART_FREE, PART_BOUND, PART_HIDDEN };
 
-extern int *symbol_bound;
+extern _Thread_local int *symbol_bound;
 
 /* Un'espressione che indica un elemento: una variabile, oppure un simbolo
  * applicato ai suoi argomenti (nessuno, per un elemento con un nome). Per
@@ -657,11 +657,11 @@ struct Sentence {
  * suo interno, perche una crescita puo spostarlo. */
 typedef struct { int letter, index, sort, pair; } SlotState;
 
-extern SlotState *slot_data;
-extern size_t slot_capacity, unfold_capacity;
-extern int slot_count;
-extern Elem **unfold_to;
-extern int abstract_example;
+extern _Thread_local SlotState *slot_data;
+extern _Thread_local size_t slot_capacity, unfold_capacity;
+extern _Thread_local int slot_count;
+extern _Thread_local Elem **unfold_to;
+extern _Thread_local int abstract_example;
 int symbol_find(int name, int index);
 int symbol_append(Symbol symbol);
 extern const char *const relation_commands[3];
@@ -671,8 +671,8 @@ int symbol_structure(int symbol);
 Elem *elem_new(int symbol, int slot, Elem *a, Elem *b);
 int elem_sort(const Elem *e);
 Sentence *sentence_new(SentenceKind kind, Sentence *a, Sentence *b, const char *start);
-extern const SetTerm *part_template[MAX_TEMPLATES];
-extern int part_template_count;
+extern _Thread_local const SetTerm *part_template[MAX_TEMPLATES];
+extern _Thread_local int part_template_count;
 int slot_new(int letter, int index, int sort);
 
 /* Tipi di termine d'insieme.
@@ -741,9 +741,9 @@ struct SetTerm {
 extern const char *const equipotence_exponent_reason;
 int equipotence_bad_exponent(const char *formula);
 extern const char count_reason[];
-extern int count_met;
+extern _Thread_local int count_met;
 Sentence *abstract_statement(void);
-extern int unfold_copying;
+extern _Thread_local int unfold_copying;
 int unfold_slot(int sort);
 Sentence *unfold_member(Elem *const *t, const SetTerm *set, const Sentence *from);
 int sentence_has_book_notation(const Sentence *s);
@@ -1091,7 +1091,7 @@ typedef struct {
                                                        indici nella prima occorrenza (1 = in alto), o NULL */
 } IndexStatement;
 
-extern IndexNode *index_first[INDEX_LETTERS];
+extern _Thread_local IndexNode *index_first[INDEX_LETTERS];
 int index_is_leaf(const IndexNode *node);
 int parse_index_statement(const char *formula, IndexStatement *out);
 int parse_index_values(const char *text, int dimension, int origin, IndexStatement *out);

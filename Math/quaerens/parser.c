@@ -155,8 +155,8 @@ const char *const operation_symbols[] = {"ast", "star", "circ", "bullet", "diamo
 /* Le applicazioni dichiarate dall'enunciato in corso. Chi le dichiara deve
  * svuotare la tabella quando ha finito: finché una lettera è qui, il parser
  * delle espressioni la legge come applicazione e non come variabile. */
-Map maps[MAX_MAPS];
-int map_count;
+_Thread_local Map maps[MAX_MAPS];
+_Thread_local int map_count;
 
 /* Ritorna l'applicazione di nome name, o NULL se non è stata dichiarata. */
 Map *map_find(int name) {
@@ -262,11 +262,11 @@ Map *map_find(int name) {
 
 /* Stato del parser, valido durante una chiamata a parse_statement() o
  * parse_expression(). */
-const char *cursor;        /* prossimo carattere da leggere */
-Token token;               /* token corrente */
-const char *consumed;      /* dove finisce l'ultimo token già superato */
-const char *syntax_error;  /* primo errore, o NULL */
-static const char *syntax_where;  /* dove cominciava il token del primo errore: tra
+_Thread_local const char *cursor;        /* prossimo carattere da leggere */
+_Thread_local Token token;               /* token corrente */
+_Thread_local const char *consumed;      /* dove finisce l'ultimo token già superato */
+_Thread_local const char *syntax_error;  /* primo errore, o NULL */
+static _Thread_local const char *syntax_where;  /* dove cominciava il token del primo errore: tra
                                      due tentativi di lettura falliti, quello andato
                                      più avanti ha l'errore più preciso (17p) */
 
@@ -293,7 +293,7 @@ static void chain_link(void) {
  * lettera d seguita da un'altra lettera è il differenziale, dx, un token
  * solo. Fuori da un integrale resta spento, e il lettore è quello di
  * sempre. */
-static int differential_open;
+static _Thread_local int differential_open;
 
 /* Valore di Token.ch per il differenziale dx; token.value è la lettera x.
  * "\d" non è un comando che il lettore accetti, quindi ESCAPED + 'd' non si
@@ -442,7 +442,7 @@ static int operation_name(void) {
  * zero. Se l'arena è piena ritorna un nodo di riserva, così il parser non deve
  * controllare ogni allocazione: l'errore è già in `failure`. */
 Node *node_new(NodeKind kind, Node *a, Node *b) {
-    static Node spare;
+    static _Thread_local Node spare;
     Node *node = arena_alloc(sizeof(Node));
     if (!node) node = &spare;
     memset(node, 0, sizeof *node);
@@ -758,14 +758,14 @@ static Node *parse_derivative_sign(void) {
  * chiude, e non comincia un fattore accostato (vedi le convenzioni in testa
  * al capitolo e starts_factor()). Ogni chiamata che la aumenta la rimette
  * com'era prima di ritornare, anche dopo un errore di sintassi. */
-static int open_bars;
+static _Thread_local int open_bars;
 
 /* 9j. Che cosa ha incontrato il lettore dentro la funzione integranda: il
  * nodo che fa le veci del differenziale (vale 1, e conta solo dove sta), la
  * sua lettera, e quanti differenziali ha letto in tutto. Li azzera
  * parse_integral_statement(). */
-static Node *differential_node;
-static int differential_letter, differentials;
+static _Thread_local Node *differential_node;
+static _Thread_local int differential_letter, differentials;
 
 /* 9j. Dentro un integrale, il fattore che altrove non esiste: il
  * differenziale, che diventa il numero 1 (il suo posto lo controlla poi
@@ -941,7 +941,7 @@ static int starts_factor(void) {
  * parentesi, nell'espressione in corso: zero vuol dire che finora è un fattore
  * solo. Serve a parse_expr() per sapere se un operando di un'operazione
  * dichiarata è scritto in modo non ambiguo (9g). */
-static int joins;
+static _Thread_local int joins;
 
 /* term := factor { [\cdot | '/'] factor } */
 static Node *parse_term(void) {
@@ -1162,7 +1162,7 @@ static int side_suffix(const char *point, const char **end) {
  * Ritorna 1 se text ha questa forma; altrimenti ritorna 0 e syntax_error
  * dice perché. */
 int parse_limit_statement(const char *text, LimitStatement *out) {
-    static char point_text[MAX_FORMULA];
+    static _Thread_local char point_text[MAX_FORMULA];
     const char *shape = "un limite si scrive \\lim_{x \\to a} f, con a un numero, +\\infty o -\\infty, oppure a^{+} o a^{-}";
     memset(out, 0, sizeof *out);
     syntax_error = NULL;
@@ -1531,12 +1531,12 @@ int parse_sequence_statement(const char *text, SequenceStatement *out) {
  * tranne mentre si legge un enunciato di 17r (parts_world): lì le lettere
  * delle regole e quelle dei quantificatori di parti diverse della tesi sono
  * di più, e prima del capitolo 15 lo svolgimento le riduce (parts_reindex()). */
-int set_var_name[MAX_SET_LETTERS];
-int set_var_count;
+_Thread_local int set_var_name[MAX_SET_LETTERS];
+_Thread_local int set_var_count;
 
 /* 1 mentre si legge un enunciato su relazioni e applicazioni tra le parti di
  * un insieme (17r). */
-int parts_world;
+_Thread_local int parts_world;
 
 /* Ritorna l'indice della lettera name, registrandola se è nuova. */
 static int set_var_index(int name) {
@@ -1552,8 +1552,8 @@ static int set_var_index(int name) {
 }
 
 /* Le relazioni e le applicazioni tra parti dell'enunciato in corso. */
-PartRule part_rules[MAX_PART_RULES];
-int part_rule_count;
+_Thread_local PartRule part_rules[MAX_PART_RULES];
+_Thread_local int part_rule_count;
 
 /* Ritorna il posto in part_rules[] della relazione o dell'applicazione di
  * nome name, o -1. */
@@ -1566,13 +1566,20 @@ static int part_rule_find(int name) {
 /* Ciò che il lettore ritorna al posto di una dichiarazione di 17r: una
  * condizione sempre vera, \emptyset \subseteq \emptyset, che lo svolgimento
  * toglie dalle congiunzioni (parts_unfold()). Si riconosce dall'indirizzo. */
-static SetNode parts_declared_empty = {SET_EMPTY, TY_ANY, 0, NULL, NULL, NULL, 0};
-SetNode parts_declared = {SET_SUBSET, TY_ANY, 0, &parts_declared_empty, &parts_declared_empty, NULL, 0};
+static _Thread_local SetNode parts_declared_empty = {SET_EMPTY, TY_ANY, 0, NULL, NULL, NULL, 0};
+_Thread_local SetNode parts_declared = {SET_SUBSET, TY_ANY, 0, NULL, NULL, NULL, 0};
+
+/* parts_declared, con i suoi due operandi: sono nodi di ogni thread, e il
+ * loro indirizzo non è una costante con cui inizializzarlo. */
+static SetNode *parts_marker(void) {
+    parts_declared.a = parts_declared.b = &parts_declared_empty;
+    return &parts_declared;
+}
 
 /* Ritorna un nuovo nodo di tipo kind con operandi a e b. Come node_new(), se
  * l'arena è piena ritorna un nodo di riserva. */
 static SetNode *set_node(SetKind kind, SetNode *a, SetNode *b) {
-    static SetNode spare;
+    static _Thread_local SetNode spare;
     SetNode *node = arena_alloc(sizeof(SetNode));
     if (!node) node = &spare;
     memset(node, 0, sizeof *node);
@@ -1727,7 +1734,7 @@ static SetNode *parts_relation(void) {
             if (is_command("mathcal")) parts_of(); else syntax("in 17r un'applicazione va da \\mathcal{P}(S) a \\mathcal{P}(T)");
             if (part_rule_count == MAX_PART_RULES) syntax("troppe relazioni e applicazioni tra parti in un enunciato");
             if (!syntax_error) part_rules[part_rule_count++] = (PartRule){name, 1, {0, 0}, base, NULL};
-            return &parts_declared;
+            return parts_marker();
         }
         if (is_char('=')) {
             next_token();
@@ -1764,7 +1771,7 @@ static SetNode *parts_relation(void) {
                     syntax("la regola di una relazione tra parti ha due lettere diverse, diverse dall'insieme, e nessun quantificatore");
                 if (part_rule_count == MAX_PART_RULES) syntax("troppe relazioni e applicazioni tra parti in un enunciato");
                 if (!syntax_error) part_rules[part_rule_count++] = rule;
-                return &parts_declared;
+                return parts_marker();
             }
         }
         parser_restore(before);
@@ -1857,7 +1864,7 @@ static SetNode *set_negation(void) {
                 syntax("la regola di un'applicazione tra parti vale su tutte le parti del suo dominio e non ha quantificatori");
             rule->param[0] = var[0];
             rule->rule = node->b;
-            return &parts_declared;
+            return parts_marker();
         }
 
         /* Un quantificatore per lettera, dall'ultima alla prima. */
@@ -1995,7 +2002,7 @@ SetType set_check(SetNode *n) {
 
 /* Mentre si svolge: l'insieme che va al posto di ogni lettera, o NULL dove
  * la lettera resta com'è. */
-SetNode *parts_to[MAX_SET_LETTERS];
+_Thread_local SetNode *parts_to[MAX_SET_LETTERS];
 
 /* Ritorna una copia dell'albero n, nodo per nodo. */
 static SetNode *set_copy(const SetNode *n) {
@@ -2014,7 +2021,7 @@ static SetNode *set_copy(const SetNode *n) {
  * due volte: parts_reindex() riscrive le lettere sul posto, e un nodo
  * condiviso verrebbe riscritto due volte. */
 SetNode *parts_unfold(const SetNode *n) {
-    if (n == &parts_declared) return &parts_declared;
+    if (n == &parts_declared) return parts_marker();
     if (n->kind == SET_VAR && parts_to[n->var]) return set_copy(parts_to[n->var]);
     SetNode *a = n->a ? parts_unfold(n->a) : NULL, *b = n->b ? parts_unfold(n->b) : NULL;
 
@@ -2053,8 +2060,8 @@ int parts_declaration_left(const SetNode *n) {
 /* 17r. Lo stato di parts_reindex(): per ogni lettera legata in vista, la
  * vecchia e la nuova, dalla più esterna; e per ogni lettera libera la nuova,
  * o -1. */
-static int reindex_old[MAX_SET_LETTERS], reindex_new[MAX_SET_LETTERS], reindex_count;
-static int reindex_free[MAX_SET_LETTERS];
+static _Thread_local int reindex_old[MAX_SET_LETTERS], reindex_new[MAX_SET_LETTERS], reindex_count;
+static _Thread_local int reindex_free[MAX_SET_LETTERS];
 
 /* 17r. Mette in reindex_free[] l'indice nuovo di ogni lettera libera di n,
  * nell'ordine in cui compaiono; *count conta quelle già trovate. bound dice,
@@ -2344,7 +2351,7 @@ void numbers_sample(const NumberSet *set, Frac *out, int wanted) {
  * letto tutto il pezzo di enunciato che il nodo rappresenta. Come node_new(),
  * se l'arena è piena ritorna un nodo di riserva. */
 Formula *formula_node(FormulaKind kind, Formula *a, Formula *b, const char *start) {
-    static Formula spare;
+    static _Thread_local Formula spare;
     Formula *node = arena_alloc(sizeof(Formula));
     if (!node) node = &spare;
     memset(node, 0, sizeof *node);
@@ -2383,7 +2390,7 @@ static int square_follows(void) {
  * dichiarazione f \colon A \to B: solo lì \mathbb{C} si legge, come coppie
  * di reali (pairs_second()). Altrove, come insieme di una relazione o in
  * un'appartenenza, i suoi elementi sarebbero presi per reali. */
-static int complex_wanted;
+static _Thread_local int complex_wanted;
 
 static NumberSet parse_numbers(void) {
     NumberSet set = {0};
@@ -2468,9 +2475,9 @@ static Formula *logic_unary(void);
  * esterna. Servono in due momenti diversi: al lettore, che in 17b le aggiunge
  * mentre legge la condizione di un quantificatore (17j e 17m devono sapere
  * dove varia una lettera), e poi a formula_check(). */
-static Bound *scope;
-static size_t scope_capacity;
-int scope_count;
+static _Thread_local Bound *scope;
+static _Thread_local size_t scope_capacity;
+_Thread_local int scope_count;
 
 /* Aggiunge un legame alla pila dinamica; 0 e failure se manca memoria.
  * Il NumberSet resta posseduto dal nodo o dalla lettura del quantificatore,
@@ -2516,8 +2523,8 @@ typedef struct {
 } PairSet;
 
 /* Gli insiemi di coppie dichiarati dall'enunciato in corso. */
-static PairSet pair_sets[MAX_PAIR_SETS];
-int pair_set_count;
+static _Thread_local PairSet pair_sets[MAX_PAIR_SETS];
+_Thread_local int pair_set_count;
 
 /* 17t-4. Un insieme di numeri complessi dichiarato dall'enunciato, A =
  * \{a + ib \mid a, b \in S\}: per il lettore è l'insieme delle coppie
@@ -2528,8 +2535,8 @@ typedef struct {
 } ComplexSet;
 
 /* Gli insiemi di numeri complessi dichiarati dall'enunciato in corso. */
-static ComplexSet complex_sets[MAX_PAIR_SETS];
-static int complex_set_count;
+static _Thread_local ComplexSet complex_sets[MAX_PAIR_SETS];
+static _Thread_local int complex_set_count;
 
 /* Ritorna l'insieme di numeri complessi di nome name, o NULL. */
 static const ComplexSet *complex_set_find(int name) {
@@ -2547,7 +2554,7 @@ static PairSet *pair_set_find(int name) {
 
 /* letter_taken[c] è 1 se la lettera c compare nell'enunciato in corso, o è
  * già stata data da fresh_letter(). */
-static char letter_taken[128];
+static _Thread_local char letter_taken[128];
 
 /* Ritorna una lettera che l'enunciato non usa, e la segna come usata. Se sono
  * finite annota l'errore e ritorna una lettera qualsiasi. Mancano dall'elenco
@@ -2564,9 +2571,9 @@ int fresh_letter(void) {
  * ZERO_INDEX per lo zero esplicito, oppure un intero positivo. Il vettore
  * possiede le coppie, ordinate per ricerca binaria dopo unfolding_reset. */
 typedef struct { int letter,index; } FreshName;
-static FreshName *fresh_reserved;
-static size_t fresh_reserved_count,fresh_reserved_capacity;
-static int fresh_used; /* Prossima coppia sintetica; si azzera per enunciato. */
+static _Thread_local FreshName *fresh_reserved;
+static _Thread_local size_t fresh_reserved_count,fresh_reserved_capacity;
+static _Thread_local int fresh_used; /* Prossima coppia sintetica; si azzera per enunciato. */
 
 /* Ordina i nomi senza sottrarre indici che possono raggiungere INT_MAX. */
 static int fresh_order(const void *left,const void *right) {
@@ -2626,8 +2633,8 @@ typedef struct {
 } Guard;
 
 /* Le appartenenze di questo tipo lette nell'enunciato in corso. */
-static Guard guards[MAX_GUARDS];
-static int guard_count;
+static _Thread_local Guard guards[MAX_GUARDS];
+static _Thread_local int guard_count;
 
 /* 17m. Ritorna 1 se la condizione f, negata se negated, obbliga la variabile
  * `letter` a stare nell'insieme in cui varia: cioè se ogni volta che f (o la
@@ -2661,9 +2668,9 @@ static int imposes_membership(const Formula *f, int negated, int letter) {
  * caratteri sono stati scritti in tutto per l'enunciato in corso: il secondo
  * numero ha un tetto, MAX_UNFOLDED, perché una definizione dentro l'altra
  * moltiplica la lunghezza a ogni livello. */
-char draft[4 * MAX_FORMULA];
-size_t draft_length;
-static size_t unfolded;
+_Thread_local char draft[4 * MAX_FORMULA];
+_Thread_local size_t draft_length;
+static _Thread_local size_t unfolded;
 
 /* Aggiunge alla bozza i caratteri [from, to). Se non c'è posto annota
  * l'errore. */
@@ -3283,9 +3290,9 @@ Formula *formula_substitute(const Formula *f, const int *from, const Node *const
  * first e il nome nel primo albero, second nel secondo. Le celle sono
  * possedute dalla pila dinamica del confronto, non dagli alberi. */
 typedef struct { int first, second; } AlikeName;
-static AlikeName *alike_names;
-static size_t alike_capacity;
-static int alike_count;
+static _Thread_local AlikeName *alike_names;
+static _Thread_local size_t alike_capacity;
+static _Thread_local int alike_count;
 
 /* Aggiunge un livello alla corrispondenza delle variabili legate. */
 static int alike_push(int first, int second) {
@@ -3448,14 +3455,14 @@ static Formula *logic_member(const char *start) {
  * aggiunge chi legge un quantificatore su un insieme di coppie, o chi legge
  * un'appartenenza a una relazione tra coppie, e le toglie il quantificatore
  * quando finisce la sua condizione. */
-static PairVariable pair_variables[MAX_PAIR_VARIABLES];
-static int pair_variable_count;
+static _Thread_local PairVariable pair_variables[MAX_PAIR_VARIABLES];
+static _Thread_local int pair_variable_count;
 
 /* Tutte le coppie dell'enunciato in corso, anche quelle uscite di vista:
  * servono al motore per scrivere un controesempio come x = (0, 1) invece che
  * con le lettere delle componenti (describe_choices()). */
-PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
-int pairs_seen_count;
+_Thread_local PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
+_Thread_local int pairs_seen_count;
 
 /* 17t-2. Ritorna la coppia di lettera letter del quantificatore il cui
  * insieme è bound, o NULL. */
@@ -3506,7 +3513,7 @@ static const PairVariable *pair_in_scope(int letter) {
 /* Come si sono lette le lettere di coppie dell'enunciato in corso, da
  * riportare accanto al verdetto: "y = (a, b)", "z = c + id". La scrive
  * pairs_note_write(). */
-char pairs_note[200];
+_Thread_local char pairs_note[200];
 
 /* Scrive in pairs_note le coppie dell'enunciato appena letto, da
  * pairs_seen[]; la lascia vuota se non ce ne sono. Va chiamata prima di
@@ -4412,7 +4419,7 @@ Formula *logic_statement(void) {
 /* Il maggior numero di quantificatori uno dentro l'altro incontrato da
  * formula_check() da quando è stato azzerato. Serve alla verifica sul
  * campione (capitolo 19) per decidere quanti valori provare. */
-int quantifier_depth;
+_Thread_local int quantifier_depth;
 
 /* Controlla che nell'espressione node ogni lettera abbia un significato;
  * altrimenti annota il motivo con fail().
@@ -4607,8 +4614,8 @@ void formula_check(const Formula *f) {
 /* I parametri dichiarati dalle ipotesi dell'enunciato in corso, con
  * l'insieme in cui variano (che sta nel nodo dell'ipotesi). Chi legge un
  * enunciato deve azzerare il contatore, come map_count. */
-Bound statement_parameters[MAX_PARAMETERS];
-int statement_parameter_count;
+_Thread_local Bound statement_parameters[MAX_PARAMETERS];
+_Thread_local int statement_parameter_count;
 
 /* Mette in scope, e solo lì, i parametri dell'enunciato: sono le lettere
  * visibili prima di ogni quantificatore. */
@@ -4773,7 +4780,7 @@ static int parameter_read(const Formula *f) {
  * parametro, non sta in quel testo, e non cambia. */
 /* Che cosa parameters_unshadowed() ha rinominato, da riportare accanto al
  * verdetto: "la k legata si chiama a". Vuoto se nulla. */
-char unshadowed_note[200];
+_Thread_local char unshadowed_note[200];
 
 /* Rinomina, in ogni quantificatore di f e dei suoi pezzi, le lettere legate
  * che hanno il nome di un parametro, come descritto sopra: il quantificatore
@@ -5201,10 +5208,10 @@ const char *const greek_letters[] = {"alpha", "beta", "gamma", "delta", "iota", 
  * e rappresentabile in int; 0 se non c'è). I simboli e i loro ruoli hanno vettori posseduti
  * dinamici: i contatori sono il solo prefisso valido, le capacita contano
  * celle e possono crescere senza un tetto compilato alle dichiarazioni. */
-Symbol *symbols;
-static size_t symbol_capacity;
-int symbol_count;
-int sort_count;
+_Thread_local Symbol *symbols;
+static _Thread_local size_t symbol_capacity;
+_Thread_local int symbol_count;
+_Thread_local int sort_count;
 
 /* 17v. LE PARTI, LE APPLICAZIONI E GLI ORDINI COME OGGETTI
  *
@@ -5268,25 +5275,25 @@ int sort_count;
  * svolge nelle condizioni di 17o, e 28h ricontrolla lo svolgimento sui
  * modelli finiti. */
 
-SortData *sort_data;      /* Vettore posseduto dal parser. */
-static size_t sort_capacity;    /* Celle allocate; sort_count e il prefisso valido. */
-int *symbol_bound;
-static size_t symbol_bound_capacity;
+_Thread_local SortData *sort_data;      /* Vettore posseduto dal parser. */
+static _Thread_local size_t sort_capacity;    /* Celle allocate; sort_count e il prefisso valido. */
+_Thread_local int *symbol_bound;
+static _Thread_local size_t symbol_bound_capacity;
 
 /* Metadati di tutte le variabili, comprese quelle generate svolgendo gli
  * insiemi e gli assiomi. count e il prefisso valido; capacity la memoria
  * posseduta. unfold_to e l'ambiente di sostituzione di 17q, cresce prima
  * di creare uno slot e contiene NULL dove la variabile resta invariata. */
-SlotState *slot_data;
-size_t slot_capacity, unfold_capacity;
-int slot_count;
-Elem **unfold_to;
+_Thread_local SlotState *slot_data;
+_Thread_local size_t slot_capacity, unfold_capacity;
+_Thread_local int slot_count;
+_Thread_local Elem **unfold_to;
 
 /* I posti delle variabili visibili, dalla piu esterna. Il vettore possiede
  * le celle; tornare indietro nella lettura ripristina il prefisso valido. */
-static int *visible;
-static size_t visible_capacity;
-static int visible_count;
+static _Thread_local int *visible;
+static _Thread_local size_t visible_capacity;
+static _Thread_local int visible_count;
 
 /* Mette in vista un posto esistente; una crescita fallita resta un errore
  * anche se il lettore tenta successivamente un'altra interpretazione. */
@@ -5301,12 +5308,12 @@ static void visible_push(int slot) {
  * "per ogni applicazione f" non vale quanto una dichiarazione (vedi le
  * convenzioni in testa al paragrafo). map_quantifiers conta quelli letti,
  * per chi deve accorgersi dopo di averne incontrato uno tra le ipotesi. */
-static int abstract_positive;
-static int map_quantifiers;
+static _Thread_local int abstract_positive;
+static _Thread_local int map_quantifiers;
 
 /* 1 se l'enunciato in corso chiede un esempio: comincia con degli "esiste"
  * su insiemi, parti o applicazioni. */
-int abstract_example;
+_Thread_local int abstract_example;
 
 /* Un nome letto dopo un quantificatore: letter e il codice della lettera
  * o del comando LaTeX; index e il codice del pedice, zero se assente. Il
@@ -5452,8 +5459,8 @@ typedef struct {
 } Definition;
 
 /* Le definizioni dell'enunciato in corso. */
-static Definition definitions[MAX_DEFINITIONS];
-static int definition_count;
+static _Thread_local Definition definitions[MAX_DEFINITIONS];
+static _Thread_local int definition_count;
 
 /* Ritorna la definizione del nome name, con pedice index e asterisco se
  * starred, o NULL. */
@@ -5567,7 +5574,7 @@ static int abstract_sort(void) {
 /* Ritorna un nuovo elemento: il simbolo symbol applicato ad a e b, oppure,
  * con symbol = -1, la variabile di posto slot. */
 Elem *elem_new(int symbol, int slot, Elem *a, Elem *b) {
-    static Elem spare;
+    static _Thread_local Elem spare;
     Elem *e = arena_node(sizeof(Elem));
     if (failure == OUT_OF_MEMORY) syntax(OUT_OF_MEMORY);  /* la lettura finisce qui (sentence_new()) */
 
@@ -5604,7 +5611,7 @@ static void elem_expect(const Elem *e, int sort) {
 /* Ritorna un nuovo nodo di tipo kind con componenti a e b, il cui testo va
  * da start alla fine dell'ultimo token già letto. */
 Sentence *sentence_new(SentenceKind kind, Sentence *a, Sentence *b, const char *start) {
-    static Sentence spare;
+    static _Thread_local Sentence spare;
     Sentence *s = arena_node(sizeof(Sentence));
 
     /* A memoria finita la lettura finisce qui: il testo non ha altri token,
@@ -5686,15 +5693,15 @@ static Elem *abstract_apply_object(Elem *e) {
  * letta la avvolge in \forall Z\ (Z = E \implies ...), con E l'insieme
  * scritto (describe_wrap()). describe_allowed è più di 0 mentre si legge una
  * condizione elementare, dove questa lettura è ammessa. */
-static int describe_slot[MAX_DESCRIBED];
-static SetTerm *describe_term[MAX_DESCRIBED];
-static int describe_count, describe_allowed;
+static _Thread_local int describe_slot[MAX_DESCRIBED];
+static _Thread_local SetTerm *describe_term[MAX_DESCRIBED];
+static _Thread_local int describe_count, describe_allowed;
 
 /* 17v. Gli insiemi che l'enunciato scrive come parti, dove serve un
  * elemento di un insieme di parti: il capitolo 28 li usa per le sue
  * comprensioni (28n), perché sono le parti di cui l'enunciato parla. */
-const SetTerm *part_template[MAX_TEMPLATES];
-int part_template_count;
+_Thread_local const SetTerm *part_template[MAX_TEMPLATES];
+_Thread_local int part_template_count;
 
 static Elem *abstract_described(void);
 
@@ -5707,7 +5714,7 @@ typedef struct {
     int slot[MAX_ARITY];  /* le variabili nuove, nell'ordine in cui compaiono */
     int slots;
 } ReplaceFrame;
-static ReplaceFrame *replace_frame;
+static _Thread_local ReplaceFrame *replace_frame;
 
 int slot_new(int letter, int index, int sort);
 
@@ -5922,7 +5929,7 @@ static int abstract_letter(int *index) {
  * potrebbero confondersi. Dentro le graffe non succede, perché lo
  * svolgimento (17q) dà a ogni quantificatore di quella condizione una
  * lettera nuova. */
-static int builder_depth;
+static _Thread_local int builder_depth;
 
 /* Ritorna il posto di una variabile nuova, di lettera letter, pedice index
  * e insieme sort (-1 se lo imparerà dall'uso), senza metterla in vista; -1
@@ -6189,13 +6196,13 @@ static int set_term_lists(const SetTerm *t, int slot) {
 /* Il posto dell'indice dell'ultima famiglia di parti dichiarata
  * (\forall i \in I\ (X_{i} \subseteq S)), o -1: serve al quantificatore di
  * i per riconoscere che contiene solo la dichiarazione. */
-static int family_slot;
+static _Thread_local int family_slot;
 
 /* Ritorna un nuovo termine d'insieme di tipo kind, senza membri finché chi
  * lo costruisce non gli dà arità e insiemi. Come elem_new(), se l'arena è
  * piena ritorna un nodo di riserva. */
 static SetTerm *set_term_new(SetTermKind kind) {
-    static SetTerm spare;
+    static _Thread_local SetTerm spare;
     SetTerm *t = arena_node(sizeof(SetTerm));
     if (failure == OUT_OF_MEMORY) syntax(OUT_OF_MEMORY);  /* la lettura finisce qui (sentence_new()) */
     if (!t) t = &spare;
@@ -7689,7 +7696,7 @@ const char count_reason[] =
 /* 17x. Quanti numeri di elementi il lettore ha incontrato nell'enunciato in
  * corso, anche senza riuscire a leggerli: lo azzera abstract_statement().
  * Se è zero e l'enunciato ne scrive, il lettore si è fermato prima. */
-int count_met;
+_Thread_local int count_met;
 
 /* 17x. Legge '|' setterm '|' confronto intero, con il token corrente sulla
  * sbarra aperta, e ritorna il nodo S_COUNT, negato per \neq, < e >. start è
@@ -7813,8 +7820,8 @@ static Sentence *abstract_unary(void) {
  * fino a chain_count, e la rimette com'era prima di ritornare. Il vettore è
  * posseduto qui e si riusa tra gli enunciati; nessuno ne conserva indirizzi,
  * perché una crescita può spostarlo. */
-static Sentence **chain_items;
-static size_t chain_count, chain_capacity;
+static _Thread_local Sentence **chain_items;
+static _Thread_local size_t chain_count, chain_capacity;
 
 /* Ritorna l'albero degli operandi di posto [from, to), con to > from, uniti
  * a due a due dal connettivo kind: la prima metà (la più lunga, se sono
@@ -8178,7 +8185,7 @@ Sentence *abstract_statement(void) {
 /* Quante copie della condizione di un insieme si stanno svolgendo una
  * dentro l'altra. Fuori da ogni copia (0) un quantificatore tiene il suo
  * posto. */
-int unfold_copying;
+_Thread_local int unfold_copying;
 
 /* Ritorna il posto di una variabile nuova dell'insieme sort, con una lettera
  * che l'enunciato non usa. */
@@ -8698,12 +8705,12 @@ const struct matrix_environments matrix_environments[] = {
 
 /* Le matrici a cui l'enunciato in corso ha dato un nome: il posto i è la
  * lettera 'A' + i, e vale NULL finché non è definita. */
-static MatrixNode *matrix_named[26];
+static _Thread_local MatrixNode *matrix_named[26];
 
 /* Ritorna un nodo nuovo di tipo kind con operandi a e b, e gli altri campi a
  * zero. Con l'arena piena ritorna un nodo di riserva, come node_new(). */
 MatrixNode *matrix_node(MatrixKind kind, MatrixNode *a, MatrixNode *b) {
-    static MatrixNode spare;
+    static _Thread_local MatrixNode spare;
     MatrixNode *node = arena_alloc(sizeof *node);
     if (!node) node = &spare;
     memset(node, 0, sizeof *node);
@@ -9555,8 +9562,8 @@ static int read_conditions(const char *from, const char *to, int *variable, long
 /* Copia riusabile dell'item corrente, indipendente dall'arena che prove()
  * azzera. Cresce con il testo: un limite delle formule numeriche interne
  * non deve diventare un tetto alle dichiarazioni degli insiemi. */
-static char *item_formula;
-static size_t item_formula_capacity;
+static _Thread_local char *item_formula;
+static _Thread_local size_t item_formula_capacity;
 
 /* Cerca il prossimo \item a partire da *position. Se lo trova mette in *item
  * e *end l'inizio e la fine del suo testo, porta *position alla fine e ritorna
@@ -9875,7 +9882,7 @@ const char *read_item(const char *item, const char *end, Item *out) {
 /* L'enunciato che parse_partial_statement() sta leggendo, o NULL: solo
  * mentre non è NULL parse_partial_piece() riconosce derivate parziali e
  * funzioni dichiarate, e ogni altro lettore resta quello di sempre. */
-static PartialStatement *partial_statement;
+static _Thread_local PartialStatement *partial_statement;
 
 /* Ritorna l'indice della funzione dichiarata di nome name nell'enunciato in
  * lettura, o -1 se non c'è. */
@@ -10718,25 +10725,25 @@ int index_first_slot(IndexSet set) {
 
 /* Ciò che il lettore annota mentre legge un'identità, per i controlli di
  * 37a, 37b, 37d e 37e, che riguardano l'enunciato intero. */
-IndexNode *index_first[INDEX_LETTERS];  /* la prima occorrenza del tensore di ogni lettera, o NULL */
-static const IndexNode *index_first_epsilon;   /* la prima occorrenza di \varepsilon, o NULL */
-static IndexSet index_names;                   /* le lettere che nominano un tensore */
-static IndexSet index_used;                    /* le lettere usate come indici */
-static int index_epsilon;                      /* quanti indici ha il simbolo di Levi-Civita; 0 se non compare */
-static int index_top;                          /* il più grande numero scritto come indice; 0 se non ce ne sono */
-static int index_zero;                         /* 1 se tra gli indici è scritto lo 0 */
-static int index_summed;                       /* quanti valori percorrono i segni di somma scritti; 0 se non ce ne sono */
-static int index_low;                          /* 37d: il numero da cui cominciano i valori degli indici, 0 o 1,
+_Thread_local IndexNode *index_first[INDEX_LETTERS];  /* la prima occorrenza del tensore di ogni lettera, o NULL */
+static _Thread_local const IndexNode *index_first_epsilon;   /* la prima occorrenza di \varepsilon, o NULL */
+static _Thread_local IndexSet index_names;                   /* le lettere che nominano un tensore */
+static _Thread_local IndexSet index_used;                    /* le lettere usate come indici */
+static _Thread_local int index_epsilon;                      /* quanti indici ha il simbolo di Levi-Civita; 0 se non compare */
+static _Thread_local int index_top;                          /* il più grande numero scritto come indice; 0 se non ce ne sono */
+static _Thread_local int index_zero;                         /* 1 se tra gli indici è scritto lo 0 */
+static _Thread_local int index_summed;                       /* quanti valori percorrono i segni di somma scritti; 0 se non ce ne sono */
+static _Thread_local int index_low;                          /* 37d: il numero da cui cominciano i valori degli indici, 0 o 1,
                                                   se una dichiarazione lo dice; altrimenti -1 */
-static int index_greek;                        /* 37f: 1 se tra gli indici c'è una lettera greca */
-static int index_metric_slot = -1;             /* il posto della lettera che un'ipotesi ha dichiarato metrica
+static _Thread_local int index_greek;                        /* 37f: 1 se tra gli indici c'è una lettera greca */
+static _Thread_local int index_metric_slot = -1;             /* il posto della lettera che un'ipotesi ha dichiarato metrica
                                                   (capitolo 39), o -1: senza metrica vale il capitolo 37 */
-static IndexSet index_given_names;             /* le lettere dei tensori che un'ipotesi dà per componenti (39d) */
-static IndexNode **index_given[INDEX_LETTERS]; /* i loro elementi (IndexStatement.given), o NULL */
-static int index_engine_text;                  /* 1 mentre si rilegge un testo scritto dal motore
+static _Thread_local IndexSet index_given_names;             /* le lettere dei tensori che un'ipotesi dà per componenti (39d) */
+static _Thread_local IndexNode **index_given[INDEX_LETTERS]; /* i loro elementi (IndexStatement.given), o NULL */
+static _Thread_local int index_engine_text;                  /* 1 mentre si rilegge un testo scritto dal motore
                                                   (parse_index_values()): lì un numero in alto è un indice,
                                                   perché il motore non scrive potenze */
-static int index_in_metric;                    /* 39f: 1 mentre si legge un elemento della diagonale della
+static _Thread_local int index_in_metric;                    /* 39f: 1 mentre si legge un elemento della diagonale della
                                                   metrica: lì una lettera è uno scalare senza indici, e un
                                                   numero in alto è un esponente */
 
@@ -10746,9 +10753,9 @@ static int index_in_metric;                    /* 39f: 1 mentre si legge un elem
  * greek_letters[i] (capitolo 17), o 0 se quella non è ancora comparsa.
  * index_label[s] è come si scrive l'indice di posto s in un messaggio: la
  * lettera stessa, o il comando della lettera greca che rappresenta. */
-static IndexSet index_taken;
-static int index_alias[sizeof greek_letters / sizeof *greek_letters];
-static char index_label[INDEX_LETTERS][12];
+static _Thread_local IndexSet index_taken;
+static _Thread_local int index_alias[sizeof greek_letters / sizeof *greek_letters];
+static _Thread_local char index_label[INDEX_LETTERS][12];
 
 /* 37d. Un segno di somma scritto davanti a un prodotto, \sum_{i=1}^{3}: la
  * lettera, come posto, e il prodotto che lo segue, in cui la convenzione
@@ -10759,11 +10766,11 @@ struct IndexSum {
     const IndexNode *term;
     IndexSum *next;
 };
-static IndexSum *index_sums;
+static _Thread_local IndexSum *index_sums;
 
 /* Il testo di un errore che nomina una lettera o un numero. Vale fino alla
  * lettura dell'identità successiva. */
-static char index_message[320];
+static _Thread_local char index_message[320];
 
 /* Annota come errore di sintassi un messaggio composto con la sintassi di
  * printf, se è il primo errore. */
@@ -10833,7 +10840,7 @@ static void index_range(long long first) {
  * zero. Se l'arena è piena ritorna un nodo di riserva: l'errore è già in
  * `failure`, e chi legge non deve controllare ogni allocazione. */
 static IndexNode *index_new(IndexKind kind, IndexNode *a, IndexNode *b) {
-    static IndexNode spare;
+    static _Thread_local IndexNode spare;
     IndexNode *node = arena_alloc(sizeof *node);
     if (!node) node = &spare;
     memset(node, 0, sizeof *node);
@@ -10864,8 +10871,8 @@ static void index_groups(IndexNode *leaf) {
     /* Gli indici letti finora. Non possono essere più dei caratteri
      * dell'enunciato, e un enunciato più lungo di MAX_FORMULA non arriva
      * qui (prove_core()): se arrivasse, l'errore lo direbbe. */
-    static int entry[MAX_FORMULA];
-    static unsigned char above[MAX_FORMULA];
+    static _Thread_local int entry[MAX_FORMULA];
+    static _Thread_local unsigned char above[MAX_FORMULA];
     int count = 0;
     for (;;) {
         /* Le graffe vuote. Una graffa aperta che non si chiude subito non è
@@ -11364,7 +11371,7 @@ static int index_statement_body(int dimension, IndexStatement *out) {
     /* I quantificatori, poi l'identità. Dopo i quantificatori può stare
      * tutta tra parentesi: si prova quella lettura, e se non torna (la
      * parentesi apriva solo il primo fattore) si ricomincia da lì senza. */
-    static char first_message[sizeof index_message];
+    static _Thread_local char first_message[sizeof index_message];
     const char *first_error = NULL, *first_where = NULL;
     IndexSet declared = 0;
     int listed = index_prefix(&declared);
@@ -11661,18 +11668,18 @@ int parse_index_values(const char *text, int dimension, int origin, IndexStateme
  */
 
 /* Ciò che le ipotesi dichiarano, mentre si legge l'enunciato. */
-static Frac *index_metric;        /* i numeri c_i della diagonale di g_{ij}, nell'arena; NULL finché non c'è la metrica */
-static IndexNode **index_metric_top, **index_metric_bottom;  /* 39f: IndexStatement.metric_top e metric_bottom */
-static int index_metric_size;     /* quanti sono */
-static int index_epsilon_said;    /* 1 se un'ipotesi dà il valore di \varepsilon */
-static Frac index_epsilon_value;  /* quel valore */
-static int index_epsilon_upper;   /* 1 se è dato con gli indici in alto */
-static int index_epsilon_digits;  /* quanti indici ha la \varepsilon dell'ipotesi */
-static int index_said_size;       /* la dimensione che le ipotesi dicono; 0 se nessuna la dice */
+static _Thread_local Frac *index_metric;        /* i numeri c_i della diagonale di g_{ij}, nell'arena; NULL finché non c'è la metrica */
+static _Thread_local IndexNode **index_metric_top, **index_metric_bottom;  /* 39f: IndexStatement.metric_top e metric_bottom */
+static _Thread_local int index_metric_size;     /* quanti sono */
+static _Thread_local int index_epsilon_said;    /* 1 se un'ipotesi dà il valore di \varepsilon */
+static _Thread_local Frac index_epsilon_value;  /* quel valore */
+static _Thread_local int index_epsilon_upper;   /* 1 se è dato con gli indici in alto */
+static _Thread_local int index_epsilon_digits;  /* quanti indici ha la \varepsilon dell'ipotesi */
+static _Thread_local int index_said_size;       /* la dimensione che le ipotesi dicono; 0 se nessuna la dice */
 
 /* Le lettere che nell'enunciato non compaiono, per gli indici nuovi dello
  * svolgimento (39c). */
-static IndexSet index_spare;
+static _Thread_local IndexSet index_spare;
 
 /* Annota che un'ipotesi dice che le dimensioni sono count: tutte quelle che
  * ne dicono una devono dire la stessa. */
@@ -11753,8 +11760,8 @@ static void index_metric_entry(IndexNode **top, IndexNode **bottom) {
 static void index_metric_hypothesis(const IndexNode *leaf) {
     static const char *const form = "la metrica si dichiara con g_{ij} = \\operatorname{diag}(c_1, ..., c_d), con i due indici in basso o i due in alto";
     /* Gli elementi letti: non possono essere più dei caratteri dell'enunciato. */
-    static Frac value[MAX_FORMULA];
-    static IndexNode *top[MAX_FORMULA], *bottom[MAX_FORMULA];
+    static _Thread_local Frac value[MAX_FORMULA];
+    static _Thread_local IndexNode *top[MAX_FORMULA], *bottom[MAX_FORMULA];
     int slot = index_slot(leaf->name), count = 0, functions = 0;
     if (index_metric) { syntax("la metrica è dichiarata due volte"); return; }
     if (leaf->rank != 2 || leaf->upper[0] != leaf->upper[1]) { syntax(form); return; }
@@ -11857,7 +11864,7 @@ static IndexNode *index_element(void) {
  * dove stanno i suoi indici nell'ipotesi è dove stanno le componenti date. */
 static void index_given_hypothesis(IndexNode *leaf) {
     /* Gli elementi letti: ognuno occupa almeno un carattere dell'enunciato. */
-    static IndexNode *entry[MAX_FORMULA];
+    static _Thread_local IndexNode *entry[MAX_FORMULA];
     int slot = index_slot(leaf->name), count = 0, rows = 0;
     if (index_first[slot] || slot == index_metric_slot) {
         index_complain("la lettera %c è già usata: un tensore dato per componenti si dichiara una volta sola, prima di nominarlo", leaf->name);

@@ -262,7 +262,7 @@ static unsigned set_free_letters(const SetNode *n, unsigned bound) {
 
 /* Quante valutazioni può ancora fare il conto in corso; sotto zero è stato
  * interrotto, e le sue risposte non valgono. */
-static long long count_budget;
+static _Thread_local long long count_budget;
 
 static int counts_hold(const SetNode *n, const unsigned char *count);
 
@@ -1001,20 +1001,20 @@ typedef struct {
 /* Passi ancora concessi: se si esauriscono la dimostrazione discorsiva viene
  * abbandonata, per non scrivere pagine di casi. Un valore negativo dice che
  * va abbandonata comunque. */
-static int chase_budget;
+static _Thread_local int chase_budget;
 
 /* Le ipotesi utilizzabili durante un inseguimento, come inclusioni: ogni
  * punto di hypothesis_sub[i] sta in hypothesis_sup[i]. */
-static const SetNode *hypothesis_sub[16], *hypothesis_sup[16];
-static int hypotheses;
+static _Thread_local const SetNode *hypothesis_sub[16], *hypothesis_sup[16];
+static _Thread_local int hypotheses;
 
 /* Le lettere su cui ha senso distinguere due casi, per x e per y. */
-static unsigned chase_letters[2];
+static _Thread_local unsigned chase_letters[2];
 
 /* Quanti casi sono aperti uno dentro l'altro. Ogni caso è un elenco rientrato
  * nel documento, e LaTeX ne ammette quattro annidati: oltre il terzo livello
  * di casi la dimostrazione discorsiva viene abbandonata. */
-static int chase_depth;
+static _Thread_local int chase_depth;
 
 /* 16h. Controllo di ogni passo.
  *
@@ -1486,7 +1486,7 @@ static int put_narrative_proof(const SetNode *root) {
 
 /* Il controesempio di un enunciato falso, come testo: vale fino al verdetto
  * successivo. */
-static char counterexample_text[256];
+static _Thread_local char counterexample_text[256];
 
 /* Scrive in counterexample_text gli insiemi value[], sottoinsiemi di un
  * universo di size elementi, per esempio "S = {1, 2}, T = {}". Riporta solo

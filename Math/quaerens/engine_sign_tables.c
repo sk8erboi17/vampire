@@ -375,8 +375,8 @@ int uni_from_poly(Poly p, int x, Uni *out, int *shift) {
 
 /* La catena di Sturm del polinomio di cui si stanno separando le radici
  * (18p-3): sturm_length polinomi, il primo è il polinomio stesso. */
-static Uni sturm[MAX_UNI + 2];
-static int sturm_length;
+static _Thread_local Uni sturm[MAX_UNI + 2];
+static _Thread_local int sturm_length;
 
 /* Costruisce la catena di Sturm di p, che non ha radici multiple. */
 static void sturm_build(const Uni *p) {
@@ -405,16 +405,16 @@ static int sturm_changes(Wide x) {
 
 /* I polinomi dell'enunciato in corso: numeratori, denominatori e divisori
  * dei suoi confronti. La tabella dei segni ha una colonna per ognuno. */
-static Uni sign_poly[MAX_CRITICAL];
-static int sign_polys;
+static _Thread_local Uni sign_poly[MAX_CRITICAL];
+static _Thread_local int sign_polys;
 
 /* La base di 18p-4: polinomi senza radici multiple, a due a due senza radici
  * comuni, coefficienti senza divisori comuni e coefficiente direttivo
  * positivo. Ogni radice di un polinomio di sign_poly[] è radice di uno e un
  * solo elemento. Dopo sign_points() gli elementi di grado almeno 2 non hanno
  * più radici razionali. */
-Uni sign_base[2 * MAX_CRITICAL];
-int sign_bases;
+_Thread_local Uni sign_base[2 * MAX_CRITICAL];
+_Thread_local int sign_bases;
 
 /* Aggiunge al testo text, di size byte, un pezzo con la sintassi di printf.
  * Se non ci sta annota un errore: un testo troncato non si può presentare
@@ -523,8 +523,8 @@ typedef struct {
 } Kappa;
 
 /* I numeri così dell'enunciato in corso: li aggiunge sign_column_kappa(). */
-static Kappa kappa[MAX_KAPPAS];
-int kappas;
+static _Thread_local Kappa kappa[MAX_KAPPAS];
+_Thread_local int kappas;
 
 /* I due tipi di spazio (18p-8). */
 typedef enum {
@@ -566,22 +566,22 @@ typedef struct {
 
 /* Gli spazi dell'enunciato in corso: li crea space_collect(), con
  * space_exp() e space_log(). */
-static Space space[MAX_SPACES];
-int spaces;
+static _Thread_local Space space[MAX_SPACES];
+_Thread_local int spaces;
 
 /* Lo stato della tabella che serve agli agganci di eval(): space_live è 1
  * mentre si prepara un confronto (solo allora potenze e logaritmi diventano
  * lettere); space_seen ha il bit s se nel confronto in corso è comparso il
  * logaritmo dello spazio s; sign_name e sign_x sono la variabile
  * dell'enunciato, come lettera e come atomo. */
-static int space_live;
-static unsigned space_seen;
-static int sign_name, sign_x;
+static _Thread_local int space_live;
+static _Thread_local unsigned space_seen;
+static _Thread_local int sign_name, sign_x;
 
 /* I punti dell'enunciato in corso. Dopo sign_points() sono in ordine
  * crescente e i loro intervalli chiusi [low, high] non si toccano. */
-Critical sign_point[MAX_POINTS];
-int sign_points_count;
+_Thread_local Critical sign_point[MAX_POINTS];
+_Thread_local int sign_points_count;
 
 /* Che cos'è ogni colonna, oltre al suo polinomio. sign_space[i] dice in
  * quale lettera è il polinomio: -1 nella variabile dell'enunciato,
@@ -589,7 +589,7 @@ int sign_points_count;
  * sign_kappa[i], se non è -1, dice che la colonna non ha un polinomio: è il
  * segno di x - kappa[sign_kappa[i]], che si legge dalla posizione della riga
  * rispetto a quel punto. */
-static int sign_space[MAX_CRITICAL], sign_kappa[MAX_CRITICAL];
+static _Thread_local int sign_space[MAX_CRITICAL], sign_kappa[MAX_CRITICAL];
 
 /* Ritorna il posto in sign_poly[] del polinomio p nella lettera dello spazio
  * `where` (-1: la variabile), aggiungendolo se manca. Lo si conserva senza
@@ -1247,9 +1247,9 @@ int exp_root(Rat r, long long index, Rat *out) {
  * alias_power[i] l'esponente n. Li riempie alias_collect(), li usa
  * log_letter(), e sign_prepare() li azzera alla fine del confronto. */
 #define MAX_LOG_ALIAS 8
-static const Node *alias_node[MAX_LOG_ALIAS];
-static int alias_space[MAX_LOG_ALIAS], aliases;
-static long long alias_power[MAX_LOG_ALIAS];
+static _Thread_local const Node *alias_node[MAX_LOG_ALIAS];
+static _Thread_local int alias_space[MAX_LOG_ALIAS], aliases;
+static _Thread_local long long alias_power[MAX_LOG_ALIAS];
 
 /* Ritorna 1 se in node compare un logaritmo con la base ridotta base (o in
  * base e, se natural) e l'argomento scritto come argument. */
@@ -1346,17 +1346,17 @@ int log_letter(const Node *node, Rat *out) {
  * t; trig_scale è g; trig_bad dice che una funzione ha un argomento non
  * trattato. trig_root[] sono i nodi di radice di 2 e di radice di 3, che
  * servono a scrivere seni e coseni dei multipli di 15 gradi. */
-int trig_on, trig_live, trig_at_pi, trig_bad;
-static int trig_x, trig_letter;
-static Frac trig_scale;
-static Node *trig_root[2];
+_Thread_local int trig_on, trig_live, trig_at_pi, trig_bad;
+static _Thread_local int trig_x, trig_letter;
+static _Thread_local Frac trig_scale;
+static _Thread_local Node *trig_root[2];
 
 /* Le finestre dell'enunciato periodico in corso (18p-14): quante sono, il
  * più basso e il più alto dei giri in cui cade un loro estremo, il primo e
  * l'ultimo giro da leggere, e il giro che si sta leggendo. Senza finestre
  * si legge un giro solo, il numero 0. */
-static int windows;
-static long long window_low, window_high, window_first, window_last, window_turn;
+static _Thread_local int windows;
+static _Thread_local long long window_low, window_high, window_first, window_last, window_turn;
 
 /* Se e = a x + b pi, con x la variabile dell'enunciato periodico, mette a
  * in *slope e b in *turn e ritorna 1. */
@@ -1720,8 +1720,8 @@ struct SignNode {
     const SignNode *r, *n;           /* SIGN_SURD: il radicando, e a^2 - b^2 r */
 };
 
-static SignNode sign_node[MAX_SIGN_NODES];
-static int sign_nodes;
+static _Thread_local SignNode sign_node[MAX_SIGN_NODES];
+static _Thread_local int sign_nodes;
 
 /* Una condizione di esistenza di un confronto: il nodo deve essere definito
  * e non negativo (strict = 0, un radicando), diverso da zero (strict = 1,
@@ -1733,8 +1733,8 @@ typedef struct {
 
 /* Le condizioni di esistenza dei confronti dell'enunciato in corso, a pezzi
  * consecutivi: ogni SignCase indica il suo. */
-static SignNeed sign_need[MAX_SIGN_NEEDS];
-static int sign_needs;
+static _Thread_local SignNeed sign_need[MAX_SIGN_NEEDS];
+static _Thread_local int sign_needs;
 
 /* Un'espressione preparata per la tabella (18p-1): il suo albero dei segni e
  * le sue condizioni di esistenza, che sono `needs` voci di sign_need[] a
@@ -1771,8 +1771,8 @@ typedef struct {
 
 /* I confronti dell'enunciato in corso, nell'ordine in cui sign_prepare() li
  * incontra; sign_compare() li ritrova dal nodo source. */
-static SignAtom sign_atom[MAX_SIGN_ATOMS];
-static int sign_atoms;
+static _Thread_local SignAtom sign_atom[MAX_SIGN_ATOMS];
+static _Thread_local int sign_atoms;
 
 /* Mette in abs_node[] i valori assoluti dell'espressione node, quelli più
  * interni per primi, una volta ciascuno: due valori assoluti scritti allo
@@ -2758,8 +2758,8 @@ typedef struct {
 
 /* Le famiglie dell'enunciato in corso, di tutti i suoi quantificatori su un
  * intero: family_truth() prende quelle del suo (owner). */
-static FamilyLeaf family_leaf[MAX_LATTICE];
-static int family_leaves;
+static _Thread_local FamilyLeaf family_leaf[MAX_LATTICE];
+static _Thread_local int family_leaves;
 
 /* Prepara in *out i segni del seno e del coseno di
  * direction 2 pi (x - e) / T, dove e = alpha + k T è un'espressione della
@@ -3640,8 +3640,8 @@ static int table_agrees(const Formula *body, int name, Wide at, const Critical *
 /* Le righe della tabella appena riempita da sign_table(): valgono fino alla
  * tabella successiva, e le leggono la dimostrazione, le soluzioni, il
  * grafico, il certificato e lo studio di funzione (capitolo 27). */
-SignRow sign_row[2 * MAX_POINTS + 1];
-int sign_rows;
+_Thread_local SignRow sign_row[2 * MAX_POINTS + 1];
+_Thread_local int sign_rows;
 
 /* Mette in out[], che ha 8 posti, altri valori della riga row, che è un
  * intervallo, oltre a quello scelto in sign_row[row].sample; ritorna quanti.
@@ -3822,7 +3822,7 @@ static void put_row(int row, int name) {
 /* Le soluzioni trovate da sign_solution(), come condizione in LaTeX, e ciò
  * che va detto per leggerle: se hanno estremi irrazionali, e che cosa
  * indicano i nomi r_{k}. Valgono fino alla tabella successiva. */
-char solution_text[1024], solution_note[512];
+_Thread_local char solution_text[1024], solution_note[512];
 
 /* Ritorna 1 se il punto numero k della tabella, una radice irrazionale, è il
  * primo dei punti che sono radici del suo elemento della base: per un
@@ -4187,9 +4187,9 @@ static void angle_latex(Angle a, Frac period, int with_period, char *text, size_
  * a un periodo e dà a ognuno il periodo della sua famiglia; oppure
  * window_solution() (18p-14), con gli intervalli così come sono, senza
  * periodo. */
-static Arc trig_arc[MAX_ARCS];
-static int trig_arcs;
-static Frac trig_period;
+static _Thread_local Arc trig_arc[MAX_ARCS];
+static _Thread_local int trig_arcs;
+static _Thread_local Frac trig_period;
 
 /* 18p-12. Scrive in solution_text le soluzioni, nella variabile name, della
  * condizione periodica f, dalle righe della tabella in t e dal valore
@@ -4443,8 +4443,8 @@ static Range angle_range(Angle a) {
  * l'enunciato successivo (prove()); chi scrive il documento lo legge prima.
  * figures_wanted dice se i grafici servono: finché nessuno li mette in un
  * documento non vengono costruiti. */
-PlFigure *figure;
-int figures_wanted;
+_Thread_local PlFigure *figure;
+_Thread_local int figures_wanted;
 
 /* Ritorna il valore, in virgola mobile, dell'espressione node quando la
  * variabile name vale x: il punto medio dell'intervallo che lo contiene
@@ -4526,7 +4526,7 @@ static int point_edge(const Formula *f, int k) {
  * le rette tratteggiate dove non ha un valore. title è il titolo del
  * pannello. */
 static void figure_panel(PlAxes *axes, const Formula *f, int name, double low, double high, const char *title) {
-    static double xs[FIGURE_SAMPLES + MAX_POINTS], left[FIGURE_SAMPLES + MAX_POINTS], right[FIGURE_SAMPLES + MAX_POINTS], seen[2 * FIGURE_SAMPLES];
+    static _Thread_local double xs[FIGURE_SAMPLES + MAX_POINTS], left[FIGURE_SAMPLES + MAX_POINTS], right[FIGURE_SAMPLES + MAX_POINTS], seen[2 * FIGURE_SAMPLES];
     volatile double zero = 0;
     double hole = zero / zero;  /* "non un numero": dove plot.c spezza una linea */
 
@@ -4621,9 +4621,9 @@ static void figure_panel(PlAxes *axes, const Formula *f, int name, double low, d
  * Sulle tacche stanno gli estremi: i razionali esatti, gli altri con tre
  * decimali. */
 static void figure_solutions(PlAxes *axes, const Formula *f, double low, double high) {
-    static double at[MAX_POINTS];
-    static char text[MAX_POINTS][32];
-    static const char *label[MAX_POINTS];
+    static _Thread_local double at[MAX_POINTS];
+    static _Thread_local char text[MAX_POINTS][32];
+    static _Thread_local const char *label[MAX_POINTS];
     int ticks = 0, written = -1;  /* written: l'ultima tacca con la scritta */
     Piece piece;
     pl_set_title(axes, "solutions (full dot: included, empty dot: excluded)");
@@ -4858,7 +4858,7 @@ static void row_where(int row, int name, int shown, const char *turn_text, char 
  * scrittura. */
 static void periodic_solutions(const Formula *body, int name, int pi_truth[][3], size_t opening, Verdict *verdict) {
     if (!(windows ? window_solution(body, name, pi_truth) : trig_solution(body, name, pi_truth[0][0]))) { verdict->reason = failure; failure = NULL; proof_cut(opening); return; }
-    static char wrapped[sizeof solution_text + 64];
+    static _Thread_local char wrapped[sizeof solution_text + 64];
     const Formula *written = NULL;
     int checked = 0, family = strstr(solution_text, "k\\pi") != NULL, plain = (family || (windows && trig_arcs > 0)) && !solution_note[0];
     if (plain) {
@@ -4894,7 +4894,7 @@ static void periodic_solutions(const Formula *body, int name, int pi_truth[][3],
     verdict->detail = solution_text;
     verdict->note = family ? "k intero" : NULL;
     if (solution_note[0]) {
-        static char note[sizeof solution_note + 128];
+        static _Thread_local char note[sizeof solution_note + 128];
         snprintf(note, sizeof note, "%sradici senza una scrittura con i radicali: le soluzioni scritte non sono state rilette%s", family ? "k intero; " : "", solution_note);
         verdict->note = note;
     }
@@ -4920,7 +4920,7 @@ static void table_solutions(const Formula *body, int name, size_t opening, Verdi
     verdict->outcome = SOLVED;
     verdict->detail = solution_text;
     if (solution_note[0]) {
-        static char note[sizeof solution_note + 96];
+        static _Thread_local char note[sizeof solution_note + 96];
         snprintf(note, sizeof note, "radici senza una scrittura con i radicali: le soluzioni scritte non sono state rilette%s", solution_note);
         verdict->note = note;
     }
@@ -4934,7 +4934,7 @@ static void table_solutions(const Formula *body, int name, size_t opening, Verdi
  * Riempie *verdict, con la dimostrazione scritta e il controesempio o le
  * soluzioni. */
 void decide_by_signs(const Formula *thesis, Verdict *verdict) {
-    static char where[160];
+    static _Thread_local char where[160];
     int negated;
     const Formula *q = without_negations(thesis, &negated);
     if ((q->kind != F_FORALL && q->kind != F_EXISTS && q->kind != F_SOLVE) || formula_bad_quantifier(q->a) || q->numbers.integers) {
@@ -4945,7 +4945,7 @@ void decide_by_signs(const Formula *thesis, Verdict *verdict) {
     const Formula *body = q->a;
     const NumberSet *set = &q->numbers;
     int every = q->kind == F_FORALL, solving = q->kind == F_SOLVE, name = q->variable, x = atom_var(name), shown = name;
-    static int pi_truth[MAX_TURNS][3];
+    static _Thread_local int pi_truth[MAX_TURNS][3];
     char pi_text[64] = "";
 
     /* 18p-11. Un enunciato con funzioni goniometriche della variabile è
@@ -5371,7 +5371,7 @@ static const char *sign_certificate(const Formula *thesis, const Verdict *verdic
  * decide_by_signs() ha dato su thesis, e lo aggiorna con la risposta: vedi
  * "Le risposte" in testa a 18p-15. */
 void sign_certify(const Formula *thesis, Verdict *verdict) {
-    static char problem[512];
+    static _Thread_local char problem[512];
     if (verdict->outcome != PROVED && verdict->outcome != REFUTED && verdict->outcome != SOLVED) return;
     const char *why = sign_certificate(thesis, verdict), *text = certificate_text;
     if (!why) {
@@ -5669,9 +5669,9 @@ static Formula *formula_with(const Formula *f, int name, Node *value) {
  * quantificatore interno in cui sta il suo confronto. param_part[i] sono i
  * suoi coefficienti come polinomio in quella variabile, dal termine noto a
  * quello di grado param_degree[i]; li riempie param_project(). */
-static Poly param_poly[MAX_PARAM_POLYS], param_part[MAX_PARAM_POLYS][MAX_PARAM_DEGREE + 1];
-static int param_var[MAX_PARAM_POLYS], param_degree[MAX_PARAM_POLYS];
-static int param_polys;
+static _Thread_local Poly param_poly[MAX_PARAM_POLYS], param_part[MAX_PARAM_POLYS][MAX_PARAM_DEGREE + 1];
+static _Thread_local int param_var[MAX_PARAM_POLYS], param_degree[MAX_PARAM_POLYS];
+static _Thread_local int param_polys;
 
 /* Aggiunge all'elenco il polinomio p, che viene dal conto di un confronto
  * razionale nel parametro (atomo a) e nella variabile (atomo x). Annota un
@@ -5762,8 +5762,8 @@ static void param_collect(const Formula *f, int a_name, int x_name) {
 
 /* La matrice di cui subresultant_lead() calcola il determinante: minor_size
  * righe e colonne di polinomi nel parametro. */
-static Poly minor_entry[MAX_MINOR][MAX_MINOR];
-static int minor_size;
+static _Thread_local Poly minor_entry[MAX_MINOR][MAX_MINOR];
+static _Thread_local int minor_size;
 
 /* Ritorna il determinante della matrice fatta dalle righe di minor_entry[]
  * da `row` in giù e dalle colonne non ancora usate, quelle con il bit a zero
@@ -5842,8 +5842,8 @@ typedef struct {
 
 /* I polinomi della proiezione dell'enunciato in corso, registrati da
  * param_column(). */
-static ProjectionItem param_item[MAX_PROJECTION];
-static int param_items;
+static _Thread_local ProjectionItem param_item[MAX_PROJECTION];
+static _Thread_local int param_items;
 
 /* Registra il polinomio p, che è nel solo parametro (atomo a), con la sua
  * provenienza (kind, first, second, k: come in ProjectionItem), e lo mette
@@ -5939,10 +5939,10 @@ typedef struct {
 
 /* I valori critici e le celle dell'enunciato in corso, riempiti da
  * param_cells_build(). */
-static ParamPoint param_point[MAX_PARAM_POINTS];
-static int param_points;
-static ParamCell param_cell[2 * MAX_PARAM_POINTS + 1];
-static int param_cells;
+static _Thread_local ParamPoint param_point[MAX_PARAM_POINTS];
+static _Thread_local int param_points;
+static _Thread_local ParamCell param_cell[2 * MAX_PARAM_POINTS + 1];
+static _Thread_local int param_cells;
 
 /* Ritorna, come espressione, una radice del polinomio di secondo grado q,
  * che ha due radici reali irrazionali e coefficienti sotto 2^30 (lo ha già
@@ -6036,7 +6036,7 @@ static Wide cell_beside(int c, int right) {
 
 /* Il controesempio dell'ultimo enunciato che table_truth() ha trovato falso,
  * com'è scritto da decide_by_signs(); vuoto se non ne ha dato uno. */
-static char param_inner[160];
+static _Thread_local char param_inner[160];
 
 /* Decide con la tabella dei segni (18p) l'enunciato q: un quantificatore su
  * una variabile reale, con una condizione senza altri quantificatori.
@@ -6089,7 +6089,7 @@ static int number_truth(Formula *f, int name, Verdict *verdict) {
 /* Le due condizioni costanti di closed_reduce(): la falsa e la vera. Si
  * riconoscono dall'indirizzo e non hanno contenuto: non arrivano mai a una
  * tabella dei segni. */
-static Formula closed_constant[2];
+static _Thread_local Formula closed_constant[2];
 
 /* Ritorna la negazione della condizione f, che può essere una delle due
  * costanti. */
@@ -6233,8 +6233,8 @@ typedef struct {
 } Candidate;
 
 /* I candidati dell'enunciato in corso, riempiti da candidates_build(). */
-static Candidate param_candidate[MAX_CANDIDATES];
-static int param_candidates;
+static _Thread_local Candidate param_candidate[MAX_CANDIDATES];
+static _Thread_local int param_candidates;
 
 /* Ritorna p moltiplicato per l'intero k. */
 Uni uni_scaled(const Uni *p, __int128 k) {
@@ -6674,7 +6674,7 @@ static int param_values(int name, char *text, size_t size) {
  * tabella dei segni. Ritorna 1 se tutto concorda; altrimenti 0, con l'esito
  * NOT_PROVED e il motivo in *verdict. */
 static int param_reread(const Formula *written, int name, int by_cell, Verdict *verdict) {
-    static char reason[400];
+    static _Thread_local char reason[400];
     for (int c = 0; c < param_cells; c++)
         for (int i = 0; i < (c % 2 ? 1 : 3); i++) {
             Scratch mark = scratch_mark();
@@ -7056,7 +7056,7 @@ static int cells_are_sound(void) {
  * numeri che il controllo sa trattare, e anche se un errore era già
  * annotato prima: allora non conferma nulla. */
 static int projection_sound(int a) {
-    static Uni part[MAX_PARAM_POLYS][MAX_PARAM_DEGREE + 1];
+    static _Thread_local Uni part[MAX_PARAM_POLYS][MAX_PARAM_DEGREE + 1];
     int degree[MAX_PARAM_POLYS], sound = 1;
 
     /* 18t-h1. Ogni polinomio: le sue parti in x, rimoltiplicate per le
@@ -7139,7 +7139,7 @@ int has_parameter(const Formula *thesis) {
 
 /* Il lavoro di decide_with_parameter(), che ne descrive il contratto. */
 static void param_decide(const Formula *thesis, Verdict *verdict) {
-    static char text[PARAM_TEXT], where[320];
+    static _Thread_local char text[PARAM_TEXT], where[320];
     int negated;
     const Formula *q = without_negations(thesis, &negated);
 

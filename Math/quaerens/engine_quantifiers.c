@@ -205,14 +205,14 @@
  */
 
 /* Le variabili generiche della dimostrazione in corso, dalla più esterna. */
-static Bound *universal;
-static size_t universal_capacity;
-int universal_count;
+static _Thread_local Bound *universal;
+static _Thread_local size_t universal_capacity;
+_Thread_local int universal_count;
 
 /* Una cella per variabile, invece di una maschera a 32 bit: 1 se e stata
  * nominata da un'ipotesi esistenziale. Il vettore segue quello dei legami. */
-unsigned char *universal_named;
-size_t universal_named_capacity;
+_Thread_local unsigned char *universal_named;
+_Thread_local size_t universal_named_capacity;
 
 /* Introduce una variabile generica, azzerandone la qualifica di testimone.
  * 0 e failure quando uno dei depositi non puo crescere. Gli insiemi restano
@@ -230,14 +230,14 @@ int universal_push(Bound bound) {
  * se non ce n'è una, e il resto r del caso che si sta trattando. split_case
  * dice anche quale dei valori di un "esiste" si sta scegliendo, o
  * ricontrollando (vedi Formula): fuori dai casi vale 0. */
-int split_modulus, split_case;
+_Thread_local int split_modulus, split_case;
 
 /* Quante volte establish() può ancora essere chiamata per la prova in corso.
  * Provare un valore dopo l'altro per più "esiste" annidati, o le due letture
  * di una lunga catena di equivalenze, fa crescere i tentativi in modo
  * esponenziale: finiti i passi la ricerca si ferma e il verdetto è NON
  * DIMOSTRATO, invece di esaurire tempo e memoria. */
-int search_left;
+_Thread_local int search_left;
 
 /* Mette da parte i tentativi rimasti oltre MAX_SEARCH / 10 e ritorna quanti
  * sono; chi chiama li restituisce, con search_left += ..., quando ha finito.
@@ -265,19 +265,19 @@ static int universal_index(int atom) {
 
 /* I numeri scelti finora, dal quantificatore più esterno. Quando la
  * dimostrazione smentisce l'enunciato, sono il controesempio da riportare. */
-Choice *chosen;
-static size_t chosen_capacity;
-int chosen_count;
+_Thread_local Choice *chosen;
+static _Thread_local size_t chosen_capacity;
+_Thread_local int chosen_count;
 
 /* 1 se una scelta è stata fatta dentro un caso sul resto (18o), o dentro una
  * distinzione di casi su una variabile (18v-2): allora i numeri scelti
  * cambiano da un caso all'altro, e non formano un controesempio da
  * riportare. */
-int chosen_by_cases;
+_Thread_local int chosen_by_cases;
 
 /* Quante distinzioni di casi su una variabile (18v-2) racchiudono il punto
  * della dimostrazione in cui si è. */
-int region_depth;
+_Thread_local int region_depth;
 
 /* 18v-4. I fatti "u non divide w" del caso in esame. Nascono da una
  * distinzione di casi (18v-2): nel caso "k \nmid y" la variabile y non si
@@ -288,9 +288,9 @@ typedef struct {
     Poly value;   /* w: un polinomio nelle variabili generiche */
 } Exclusion;
 
-static Exclusion *excluded;
-static size_t excluded_capacity;
-int excluded_count;
+static _Thread_local Exclusion *excluded;
+static _Thread_local size_t excluded_capacity;
+_Thread_local int excluded_count;
 
 /* Annota che alla variabile name è stato dato il valore value. */
 void choose(int name, Frac value) {
@@ -321,7 +321,7 @@ static void witness_drop(Formula *f) { f->has_witness &= ~(1u << split_case); }
  * WitnessRecord, nel capitolo 18.5), e quante ipotesi "esiste" 18u-1 ha
  * preso con il loro testimone. Come le scelte, tornano indietro con un
  * tentativo abbandonato: di quel tentativo non resta nulla da ricontrollare. */
-int record_count, hypotheses_named;
+_Thread_local int record_count, hypotheses_named;
 
 /* Un punto della dimostrazione scritta e dell'elenco delle scelte a cui si
  * può tornare quando un tentativo fallisce. */
@@ -346,7 +346,7 @@ static void rollback(Mark mark) {
 
 /* Lettere da scrivere con un apice, per atomo: la regola dei segni (18c)
  * indica con x' il parametro della semiretta su cui fa variare x. */
-static char primed[MAX_ATOMS];
+static _Thread_local char primed[MAX_ATOMS];
 
 /* Scrive il testo dell'enunciato che corrisponde alla condizione f. */
 static void put_source(const Formula *f) { proof_add("%.*s", (int)(f->end - f->start), f->start); }
@@ -469,7 +469,7 @@ int poly_uses(Poly p, int x) {
  * una dimostrazione, e 0 altrove: la regola dei resti (18r) e la verifica del
  * capitolo 19 vogliono polinomi nelle sole variabili, e per loro una potenza
  * resta ciò che era. */
-int power_letters;
+_Thread_local int power_letters;
 
 /* 18x. Ritorna 1 se il monomio m è fatto di variabili generiche intere con
  * esponenti interi positivi: l'esponente di una potenza che fa da lettera. */
@@ -608,8 +608,8 @@ typedef struct {
 
 /* La semiretta in esame per ogni variabile generica, nella stessa posizione
  * di universal[]. Vale durante una chiamata a signs(). */
-static Ray *ray;
-static size_t ray_capacity;
+static _Thread_local Ray *ray;
+static _Thread_local size_t ray_capacity;
 
 /* Che cosa signs() deve stabilire di un polinomio. */
 typedef enum {
@@ -1675,8 +1675,8 @@ enum { LETTER_REAL, LETTER_RATIONAL, LETTER_INTEGER };
  * polinomi in esame. letter_kind[i] dice che cosa vale sempre la lettera i:
  * una potenza è razionale ma non intera, perché 2^{-n} non lo è, e una
  * variabile reale (18y) solo reale. Le riempie combination(). */
-static int *multiplier_letter, *letter_kind, multiplier_letters;
-static size_t multiplier_capacity, letter_kind_capacity;
+static _Thread_local int *multiplier_letter, *letter_kind, multiplier_letters;
+static _Thread_local size_t multiplier_capacity, letter_kind_capacity;
 
 /* Aggiunge una lettera con il suo dominio numerico; entrambi i vettori
  * sono posseduti dal calcolo della combinazione, e riusati tra chiamate. */
@@ -1741,8 +1741,8 @@ static void generators_add(Generator *list, int *count, Poly hypothesis, int own
  * di g è g meno i multipli dei precedenti, e i coefficienti dei generatori
  * veri si ottengono correggendo share[] con remove[][]. */
 static int combination(Poly thesis, const Poly *hypothesis, int count, Poly *multiplier, long long top, const int *need) {
-    static Generator list[MAX_GENERATORS];
-    static Frac remove[MAX_GENERATORS][MAX_GENERATORS], share[MAX_GENERATORS];
+    static _Thread_local Generator list[MAX_GENERATORS];
+    static _Thread_local Frac remove[MAX_GENERATORS][MAX_GENERATORS], share[MAX_GENERATORS];
     Mono one;
     one.count = 0;
 
@@ -2184,9 +2184,9 @@ static int formula_mentions(const Formula *f, int name) {
  * alla fine, com'era: i valori scelti per gli "esiste" già dimostrati, che la
  * verifica rileggerà, contengono i numeri d'ordine dei vecchi atomi. */
 static int by_induction(const Formula *all, const Formula *equation) {
-    static Atom kept_atoms[MAX_ATOMS];
-    static Poly kept_polys[MAX_ATOMS];
-    static Rat kept_atans[MAX_ATOMS];
+    static _Thread_local Atom kept_atoms[MAX_ATOMS];
+    static _Thread_local Poly kept_polys[MAX_ATOMS];
+    static _Thread_local Rat kept_atans[MAX_ATOMS];
     Statement statement = {equation->left, equation->right, REL_EQ};
     int atoms_before = atom_count, polys_before = base_poly_count, atans_before = atan_count, variable_before = induction_var;
     long long default_before = default_base, floor_before = domain_floor;
@@ -2246,7 +2246,7 @@ static int by_induction(const Formula *all, const Formula *equation) {
  * Un caso dentro l'altro non si fa: il valore scelto per un "esiste" è
  * ricordato caso per caso (vedi Formula), con un solo numero di caso. */
 static int by_remainders(Formula *f, int negated) {
-    static char written[48];
+    static _Thread_local char written[48];
     const NumberSet *set = &f->numbers;
     int quotient = 0;
     if (!set->integers || set->holes || split_modulus || failure) return 0;
@@ -2595,8 +2595,8 @@ typedef struct {
 } Split;
 
 /* La richiesta in attesa, se split_pending: la raccoglie in_regions(). */
-static Split split_wanted;
-int split_pending;
+static _Thread_local Split split_wanted;
+_Thread_local int split_pending;
 
 /* Annota la richiesta s, se non ce n'è già una: vale la prima. */
 static void split_ask(Split s) {
@@ -3584,7 +3584,7 @@ static int solve_for(Formula *f, int negated) {
 
 /* I valori trovati da 18u-3 nella dimostrazione in corso: i primi
  * record_count (vedi Mark). */
-WitnessRecord witness_records[MAX_RECORDS];
+_Thread_local WitnessRecord witness_records[MAX_RECORDS];
 
 /* universal_named e dichiarato con la pila dei legami: la verifica da un
  * valore prima ai testimoni delle ipotesi, poi alle altre variabili. */
@@ -5060,16 +5060,16 @@ int prove_claims(Formula *f) {
 
 /* Le condizioni dell'enunciato in corso, e un multiplo comune dei loro
  * moduli: il periodo M. */
-Congruence congruences[MAX_CONGRUENCES];
-int congruence_count;
-long long residue_period;
+_Thread_local Congruence congruences[MAX_CONGRUENCES];
+_Thread_local int congruence_count;
+_Thread_local long long residue_period;
 
 /* Le variabili intere visibili nel punto dell'enunciato che si sta
  * esaminando, dalla più esterna, e il resto dato a ciascuna. */
-int *residue_name;
-long long *residue_value;
-static size_t residue_name_capacity, residue_value_capacity;
-int residue_count;
+_Thread_local int *residue_name;
+_Thread_local long long *residue_value;
+static _Thread_local size_t residue_name_capacity, residue_value_capacity;
+_Thread_local int residue_count;
 
 /* Ritorna 1 se f è un'uguaglianza o una disgiunzione di uguaglianze. */
 static int equations_only(const Formula *f) {

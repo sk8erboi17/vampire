@@ -155,13 +155,13 @@ typedef struct {
                                       nella sua funzione o nel suo punto, e quelli da cui dipendono loro */
 } PartialValue;
 
-static PartialValue partial_value[MAX_OPERANDS];
+static _Thread_local PartialValue partial_value[MAX_OPERANDS];
 _Static_assert(MAX_OPERANDS <= 32, "PartialValue.needs ha un bit per ogni operando");
 
 /* Le lettere dell'enunciato in corso, in ordine alfabetico: variabili e
  * parametri, senza la lettera e. Il posto di una lettera qui decide il suo
  * valore nei punti di prova. */
-static int partial_letter[52], partial_letter_count;
+static _Thread_local int partial_letter[52], partial_letter_count;
 
 /* Riempie partial_letter[] con le lettere che compaiono in st: nelle
  * funzioni, negli operandi (anche solo come lettera rispetto a cui si
@@ -983,7 +983,7 @@ static int partial_compare(const PartialStatement *st, int c, const Node *left, 
  * il verdetto: verdict è quello che prove_partial() ha già preparato.
  * Aggiunge la dimostrazione al testo in corso. */
 static Verdict partial_decide(const PartialStatement *st, Verdict verdict) {
-    static char text[640];
+    static _Thread_local char text[640];
     static const char *const sign[] = {[CLAIM_EQ] = "=", [CLAIM_NEQ] = "\\neq", [CLAIM_LT] = "<", [CLAIM_LE] = "\\le", [CLAIM_GT] = ">", [CLAIM_GE] = "\\ge"};
     Node *left[MAX_PARTIAL_CLAIMS], *right[MAX_PARTIAL_CLAIMS], *source[MAX_PARTIAL_CLAIMS];
     int equal[MAX_PARTIAL_CLAIMS], irregular = 0, comparisons = 0;
@@ -1313,7 +1313,7 @@ static int critical_list(const Formula *w, const int *letter, CriticalValues *ou
  * argomento che non si lascia scrivere e rileggere annota un errore
  * (failure). */
 static void critical_domain(const Node *tree, char *text, size_t size) {
-    static char argument[MAX_FORMULA], condition[MAX_FORMULA + 16];
+    static _Thread_local char argument[MAX_FORMULA], condition[MAX_FORMULA + 16];
     if (!tree || failure) return;
     if (tree->kind == N_CALL && (tree->op == FN_LN || tree->op == FN_LOG) && !(tree->a->kind == N_CALL && tree->a->op == FN_ABS)) {
         if (!critical_text(tree->a, argument, sizeof argument)) { fail("l'argomento di un logaritmo è troppo lungo per scriverne la condizione"); return; }
@@ -1331,8 +1331,8 @@ static void critical_domain(const Node *tree, char *text, size_t size) {
  * si calcola. Serve solo a scegliere quale confronto scrivere: che il
  * confronto valga lo dimostra poi partial_decide(). Svuota l'arena. */
 static int critical_sign(const char *prefix, const char *expression) {
-    static PartialStatement probe;
-    static char text[2 * MAX_FORMULA];
+    static _Thread_local PartialStatement probe;
+    static _Thread_local char text[2 * MAX_FORMULA];
     Outcome outcome;
     int side = 0, known = snprintf(text, sizeof text, "%s%s", prefix, expression) < (int)sizeof text;
     arena_used = arena_keep;
@@ -1351,7 +1351,7 @@ static int critical_sign(const char *prefix, const char *expression) {
  * prove_partial() con un enunciato dell'utente, e ne ritorna il verdetto; la
  * dimostrazione si aggiunge al testo in corso. Svuota l'arena. */
 static Verdict critical_decide(const char *text) {
-    static PartialStatement st;
+    static _Thread_local PartialStatement st;
     Verdict verdict = {NOT_PROVED, 0, 0, 0, "un enunciato scritto dal programma non si rilegge", NULL, NULL, NULL, NULL, NULL};
     arena_used = arena_keep;
     atom_count = base_poly_count = atan_count = 0;
@@ -1367,10 +1367,10 @@ static Verdict critical_decide(const char *text) {
  * valgono più. */
 static Verdict prove_critical(const char *formula, const PartialStatement *st) {
     static const char *const comparison[] = {"<", "=", ">"};
-    static char gradient[2][MAX_FORMULA], conditions[2 * MAX_FORMULA], prefix[MAX_FORMULA], system[2 * MAX_FORMULA], complete[4 * MAX_FORMULA];
-    static char answer[2 * MAX_FORMULA], statement[2 * MAX_FORMULA];
-    static char solving[CRITICAL_TEXT], pieces[4 * CRITICAL_TEXT], problem[1024], first[512], note[2048], missing[512];
-    static char at[MAX_CRITICAL_POINTS][2][CRITICAL_COORDINATE];
+    static _Thread_local char gradient[2][MAX_FORMULA], conditions[2 * MAX_FORMULA], prefix[MAX_FORMULA], system[2 * MAX_FORMULA], complete[4 * MAX_FORMULA];
+    static _Thread_local char answer[2 * MAX_FORMULA], statement[2 * MAX_FORMULA];
+    static _Thread_local char solving[CRITICAL_TEXT], pieces[4 * CRITICAL_TEXT], problem[1024], first[512], note[2048], missing[512];
+    static _Thread_local char at[MAX_CRITICAL_POINTS][2][CRITICAL_COORDINATE];
     const DeclaredFunction *f = &st->function[st->critical];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     int letter[2] = {f->variable[0], f->variable[1]}, name = f->name;
@@ -1598,8 +1598,8 @@ static Verdict prove_critical(const char *formula, const PartialStatement *st) {
  * completezza dell'elenco non ne ha (36c). Svuota l'arena e la tabella degli
  * atomi: i risultati di chiamate precedenti non sono più validi. */
 Verdict prove_partial(const char *formula) {
-    static PartialStatement st;
-    static char completed[4 * MAX_FORMULA], problem[640], reading[DEFINITE_NOTE_BYTES];
+    static _Thread_local PartialStatement st;
+    static _Thread_local char completed[4 * MAX_FORMULA], problem[640], reading[DEFINITE_NOTE_BYTES];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     const char *answer = NULL;
 

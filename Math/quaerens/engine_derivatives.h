@@ -18,8 +18,8 @@
 #include "engine_induction.h"
 #include "engine_intervals.h"
 
-extern int derivative_signs;
-extern int derivative_edges;
+extern _Thread_local int derivative_signs;
+extern _Thread_local int derivative_edges;
 extern const char *const DERIVATIVE_EDGES;
 extern const char *const NOT_A_DERIVATIVE;
 Node *node_fold(const Node *tree, int *closed);

@@ -17,12 +17,12 @@
 #include "parser.h"
 #include "engine_evaluation.h"
 
-extern int universal_count;
-extern unsigned char *universal_named;
-extern size_t universal_named_capacity;
+extern _Thread_local int universal_count;
+extern _Thread_local unsigned char *universal_named;
+extern _Thread_local size_t universal_named_capacity;
 int universal_push(Bound bound);
-extern int split_modulus, split_case;
-extern int search_left;
+extern _Thread_local int split_modulus, split_case;
+extern _Thread_local int search_left;
 
 /* Un valore dato a una variabile per dimostrare un "esiste". */
 typedef struct {
@@ -30,26 +30,26 @@ typedef struct {
     Frac value;   /* il numero scelto */
 } Choice;
 
-extern Choice *chosen;
-extern int chosen_count;
-extern int chosen_by_cases;
-extern int region_depth;
-extern int excluded_count;
+extern _Thread_local Choice *chosen;
+extern _Thread_local int chosen_count;
+extern _Thread_local int chosen_by_cases;
+extern _Thread_local int region_depth;
+extern _Thread_local int excluded_count;
 void choose(int name, Frac value);
-extern int record_count, hypotheses_named;
+extern _Thread_local int record_count, hypotheses_named;
 void put_numbers(const NumberSet *set);
 void put_poly(Poly p);
 Poly poly_negate(Poly p);
 int poly_is_constant(Poly p);
 int poly_uses(Poly p, int x);
-extern int power_letters;
+extern _Thread_local int power_letters;
 int power_exponent(const Mono *m);
 int power_letter(int atom);
 int rat_polynomials(Rat r, Poly *num, Poly *den);
 int closed_gap(const Formula *source);
 int node_uses_letter(const Node *node, int name);
 int formula_uses_letter(const Formula *f, int name);
-extern int split_pending;
+extern _Thread_local int split_pending;
 int establish_in_regions(Formula *body, int negated, int from);
 int case_point(const Map *map, int piece, Frac *point);
 
@@ -87,7 +87,7 @@ typedef struct {
     int sign;                        /* 1 se body va presa negata */
 } WitnessRecord;
 
-extern WitnessRecord witness_records[MAX_RECORDS];
+extern _Thread_local WitnessRecord witness_records[MAX_RECORDS];
 int letter_only_in_exponents(const Formula *f, int letter);
 int map_defined(const Map *map);
 int prove_claims(Formula *f);
@@ -100,12 +100,12 @@ typedef struct {
     Poly dividend;          /* N, a coefficienti interi */
 } Congruence;
 
-extern Congruence congruences[MAX_CONGRUENCES];
-extern int congruence_count;
-extern long long residue_period;
-extern int *residue_name;
-extern long long *residue_value;
-extern int residue_count;
+extern _Thread_local Congruence congruences[MAX_CONGRUENCES];
+extern _Thread_local int congruence_count;
+extern _Thread_local long long residue_period;
+extern _Thread_local int *residue_name;
+extern _Thread_local long long *residue_value;
+extern _Thread_local int residue_count;
 int names_a_multiple(const Formula *f);
 int congruences_read(const Formula *f, int *deepest);
 int residue_holds(const Formula *f);

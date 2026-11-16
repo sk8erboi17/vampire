@@ -107,12 +107,12 @@
  * model_adopt() e chi la chiama (Math/Engine.c). */
 enum { LOGIC_DECIDE, LOGIC_HAND_OVER, LOGIC_ADOPT_MODEL, LOGIC_CERTIFY, LOGIC_CLAUSES, LOGIC_NUMBERS };
 
-extern int logic_task;
+extern _Thread_local int logic_task;
 extern const char *const LOGIC_HANDED_OVER;
-extern const size_t *adopted_sizes;
-extern const size_t *const *adopted_tables;
-extern const size_t *adopted_cells;
-extern int adopted_sorts, adopted_symbols;
+extern _Thread_local const size_t *adopted_sizes;
+extern _Thread_local const size_t *const *adopted_tables;
+extern _Thread_local const size_t *adopted_cells;
+extern _Thread_local int adopted_sorts, adopted_symbols;
 Verdict prove_abstract(const char *formula);
 
 #endif /* QUAERENS_ENGINE_LOGIC_H */

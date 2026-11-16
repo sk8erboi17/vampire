@@ -497,14 +497,22 @@ counterexample over the integers (20g), whose claim is checked as 20f.
 
 Not done, and not claimed:
 
-- **The modules of the engine share their state.** They are compiled
-  apart and see each other through interfaces, but the state of a proof
-  (how much of the arena of memory is used, the table of atoms, the
-  conditions collected, the reason of a failure, the budgets of work) is
-  still variables of one module that the others read and write: 161
-  declarations of variables are in the interfaces, 28 of them in that of
-  `engine_foundations`. The engine decides one statement at a time, as it
-  did, and is not reentrant.
+- **The engine is reentrant across threads, not within one.** Every
+  variable of static duration of the modules, of the checker and of the
+  plots, those inside functions too, is `_Thread_local`: each thread has an
+  engine of its own, and several decide statements at once (`quaerens
+  --threads N`). The two arenas, the engine's and the checker's, are memory
+  taken the first time a thread needs them, being too large to be copied
+  into every thread. That nothing is left shared is shown by the object
+  files (with all the state thread-local, the sections `__data`, `__bss`
+  and common of the modules hold no symbol, only constants) and by
+  ThreadSanitizer. Within one thread the engine is what it was: what it
+  keeps of its last verdict, for the document, the next call erases. The
+  state was not made a context passed to the 2400 functions: nothing in the
+  program needs two engines in one thread, and the threads have what they
+  need. It costs: on the corpus, single-threaded, 95 s of processor time
+  instead of 89 s, the price of reaching a thread's variables on this
+  system.
 - **The typed C++ form exists for statements of logic only.** Mathematical
   expressions are typed trees inside the engine and are not visible to C++.
 - **Not every inference of Vampire can be followed.** The run whose
@@ -638,6 +646,10 @@ Not done, and not claimed:
   the modules of the engine keep their discipline (what is exported is
   declared, named for the linker and used elsewhere; no cycle of
   interfaces).
+- `quaerens --threads 4` on every document of the corpus: the verdict
+  lines of all the 309 documents those of Quaerens, word for word; and
+  under ThreadSanitizer, with four threads, on 77 documents of every
+  domain, no report and the same lines.
 - `quaerens`, the engine as a program on its own, built from the same
   modules: on the corpus it prints, line by line, what standalone Quaerens
   prints.
@@ -811,7 +823,11 @@ arithmetic theories. Where it goes:
   seconds when they prove nothing; `--math_confirm_engine off` gives the
   time back.
 
-No improvement in speed is claimed; what is gained is in the tables above.
+No improvement in speed is claimed for Vampire; what is gained is in the
+tables above. For the engine on its own there is one: `quaerens --threads 4`
+decides the statements of a document four at a time, and the whole corpus,
+one document after the other, takes 48 s instead of 108 s (101 s of
+processor time instead of 97 s), with the same verdict lines.
 
 Vampire itself, on TPTP input, is not changed: `checks/sanity` passes as
 before, and on the 33 problems of `checks/Problems`, with three sets of

@@ -672,7 +672,7 @@ void document_item(Document *document, const char *formula, const Verdict *verdi
  * altrimenti che cosa non è riuscito, in italiano: il testo vale fino alla
  * chiamata successiva. */
 const char *document_close(Document *document) {
-    static char problem[1200];
+    static _Thread_local char problem[1200];
     problem[0] = '\0';
     fprintf(document->tex, "\\end{document}\n");
     if (fclose(document->tex) != 0) snprintf(problem, sizeof problem, "il documento %s non è stato scritto per intero", document->tex_path);

@@ -500,6 +500,31 @@
  * il motivo quando è un'induzione, una tabella dei segni, una derivata, un
  * integrale o un limite.
  *
+ * LO STATO È DI OGNI THREAD
+ *
+ * Il motore decide un enunciato alla volta, e tra un passo e l'altro tiene
+ * il suo stato in variabili dei moduli: l'arena, la tabella degli atomi, le
+ * condizioni raccolte, il motivo di un fallimento, i budget. Ogni variabile
+ * di durata statica dei moduli, del verificatore e dei grafici, comprese
+ * quelle static dentro le funzioni, è _Thread_local: ogni thread ha il suo
+ * motore, che non vede gli altri. Le due arene, quella del motore
+ * (ARENA_BYTES) e quella del verificatore (CK_ARENA_BYTES), sono troppo
+ * grandi per stare tra le variabili di thread, che il sistema copia per
+ * intero in ogni thread nuovo: sono memoria presa la prima volta che servono.
+ * Un thread chiama engine_init() prima di ogni altra cosa, e i valori delle
+ * opzioni (--model-work, --stack-budget, ...) sono anch'essi suoi: chi gliele
+ * vuole dare le copia (settings_apply()).
+ *
+ * Che non sia rimasta una variabile condivisa lo dicono i file oggetto: con
+ * tutto lo stato di thread, nelle sezioni __data, __bss e common dei moduli
+ * non resta nessun simbolo, solo costanti. E lo dice ThreadSanitizer, con
+ * --threads su una parte del corpus.
+ *
+ * Non vuol dire che il motore sia rientrante nello stesso thread: ciò che
+ * tiene del suo ultimo verdetto, per il documento, lo cancella la chiamata
+ * dopo (vedi Math/Engine.h). Vuol dire che più thread possono decidere
+ * enunciati insieme, ognuno con il suo stato; è ciò che fa --threads.
+ *
  * COMPILAZIONE
  *
  * La fa CMake, con il resto di Vampire. Ogni modulo è un'unità di
@@ -658,6 +683,9 @@
  *
  * Questo file è il programma a sé: l'ultimo capitolo, con main(). Vampire
  * non lo compila: usa i moduli attraverso Math/Engine.h. */
+#include <pthread.h>
+#include <stdatomic.h>
+
 #include "engine_foundations.h"
 #include "parser.h"
 #include "engine_evaluation.h"
@@ -686,6 +714,9 @@
  *     mathresearcher --certificates OUT FILE.tex ...
  *                                                  scrive anche i certificati verificati,
  *                                                  da far ricontrollare a checker
+ *     mathresearcher --threads N FILE.tex ...      gli enunciati di un file in N thread
+ *                                                  insieme, senza documento: le stesse righe,
+ *                                                  nello stesso ordine
  *     mathresearcher                               legge un enunciato da stdin
  *
  * --model-work N e --model-memory BYTES regolano i budget della ricerca SAT
@@ -762,6 +793,123 @@ static int prove_file(const char *path, Report *report, FILE *out, Document *doc
     return 1;
 }
 
+/* --threads N. Lo stato del motore è di ogni thread (vedi engine_names.h):
+ * N thread decidono gli enunciati di un file insieme, ognuno con il suo,
+ * e le righe si scrivono dopo, nell'ordine del file, come le scrive
+ * prove_file(). Un enunciato non dipende da quelli prima di lui; ciò che
+ * il motore tiene del suo ultimo verdetto, per il documento, resta nel
+ * thread che l'ha deciso, e per questo con il documento non si usa.
+ *
+ * Le opzioni sono variabili di ogni thread, come tutto lo stato: ognuno
+ * prende quelle del thread principale prima di cominciare. */
+typedef struct {
+    size_t stack_budget, model_memory_limit, saturation_memory_limit;
+    unsigned long long model_work_limit, saturation_work_limit, verification_work_limit;
+    long long model_step_limit;
+} Settings;
+
+typedef struct {
+    const char *item, *end;
+    int outcome, certified;
+    char *line, *certificate;   /* sullo heap, scritti dal thread che l'ha deciso */
+} Job;
+
+typedef struct {
+    Job *jobs;
+    int count;
+    atomic_int next;
+    atomic_int unjustified;     /* i passi scartati, sommati da tutti i thread */
+    Settings settings;
+} Pool;
+
+static Settings settings_now(void) {
+    return (Settings){stack_budget, model_memory_limit, saturation_memory_limit, model_work_limit,
+                      saturation_work_limit, verification_work_limit, model_step_limit};
+}
+
+static void settings_apply(const Settings *s) {
+    stack_budget = s->stack_budget; model_memory_limit = s->model_memory_limit;
+    saturation_memory_limit = s->saturation_memory_limit; model_work_limit = s->model_work_limit;
+    saturation_work_limit = s->saturation_work_limit; verification_work_limit = s->verification_work_limit;
+    model_step_limit = s->model_step_limit;
+}
+
+static void *prove_jobs(void *argument) {
+    Pool *pool = argument;
+    engine_init();
+    settings_apply(&pool->settings);
+    for (int i; (i = atomic_fetch_add(&pool->next, 1)) < pool->count;) {
+        Job *job = &pool->jobs[i];
+        Verdict verdict = prove_item(job->item, job->end);
+        size_t length = 0;
+        FILE *line = open_memstream(&job->line, &length);
+        if (line) { verdict_print(line, &verdict); fclose(line); }
+        job->outcome = verdict.outcome;
+        job->certified = verdict.certificate != NULL;
+        job->certificate = verdict.certificate ? strdup(verdict.certificate) : NULL;
+    }
+    atomic_fetch_add(&pool->unjustified, unjustified_steps);
+    return NULL;
+}
+
+/* Come prove_file(), senza documento, con threads thread. La pila di ogni
+ * thread è grande come quella del programma: il budget della pila
+ * (--stack-budget) ne è la metà. */
+static int prove_file_threads(const char *path, Report *report, FILE *out, FILE *certificates, int threads) {
+    memset(report, 0, sizeof *report);
+    char *text = read_file(path);
+    if (!text) return 0;
+    Pool pool = {.settings = settings_now()};
+    atomic_init(&pool.next, 0);
+    atomic_init(&pool.unjustified, 0);
+    const char *position = text, *item, *end;
+    int capacity = 0;
+    while (next_item(&position, &item, &end)) {
+        if (pool.count == capacity) {
+            capacity = capacity ? 2 * capacity : 64;
+            Job *grown = realloc(pool.jobs, (size_t)capacity * sizeof *grown);
+            if (!grown) { free(pool.jobs); free(text); return 0; }
+            pool.jobs = grown;
+        }
+        pool.jobs[pool.count++] = (Job){item, end, 0, 0, NULL, NULL};
+    }
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    size_t stack = 2 * stack_budget + ((size_t)8 << 20);
+    pthread_attr_setstacksize(&attributes, stack);
+    pthread_t *workers = calloc((size_t)threads, sizeof *workers);
+    int started = 0;
+    for (; workers && started < threads; started++)
+        if (pthread_create(&workers[started], &attributes, prove_jobs, &pool) != 0) break;
+    if (!started) prove_jobs(&pool);   /* nessun thread: si fa qui, come senza l'opzione */
+    for (int i = 0; i < started; i++) pthread_join(workers[i], NULL);
+    pthread_attr_destroy(&attributes);
+    free(workers);
+    unjustified_steps += atomic_load(&pool.unjustified);
+
+    for (int i = 0; i < pool.count; i++) {
+        Job *job = &pool.jobs[i];
+        report->total++;
+        switch (job->outcome) {
+        case PROVED:      report->proved++; break;
+        case REFUTED:     report->refuted++; break;
+        case NOT_PROVED:  report->not_proved++; break;
+        case UNSUPPORTED: report->unsupported++; break;
+        case SOLVED:      report->solved++; break;
+        }
+        if (job->certified) {
+            if (job->outcome == PROVED) report->certified++;
+            if (certificates) fprintf(certificates, "%s\n", job->certificate);
+        }
+        if (out) fprintf(out, "%4d. %s\n", report->total, job->line ? job->line : "");
+        free(job->line);
+        free(job->certificate);
+    }
+    free(pool.jobs);
+    free(text);
+    return 1;
+}
+
 /* Legge un budget decimale positivo senza conversioni con trabocco. */
 static int read_model_budget(const char *text, unsigned long long *value) {
     unsigned long long n = 0;
@@ -795,6 +943,7 @@ static char *read_input_line(FILE *stream) {
 
 int main(int argc, char **argv) {
     engine_init();
+    int threads = 0;
 
     /* Senza argomenti: un solo enunciato da stdin, con la sua dimostrazione. */
     if (argc < 2) {
@@ -846,6 +995,12 @@ int main(int argc, char **argv) {
             else model_work_limit = budget;
             continue;
         }
+        if (strcmp(argv[first], "--threads") == 0 && !threads) {
+            unsigned long long count = 0;
+            if (!read_model_budget(argv[first + 1], &count) || count > 256) { printf("ERRORE: da 1 a 256 thread: %s\n", argv[first + 1]); return 1; }
+            threads = (int)count;
+            continue;
+        }
         if (strcmp(argv[first], "--certificates") == 0 && !certificates) {
             certificates = fopen(argv[first + 1], "w");
             if (!certificates) { printf("ERRORE: impossibile scrivere %s\n", argv[first + 1]); return 1; }
@@ -869,7 +1024,9 @@ int main(int argc, char **argv) {
         Report report;
         printf("%s\n", argv[i]);
         if (documented) document_section(&document, argv[i]);
-        if (!prove_file(argv[i], &report, stdout, documented ? &document : NULL, certificates)) {
+        int read = threads > 1 && !documented ? prove_file_threads(argv[i], &report, stdout, certificates, threads)
+                                              : prove_file(argv[i], &report, stdout, documented ? &document : NULL, certificates);
+        if (!read) {
             printf("ERRORE: impossibile leggere il file\n");
             all_proved = 0;
             continue;

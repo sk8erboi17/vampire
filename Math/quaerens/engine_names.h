@@ -133,6 +133,7 @@
 #define elem_new qre_elem_new
 #define elem_sort qre_elem_sort
 #define engine_init qre_engine_init
+#define engine_texts_init qre_engine_texts_init
 #define env_at qre_env_at
 #define env_count qre_env_count
 #define env_lookup qre_env_lookup

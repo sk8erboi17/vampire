@@ -151,7 +151,7 @@ static const char *const MATRIX_NOT_SQUARE = "determinante, traccia, inversa e p
 static const char *const MATRIX_METHOD = "con il calcolo esatto sulle matrici";
 
 /* Prodotti tra razionali già contati per l'enunciato in corso. */
-static long long matrix_work;
+static _Thread_local long long matrix_work;
 
 /* Conta amount prodotti tra razionali. Ritorna 1 se il conto sta ancora nel
  * suo budget; altrimenti annota l'errore e ritorna 0. */
@@ -544,8 +544,8 @@ static DeterminantWitness matrix_determinant(Matrix a) {
 /* Le lettere a cui 32g ha dato un valore: letter_name[i] vale
  * letter_value[i], per i minore di letter_count. Fuori da 32g letter_count
  * è zero, e una lettera in un enunciato ferma il conto. */
-static int letter_name[MAX_LETTERS], letter_count;
-static Frac letter_value[MAX_LETTERS];
+static _Thread_local int letter_name[MAX_LETTERS], letter_count;
+static _Thread_local Frac letter_value[MAX_LETTERS];
 
 /* Le lettere di un sistema a cui il capitolo 33 ha dato un valore, per
  * calcolare un'equazione in un punto: la lettera placed_letter[i], con il
@@ -553,14 +553,14 @@ static Frac letter_value[MAX_LETTERS];
  * incognite, o i parametri di un insieme scritto: possono avere un pedice e
  * sono più di MAX_LETTERS, per questo hanno un elenco loro. Fuori dal
  * capitolo 33 placed_count è zero. */
-static const LinearLetter *placed_letter;
-static const Frac *placed_value;
-static int placed_count;
+static _Thread_local const LinearLetter *placed_letter;
+static _Thread_local const Frac *placed_value;
+static _Thread_local int placed_count;
 
 /* 1 mentre il capitolo 33 scrive il certificato di un fatto in un valore
  * speciale di un parametro: lì una lettera che ha un valore si scrive come
  * il numero che vale, e il certificato è uno di quelli sui numeri (32f). */
-static int letter_numbers;
+static _Thread_local int letter_numbers;
 
 /* Se node è un esponente intero scritto, un numero o il suo opposto, lo
  * mette in *exponent e ritorna 1. */
@@ -666,8 +666,8 @@ enum { SHAPE_NUMBER, SHAPE_OPEN, SHAPE_FIXED };
  * vector_name non è zero, la lettera con quel nome scritta da sola non è un
  * numero ma la colonna vector_value. Fuori dal capitolo 33 vector_name è
  * zero. */
-static int vector_name;
-static Matrix vector_value;
+static _Thread_local int vector_name;
+static _Thread_local Matrix vector_value;
 
 /* Ritorna 1 se node è il vettore incognito scritto da solo. */
 static int matrix_is_vector(const MatrixNode *node) {
@@ -1266,7 +1266,7 @@ static LetterDegree letter_degree(MatrixNode *node) {
  * Il posto e_0 + (d_0 + 1) e_1 + (d_0 + 1)(d_1 + 1) e_2 + ... è quello del
  * punto in cui la lettera i vale e_i, e poi del coefficiente del monomio in
  * cui la lettera i ha l'esponente e_i; d_i è il limite del grado. */
-static Frac letter_grid[MAX_LETTER_POINTS];
+static _Thread_local Frac letter_grid[MAX_LETTER_POINTS];
 
 /* g2, g3. Calcola il polinomio che l'espressione node, che vale un numero,
  * è nelle lettere di letter_name[], con i limiti dei gradi degree: mette i
@@ -1381,7 +1381,7 @@ static void letter_certificate(MatrixNode *node, const Node *written) {
  * respinge. */
 static const char *letter_expand(MatrixNode *node, const char *from, const char *to, char *text, size_t size,
                                  char *certificates, size_t bytes, int *rejected) {
-    static char problem[512];
+    static _Thread_local char problem[512];
     const char *why = "il certificato dello sviluppo non si può scrivere", *certificate = certificate_text;
     size_t start = strlen(text);
     *rejected = 0;
@@ -1440,7 +1440,7 @@ static const char *letter_expand(MatrixNode *node, const char *from, const char 
  * l'enunciato che resta. Svuota l'arena: i risultati di chiamate precedenti
  * non sono più validi. */
 static Verdict prove_matrix_letters(const char *formula) {
-    static char rewritten[2 * MAX_FORMULA], expansions[4 * MAX_FORMULA], certificates[CERTIFICATE_BYTES], method[256], reason[768];
+    static _Thread_local char rewritten[2 * MAX_FORMULA], expansions[4 * MAX_FORMULA], certificates[CERTIFICATE_BYTES], method[256], reason[768];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, MATRIX_METHOD, NULL, NULL};
     MatrixStatement names;
 
@@ -1527,7 +1527,7 @@ static Verdict prove_matrix_letters(const char *formula) {
  *
  * Un enunciato che dice dove stanno le sue lettere, con \mathbb, è di 32g. */
 Verdict prove_matrix(const char *formula) {
-    static char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], note[256], problem[512];
+    static _Thread_local char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], note[256], problem[512];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, MATRIX_METHOD, NULL, NULL};
     MatrixStatement st;
 
@@ -2491,7 +2491,7 @@ static Solution linear_solution(const LinearStatement *st, const MatrixStatement
  * e *outcome dice se l'enunciato è fuori dal linguaggio (UNSUPPORTED) o se è
  * il certificato a non essere stato accettato (NOT_PROVED). */
 static const char *linear_settle(const LinearStatement *st, const MatrixStatement *names, int *truth, LinearEvidence *e, Outcome *outcome) {
-    static char problem[512];
+    static _Thread_local char problem[512];
     Matrix a, b, point = {0, 0, NULL}, directions = point;
     *outcome = UNSUPPORTED;
     Solution sol = linear_solution(st, names, &a, &b);
@@ -3576,8 +3576,8 @@ typedef struct {
  * del suo polinomio, da far dimostrare alla fine (vuoto se il polinomio è
  * un numero). discussion_unproved dice se una discussione si è fermata
  * perché il verificatore non ha accettato un certificato. */
-static char discussion_certificates[CERTIFICATE_BYTES], discussion_roots[MAX_FACTS][1024];
-static int discussion_facts, discussion_unproved;
+static _Thread_local char discussion_certificates[CERTIFICATE_BYTES], discussion_roots[MAX_FACTS][1024];
+static _Thread_local int discussion_facts, discussion_unproved;
 
 /* Aggiunge ai certificati della discussione quello appena accettato, che
  * sta in certificate_text. */
@@ -3588,7 +3588,7 @@ static void discussion_keep(void) {
 /* Fa controllare al verificatore il certificato in certificate_text. Se non
  * lo accetta ferma il conto con il motivo; se lo accetta lo conserva. */
 static void discussion_check(void) {
-    static char problem[512];
+    static _Thread_local char problem[512];
     const char *why = "il certificato non si può scrivere", *text = certificate_text;
     if (failure) return;
     CkAnswer checked = certificate_broken ? CK_UNSUPPORTED : ck_check(&text, &why, checker_steps());
@@ -4005,8 +4005,8 @@ static void parameter_case(const Frac *value, int count, int which, char *text, 
  * in due tempi: i casi si scrivono, e l'enunciato che li afferma ripassa da
  * capo per questa stessa funzione. */
 Verdict prove_parameter(const char *formula) {
-    static char rewritten[4 * MAX_FORMULA], notes[PROOF_BYTES / 4], method[256], reason[768], answer[4 * MAX_FORMULA], reread[16 * MAX_FORMULA];
-    static char cases[MAX_SPECIAL + 1][REQUEST_TEXT];
+    static _Thread_local char rewritten[4 * MAX_FORMULA], notes[PROOF_BYTES / 4], method[256], reason[768], answer[4 * MAX_FORMULA], reread[16 * MAX_FORMULA];
+    static _Thread_local char cases[MAX_SPECIAL + 1][REQUEST_TEXT];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, LINEAR_METHOD, NULL, NULL};
     MatrixStatement names;
     Frac special[MAX_SPECIAL];
@@ -4242,8 +4242,8 @@ Verdict prove_parameter(const char *formula) {
  * Un enunciato che mette una lettera in \mathbb{R}, con un quantificatore o
  * con \{k \in \mathbb{R} \mid ...\}, ha un parametro: è di 33h. */
 Verdict prove_linear(const char *formula) {
-    static char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], problem[512];
-    static LinearEvidence evidence;
+    static _Thread_local char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], problem[512];
+    static _Thread_local LinearEvidence evidence;
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, LINEAR_METHOD, NULL, NULL};
     LinearStatement st;
     MatrixStatement names;

@@ -27,11 +27,11 @@ typedef struct {
     Node *tree;                 /* 10a: la definizione già analizzata */
 } Sequence;
 
-extern Sequence library[3];
+extern _Thread_local Sequence library[3];
 
 #define LIBRARY_COUNT ((int)(sizeof library / sizeof *library))
 
-extern size_t arena_keep;
+extern _Thread_local size_t arena_keep;
 void engine_init(void);
 
 /* Un legame numerico: name e il nome della variabile, value la frazione
@@ -42,14 +42,14 @@ typedef struct {
     Rat value;
 } Binding;
 
-extern int env_count;
+extern _Thread_local int env_count;
 Binding *env_at(int index);
-extern int library_depth;
-extern long long default_base;
-extern long long domain_floor;
-extern int point_name[MAX_POINT];
-extern Frac point_value[MAX_POINT];
-extern int point_count;
+extern _Thread_local int library_depth;
+extern _Thread_local long long default_base;
+extern _Thread_local long long domain_floor;
+extern _Thread_local int point_name[MAX_POINT];
+extern _Thread_local Frac point_value[MAX_POINT];
+extern _Thread_local int point_count;
 int env_push(int name, Rat value);
 void env_pop(void);
 const Rat *env_lookup(int name);
@@ -66,7 +66,7 @@ Rat eval_body(const Node *node, Rat index);
 int atom_is_nonnegative(int atom);
 int atom_is_real(int atom);
 int poly_is_real(Poly p);
-extern int binomial_ok, binomial_used, binomial_live;
+extern _Thread_local int binomial_ok, binomial_used, binomial_live;
 void term_times(Term *out, int atom, Frac exp);
 int pop_prime(long long *value, long long *prime, long long *times);
 Mono poly_common(Poly p);
@@ -75,17 +75,17 @@ int rational_roots(const long long *c, int degree, Frac *root);
 Rat fractional_power(Rat base, Frac q, int odd);
 Rat logarithm(Rat x);
 Rat logarithm_of_positive(Rat x);
-extern Rat atan_args[MAX_ATOMS];
-extern int atan_count;
+extern _Thread_local Rat atan_args[MAX_ATOMS];
+extern _Thread_local int atan_count;
 Rat arctangent(Rat x);
 Rat exp_i(Rat theta, int sign);
-extern const Node *abs_node[MAX_ABS];
-extern int abs_count;
-extern unsigned abs_pattern;
-extern const Node *surd_node[MAX_SURDS];
-extern int surd_letter[MAX_SURDS];
-extern Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
-extern int surd_count;
+extern _Thread_local const Node *abs_node[MAX_ABS];
+extern _Thread_local int abs_count;
+extern _Thread_local unsigned abs_pattern;
+extern _Thread_local const Node *surd_node[MAX_SURDS];
+extern _Thread_local int surd_letter[MAX_SURDS];
+extern _Thread_local Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
+extern _Thread_local int surd_count;
 int number_divides(Num u, Num v);
 
 /* Una scelta di caso per un'applicazione definita per casi: f(t) vale il
@@ -99,12 +99,12 @@ typedef struct {
     int piece;         /* il caso: un indice di piece[] nell'applicazione */
 } CaseChoice;
 
-extern CaseChoice case_choice[MAX_CASE_CHOICES];
-extern int case_choice_count;
+extern _Thread_local CaseChoice case_choice[MAX_CASE_CHOICES];
+extern _Thread_local int case_choice_count;
 extern const char *const CASE_UNDECIDED;
-extern const Map *undecided_map;
-extern const Node *undecided_node;
-extern Rat undecided_argument;
+extern _Thread_local const Map *undecided_map;
+extern _Thread_local const Node *undecided_node;
+extern _Thread_local Rat undecided_argument;
 int rat_same(Rat a, Rat b);
 int condition_computed(const Formula *c);
 int case_computed(const Map *map, Rat argument);

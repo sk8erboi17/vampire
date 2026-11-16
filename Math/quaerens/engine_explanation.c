@@ -135,19 +135,19 @@ enum { EXPLAIN_NO_VALUE = 2 };
  * successivo (prove_core()); chi scrive il documento la legge prima.
  * explanations_wanted dice se le spiegazioni servono: finché nessuno le
  * mette in un documento non vengono costruite. */
-Explanation explanation;
-int explanations_wanted;
+_Thread_local Explanation explanation;
+_Thread_local int explanations_wanted;
 
 /* Lo stato della spiegazione in corso. explain_wrong: un anello non ha
  * superato un controllo di 40a, o ciò che si è scritto non si rilegge.
  * explain_broken: un limite del programma (numeri troppo grandi, troppo
  * testo, troppe colonne) ha impedito di scrivere o di controllare. In tutti
  * e due i casi la spiegazione si abbandona; solo il primo è un errore. */
-int explain_wrong, explain_broken;
+_Thread_local int explain_wrong, explain_broken;
 
 /* Il testo della dimostrazione messo da parte mentre si scrive una
  * spiegazione (explain_capture()). */
-static struct {
+static _Thread_local struct {
     char *text;
     size_t length, capacity;
     int growable, broken;
@@ -202,7 +202,7 @@ const char *explain_piece(size_t start) {
  * gli altri campi a zero. Se i passi sono troppi annota il limite e ritorna
  * un passo di riserva. */
 ExplainStep *explain_step(ExplainKind kind, int group) {
-    static ExplainStep spare;
+    static _Thread_local ExplainStep spare;
     ExplainStep *step = &spare;
     if (explanation.steps == MAX_EXPLAIN_STEPS) explain_broken = 1;
     else step = &explanation.step[explanation.steps++];
@@ -216,7 +216,7 @@ ExplainStep *explain_step(ExplainKind kind, int group) {
  * la formula label, e la ritorna. Se le righe sono troppe annota il limite
  * e ritorna una riga di riserva. */
 static ExplainLine *explain_line(ExplainLineKind kind, int group, const char *label) {
-    static ExplainLine spare;
+    static _Thread_local ExplainLine spare;
     ExplainLine *line = &spare;
     if (explanation.lines == MAX_EXPLAIN_LINES) explain_broken = 1;
     else line = &explanation.line[explanation.lines++];
@@ -408,14 +408,14 @@ static int explain_fraction(Rat d, int x, Uni *top, Uni *bottom) {
 /* I punti della tabella che si sta spiegando: per ognuno il valore esatto,
  * un razionale o un numero con una radice quadrata, e la sua scrittura.
  * Valgono mentre si costruisce la spiegazione. */
-static Rat explain_point_value[MAX_EXPLAIN_POINTS];
-static const char *explain_point_text[MAX_EXPLAIN_POINTS];
+static _Thread_local Rat explain_point_value[MAX_EXPLAIN_POINTS];
+static _Thread_local const char *explain_point_text[MAX_EXPLAIN_POINTS];
 
 /* Le colonne della tabella che si sta spiegando: la riga di sign_row[] di
  * ognuna, e il valore della variabile in cui si ricontrolla (il punto, o il
  * razionale scelto nell'intervallo). */
-static int explain_row[MAX_EXPLAIN_COLUMNS];
-static Rat explain_at[MAX_EXPLAIN_COLUMNS];
+static _Thread_local int explain_row[MAX_EXPLAIN_COLUMNS];
+static _Thread_local Rat explain_at[MAX_EXPLAIN_COLUMNS];
 
 /* I fattori della tabella che si sta spiegando: per ogni punto razionale r
  * il polinomio di primo grado che si annulla in r, e ogni elemento della
@@ -424,11 +424,11 @@ static Rat explain_at[MAX_EXPLAIN_COLUMNS];
  * Di ognuno: il punto razionale di cui è il polinomio (o -1), il posto in
  * sign_base[] (o -1), il testo, l'albero riletto dal testo, e se compare in
  * un confronto spiegato. */
-static Uni explain_factor[MAX_EXPLAIN_FACTORS];
-static int explain_factor_point[MAX_EXPLAIN_FACTORS], explain_factor_base[MAX_EXPLAIN_FACTORS], explain_factor_used[MAX_EXPLAIN_FACTORS];
-static const char *explain_factor_text[MAX_EXPLAIN_FACTORS];
-static const Node *explain_factor_node[MAX_EXPLAIN_FACTORS];
-static int explain_factors;
+static _Thread_local Uni explain_factor[MAX_EXPLAIN_FACTORS];
+static _Thread_local int explain_factor_point[MAX_EXPLAIN_FACTORS], explain_factor_base[MAX_EXPLAIN_FACTORS], explain_factor_used[MAX_EXPLAIN_FACTORS];
+static _Thread_local const char *explain_factor_text[MAX_EXPLAIN_FACTORS];
+static _Thread_local const Node *explain_factor_node[MAX_EXPLAIN_FACTORS];
+static _Thread_local int explain_factors;
 
 /* Ritorna il razionale v come frazione a 64 bit; se non ci sta annota il
  * limite e ritorna zero. */
@@ -901,7 +901,7 @@ static void explain_table(const ExplainChain *chain, int count, const Formula *s
         /* Se la differenza dei membri è un fattore solo, la sua riga c'è
          * già tra quelle dei fattori: non la si scrive due volte. I
          * controlli della riga si fanno lo stesso, su una riga di riserva. */
-        static ExplainLine unwritten;
+        static _Thread_local ExplainLine unwritten;
         for (int j = 0; j < explain_factors; j++) repeated |= explain_factor_used[j] && formula_text_same(chain[i].last, explain_factor_text[j]);
         ExplainLine *value = repeated ? &unwritten : explain_line(EXPLAIN_LINE_VALUE, i + 1, chain[i].last);
         ExplainLine *truth = explain_line(EXPLAIN_LINE_COMPARISON, i + 1, chain[i].written);
@@ -1034,7 +1034,7 @@ static void explain_answer(const Verdict *verdict) {
  * com'era: chi ha chiesto il verdetto non deve accorgersi che dopo c'è
  * stata una spiegazione. */
 void explain_signs(const Formula *thesis, const Verdict *verdict) {
-    static ExplainChain chain[MAX_PANELS];
+    static _Thread_local ExplainChain chain[MAX_PANELS];
     const Formula *panel[MAX_PANELS + 1];
     int negated, count = 0;
     const Formula *q = without_negations(thesis, &negated);
@@ -1182,7 +1182,7 @@ static int node_has_bigop(const Node *node) {
  * successivo non dice nulla. I double servono solo a mettere punti e
  * vertici sulla pagina. */
 static void induction_figure(long long base, Frac value[][2], int rows) {
-    static char text[EXPLAIN_VALUES][24];
+    static _Thread_local char text[EXPLAIN_VALUES][24];
     const char *label[EXPLAIN_VALUES];
     double at[EXPLAIN_VALUES], height[2][EXPLAIN_VALUES], low = 0, high = 0;
     figure = pl_figure(6.4, 3.0);

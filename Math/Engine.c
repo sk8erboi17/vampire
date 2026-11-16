@@ -53,16 +53,16 @@
 
 /* The verdict of the last statement decided, kept for qr_document_item():
  * the document wants the engine's own structure, with the pointers intact. */
-static Verdict last_verdict;
+static _Thread_local Verdict last_verdict;
 
 /* The one-line form of the last verdict. The buffer grows as needed and is
  * reused; it belongs to this file. */
-static char* line_text;
-static size_t line_capacity;
+static _Thread_local char* line_text;
+static _Thread_local size_t line_capacity;
 
 /* The document being written, if any. */
-static Document open_document;
-static int document_is_open;
+static _Thread_local Document open_document;
+static _Thread_local int document_is_open;
 
 /* The stack guard of the engine measures from the address of a local of
  * engine_init(), "at the top of the program". Inside Vampire the engine is

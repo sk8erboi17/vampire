@@ -37,8 +37,8 @@ typedef struct {
 int uni_divide(const Uni *a, const Uni *b, Uni *q);
 int uni_sign_at(const Uni *p, Wide x);
 int uni_from_poly(Poly p, int x, Uni *out, int *shift);
-extern Uni sign_base[2 * MAX_CRITICAL];
-extern int sign_bases;
+extern _Thread_local Uni sign_base[2 * MAX_CRITICAL];
+extern _Thread_local int sign_bases;
 void text_add(char *text, size_t size, const char *format, ...);
 void put_wide(Wide v);
 void uni_latex(const Uni *p, int name, char *text, size_t size);
@@ -59,16 +59,16 @@ typedef struct {
     int kappa;       /* il posto in kappa[]; -1 se il punto è una radice */
 } Critical;
 
-extern int kappas;
-extern int spaces;
-extern Critical sign_point[MAX_POINTS];
-extern int sign_points_count;
+extern _Thread_local int kappas;
+extern _Thread_local int spaces;
+extern _Thread_local Critical sign_point[MAX_POINTS];
+extern _Thread_local int sign_points_count;
 int uni_quadratic_factor(const Uni *p, Uni *factor, Uni *rest);
 long long lcm_small(long long a, long long b);
 int exp_letters(const Node *node, Rat *out);
 int exp_root(Rat r, long long index, Rat *out);
 int log_letter(const Node *node, Rat *out);
-extern int trig_on, trig_live, trig_at_pi, trig_bad;
+extern _Thread_local int trig_on, trig_live, trig_at_pi, trig_bad;
 int trig_value(const Node *node, Rat argument, Rat *out);
 void abs_collect(const Node *node);
 int sign_compare(const Formula *f, const int *sign, int *defined);
@@ -94,9 +94,9 @@ typedef struct {
                                 stessa verità della tabella */
 } SignRow;
 
-extern SignRow sign_row[2 * MAX_POINTS + 1];
-extern int sign_rows;
-extern char solution_text[1024], solution_note[512];
+extern _Thread_local SignRow sign_row[2 * MAX_POINTS + 1];
+extern _Thread_local int sign_rows;
+extern _Thread_local char solution_text[1024], solution_note[512];
 int point_is_first_root(int k);
 
 /* Un pezzo dell'insieme in cui una condizione vale: righe consecutive della
@@ -111,8 +111,8 @@ typedef struct {
 
 int sign_piece(const Formula *f, int from, Piece *piece);
 Formula *condition_reread(const char *text);
-extern PlFigure *figure;
-extern int figures_wanted;
+extern _Thread_local PlFigure *figure;
+extern _Thread_local int figures_wanted;
 void comparisons_collect(const Formula *f, const Formula **list, int *count);
 int formula_needs_signs(const Formula *f);
 const Formula *without_negations(const Formula *f, int *negated);

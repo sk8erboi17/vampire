@@ -17,18 +17,18 @@
 
 /* Budget di ricerca, modificabili dalla riga di comando: non cardinalita
  * massime. Anche i depositi SAT crescono entro la memoria richiesta. */
-size_t model_memory_limit = 128u * 1024u * 1024u;
+_Thread_local size_t model_memory_limit = 128u * 1024u * 1024u;
 /* Budget effettivi della saturazione: visite e memoria posseduta, senza
  * fissare quante variabili, clausole o argomenti puo avere un problema. */
-unsigned long long saturation_work_limit = 2000000;
-size_t saturation_memory_limit = 128u * 1024u * 1024u;
-unsigned long long model_work_limit = 20000000ULL;
+_Thread_local unsigned long long saturation_work_limit = 2000000;
+_Thread_local size_t saturation_memory_limit = 128u * 1024u * 1024u;
+_Thread_local unsigned long long model_work_limit = 20000000ULL;
 /* Elementi provati dai quantificatori, in tutto, nel calcolare un enunciato
  * sui modelli (--model-steps). E un budget di lavoro come gli altri: era una
  * costante, e allora nessun --model-work faceva confermare un controesempio
  * di 83 elementi sotto quattro quantificatori. Resta sotto LLONG_MAX, perche
  * model_steps lo supera di uno per dire "conto interrotto". */
-long long model_step_limit = 40000000LL;
+_Thread_local long long model_step_limit = 40000000LL;
 
 /* Ritorna il budget che il motore dà al verificatore per ricalcolare un
  * modello (il terzo argomento di ck_check()): due volte e mezza il proprio,
@@ -39,7 +39,7 @@ long long model_step_limit = 40000000LL;
 long long checker_steps(void) {
     return model_step_limit <= (LLONG_MAX - 1) / 5 ? model_step_limit * 5 / 2 : LLONG_MAX - 1;
 }
-unsigned long long verification_work_limit = 20000000ULL;
+_Thread_local unsigned long long verification_work_limit = 20000000ULL;
 
 /* =============================================================================
  * 2. ERRORI E MEMORIA
@@ -62,10 +62,10 @@ unsigned long long verification_work_limit = 20000000ULL;
  */
 
 /* Motivo del primo errore del conto in corso, in italiano; NULL se va bene. */
-const char *failure;
+_Thread_local const char *failure;
 /* Una crescita fallita delle strutture dinamiche non puo essere cancellata
  * da un tentativo euristico: il punto d'ingresso scarta comunque l'esito. */
-int work_allocation_failed;
+_Thread_local int work_allocation_failed;
 
 /* Annota reason come causa del fallimento, se è la prima. */
 void fail(const char *reason) { if (!failure) failure = reason; }
@@ -75,7 +75,7 @@ void fail(const char *reason) { if (!failure) failure = reason; }
  * positivo, radice di un numero negativo. Serve a distinguere questo caso dai
  * limiti del programma, come i numeri troppo grandi. Chi vuole la distinzione
  * lo azzera prima del conto, insieme a `failure`. */
-int undefined;
+_Thread_local int undefined;
 
 /* Come fail(), per i casi in cui un'espressione non è definita. */
 void fail_undefined(const char *reason) {
@@ -88,9 +88,13 @@ void fail_undefined(const char *reason) {
  * un enunciato fuori portata. */
 const char *const OUT_OF_MEMORY = "memoria di lavoro esaurita";
 
-/* L'arena: arena_used è il numero di byte già assegnati. */
-static _Alignas(16) char arena[ARENA_BYTES];
-size_t arena_used;
+/* L'arena: arena_used è il numero di byte già assegnati. Ogni thread ha la
+ * sua (lo stato del motore è di ogni thread, vedi main.c), presa dalla
+ * memoria la prima volta che serve: ARENA_BYTES sono troppi per stare tra le
+ * variabili di ogni thread, che il sistema copia e azzera per intero. Da
+ * malloc() un blocco è allineato a 16, come vuole arena_alloc(). */
+static _Thread_local char *arena;
+_Thread_local size_t arena_used;
 
 /* Arrotonda bytes al multiplo di 16 successivo, l'unità di assegnazione. */
 static size_t arena_round(size_t bytes) { return (bytes + 15) & ~(size_t)15; }
@@ -99,6 +103,7 @@ static size_t arena_round(size_t bytes) { return (bytes + 15) & ~(size_t)15; }
  * NULL (con fail()) se l'arena è piena. */
 void *arena_alloc(size_t bytes) {
     bytes = arena_round(bytes);
+    if (!arena && !(arena = malloc(ARENA_BYTES))) { fail(OUT_OF_MEMORY); return NULL; }
     if (bytes > ARENA_BYTES - arena_used) { fail(OUT_OF_MEMORY); return NULL; }
     void *block = arena + arena_used;
     arena_used += bytes;
@@ -210,20 +215,20 @@ void *work_arena_array(size_t count, size_t unit) {
  * piccola (ulimit -s) deve abbassarlo, perché in C standard il programma non
  * può sapere quanta ne ha: con 2 MB di pila e il budget di default 2000
  * parentesi annidate lo fermano ancora. */
-size_t stack_budget = (size_t)4 << 20;
+_Thread_local size_t stack_budget = (size_t)4 << 20;
 
 /* L'esito di chi esaurisce il budget della pila. Ha un nome perché prove()
  * lo mette nel verdetto al posto di ciò che i lettori, fermati a metà,
  * hanno detto. */
 const char *const STACK_EXHAUSTED = "pila di lavoro esaurita: l'enunciato è troppo annidato";
 
-uintptr_t stack_origin;     /* Indirizzo di una variabile locale di engine_init(): il punto da cui si misura. */
-size_t stack_chain_levels;  /* Anelli delle catene a pettine lette nell'enunciato in corso. */
-int stack_guard;            /* 1 mentre si lavora a un enunciato lungo: solo allora si misura. */
+_Thread_local uintptr_t stack_origin;     /* Indirizzo di una variabile locale di engine_init(): il punto da cui si misura. */
+_Thread_local size_t stack_chain_levels;  /* Anelli delle catene a pettine lette nell'enunciato in corso. */
+_Thread_local int stack_guard;            /* 1 mentre si lavora a un enunciato lungo: solo allora si misura. */
 /* 1 se il budget è finito lavorando all'enunciato in corso. Come
  * work_allocation_failed, non lo cancella un tentativo successivo: lo
  * azzera e lo legge solo prove(). */
-int stack_exhausted;
+_Thread_local int stack_exhausted;
 
 /* Ritorna i byte di pila tra il punto di avvio e chi chiama. La differenza
  * si fa tra interi e in valore assoluto, perché il verso in cui la pila
@@ -366,11 +371,11 @@ Num num_inv(Num a) {
  */
 
 /* Tabella degli atomi dell'enunciato in corso. */
-Atom atoms[MAX_ATOMS];
-int atom_count;
+_Thread_local Atom atoms[MAX_ATOMS];
+_Thread_local int atom_count;
 
 /* Nome della variabile su cui si fa induzione nell'enunciato in corso. */
-int induction_var = 'n';
+_Thread_local int induction_var = 'n';
 
 /* Ritorna il monomio atom^exp. */
 Mono mono_atom(int atom, Frac exp) {
@@ -719,8 +724,8 @@ int poly_coefficients(Poly p, int x, long long *c, long long *scale) {
  */
 
 /* Polinomi che fanno da base a un atomo POW con BASE_POLY, ciascuno una volta. */
-Poly base_polys[MAX_ATOMS];
-int base_poly_count;
+_Thread_local Poly base_polys[MAX_ATOMS];
+_Thread_local int base_poly_count;
 
 /* Prototipo in avanti necessario: il confronto tra due somme guarda dentro i
  * nodi dell'albero, che sono definiti nel capitolo 8. */
@@ -912,17 +917,17 @@ Rat rat_mul(Rat a, Rat b) { return rat_make(poly_mul(a.num, b.num), poly_mul(a.d
  * dimostrazione resta spento, perché lì le condizioni sono ipotesi
  * dell'enunciato ("vale dove i due membri sono definiti"). */
 
-Condition conditions[MAX_CONDITIONS];
-int condition_count;
-int conditions_on;    /* 1 mentre le condizioni vanno annotate */
-int conditions_lost;  /* 1 se l'elenco non è bastato a contenerle */
+_Thread_local Condition conditions[MAX_CONDITIONS];
+_Thread_local int condition_count;
+_Thread_local int conditions_on;    /* 1 mentre le condizioni vanno annotate */
+_Thread_local int conditions_lost;  /* 1 se l'elenco non è bastato a contenerle */
 
 /* Il perché di una divisione che non è scritta nell'enunciato: la fa il
  * conto, quando riscrive un prodotto fino a n - 1 come il prodotto fino a n
  * diviso per l'ultimo fattore (vedi eval_bigop()). `rewriting` è diverso da
  * zero mentre il conto fa una divisione di questo tipo. */
 const char *const REWRITTEN = "la dimostrazione divide un prodotto per un suo fattore, che lì vale zero";
-int rewriting;
+_Thread_local int rewriting;
 
 /* Annota che il prodotto dei `count` polinomi di factor[] deve rispettare
  * kind, se l'elenco è acceso. Una condizione già presente non viene ripetuta.

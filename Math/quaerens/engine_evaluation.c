@@ -29,14 +29,14 @@
  * Lucas: {'L', NULL, 2, {1, 1}, {2, 1}, NULL}).
  */
 
-Sequence library[] = {
+_Thread_local Sequence library[] = {
     {'!', "\\prod_{j=1}^{m} j", 0, {0}, {0}, NULL},
     {'H', "\\sum_{j=1}^{m} \\frac{1}{j}", 0, {0}, {0}, NULL},
     {'F', NULL, 2, {1, 1}, {0, 1}, NULL},
 };
 
 /* Quanto dell'arena è occupato dal vocabolario: da non svuotare mai. */
-size_t arena_keep;
+_Thread_local size_t arena_keep;
 
 /* Prepara il motore: analizza le definizioni del vocabolario. Va chiamata una
  * volta prima di ogni altra funzione dei capitoli successivi. */
@@ -45,6 +45,7 @@ void engine_init(void) {
      * funzione è in cima al programma, o quasi. */
     char here;
     stack_origin = (uintptr_t)(void *)&here;
+    engine_texts_init();
     arena_used = 0;
     for (int i = 0; i < LIBRARY_COUNT; i++)
         if (library[i].definition) library[i].tree = parse_expression(library[i].definition);
@@ -84,9 +85,9 @@ void engine_init(void) {
  * anche se una valutazione ricorsiva aggiunge altri legami. 64 e soltanto
  * la granularita di allocazione, non un massimo: cresce l'indice di blocchi. */
 #define ENV_BLOCK_BINDINGS 64
-static Binding **env_block;
-static size_t env_block_capacity, env_blocks;
-int env_count;
+static _Thread_local Binding **env_block;
+static _Thread_local size_t env_block_capacity, env_blocks;
+_Thread_local int env_count;
 
 /* La cella del legame index, gia allocata: nessuna ricerca o allocazione. */
 Binding *env_at(int index) {
@@ -94,25 +95,25 @@ Binding *env_at(int index) {
 }
 
 /* Più di zero mentre si valuta una definizione del vocabolario. */
-int library_depth;
+_Thread_local int library_depth;
 
 /* Il più piccolo n per cui tutte le somme e i prodotti scritti nell'enunciato
  * hanno almeno un termine. È il caso base quando l'enunciato non ne indica
  * uno; eval_bigop() lo alza. */
-long long default_base;
+_Thread_local long long default_base;
 
 /* Un valore sotto il quale n non scende mai nell'enunciato in corso. Serve a
  * stabilire il segno di espressioni come n - 1 (vedi factorize()). */
-long long domain_floor;
+_Thread_local long long domain_floor;
 
 /* I valori dati ai parametri dell'enunciato quando lo si calcola in un punto
  * preciso: il parametro point_name[i] vale point_value[i]. Durante la
  * dimostrazione l'elenco è vuoto e i parametri restano lettere; lo riempie
  * solo la verifica numerica (13e), che lega questi valori per primi: sono
  * quindi i primi point_count posti di `env` (vedi difference()). */
-int point_name[MAX_POINT];
-Frac point_value[MAX_POINT];
-int point_count;
+_Thread_local int point_name[MAX_POINT];
+_Thread_local Frac point_value[MAX_POINT];
+_Thread_local int point_count;
 
 /* I fatti del dominio (11q, più sotto): mentre domain_on è diverso da zero si
  * sta calcolando un'uguaglianza che vale "dove i due membri sono definiti", e
@@ -124,9 +125,9 @@ int point_count;
  * body_is_positive() e binomial_sum()), deve spegnere domain_on finché dura e
  * poi rimetterlo com'era: i fatti valgono per i valori dell'enunciato, non per
  * quella lettera. */
-static Poly domain_fact[MAX_DOMAIN_FACTS];
-static int domain_fact_count;
-static int domain_on;
+static _Thread_local Poly domain_fact[MAX_DOMAIN_FACTS];
+static _Thread_local int domain_fact_count;
+static _Thread_local int domain_on;
 
 /* Lega name a value, senza spostare le celle gia visibili. Un fallimento
  * annota anche work_allocation_failed: eventuali tentativi che ripuliscono
@@ -282,8 +283,8 @@ static int body_is_positive(const Node *node, long long lower) {
  * binomiale che la regola sta trattando come 1 mentre calcola il resto del
  * termine, o NULL; binomial_live dice che in quel conto la lettera
  * ausiliaria sta al posto dell'indice della somma, che è un intero. */
-int binomial_ok, binomial_used, binomial_live;
-static const Node *binomial_skip;
+_Thread_local int binomial_ok, binomial_used, binomial_live;
+static _Thread_local const Node *binomial_skip;
 
 /* Prototipo in avanti necessario: la regola valuta il termine della somma
  * (eval()) e ne eleva dei pezzi a potenza (power()), e la valutazione di una
@@ -1239,8 +1240,8 @@ Rat logarithm_of_positive(Rat x) {
 
 /* Argomenti degli atomi ATAN dell'enunciato in corso, ciascuno una volta:
  * l'atomo di id k vale l'arcotangente di atan_args[k]. */
-Rat atan_args[MAX_ATOMS];
-int atan_count;
+_Thread_local Rat atan_args[MAX_ATOMS];
+_Thread_local int atan_count;
 
 /* Ritorna arctan(x) come combinazione di atomi.
  *
@@ -1622,9 +1623,9 @@ static void require_positive(const Node *argument, Rat x) {
  * preparando: abs_node[i] è il nodo del valore assoluto numero i, e il bit i
  * di abs_pattern dice se in questo conto il suo argomento va preso con il
  * segno cambiato. Fuori da quei conti abs_count è zero. */
-const Node *abs_node[MAX_ABS];
-int abs_count;
-unsigned abs_pattern;
+_Thread_local const Node *abs_node[MAX_ABS];
+_Thread_local int abs_count;
+_Thread_local unsigned abs_pattern;
 
 /* Le radici quadrate del confronto che la tabella dei segni (18p-7) sta
  * preparando: surd_node[i] è un nodo con il radicando numero i (radici con
@@ -1635,10 +1636,10 @@ unsigned abs_pattern;
  * (surd_relate()). Le più interne vengono prima, così un radicando contiene
  * solo le lettere delle radici precedenti. Fuori da quei conti surd_count è
  * zero. */
-const Node *surd_node[MAX_SURDS];
-int surd_letter[MAX_SURDS];
-Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
-int surd_count;
+_Thread_local const Node *surd_node[MAX_SURDS];
+_Thread_local int surd_letter[MAX_SURDS];
+_Thread_local Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
+_Thread_local int surd_count;
 
 /* Il segno di un numero che può contenere radici quadrate di interi. È
  * definita nel capitolo 18.12 (18p), dopo il test di annullamento che le
@@ -1845,8 +1846,8 @@ int number_divides(Num u, Num v) {
 
 /* Le scelte valide in questo momento, dalla più vecchia. Chi le aggiunge le
  * toglie quando ha finito, riportando il contatore dov'era. */
-CaseChoice case_choice[MAX_CASE_CHOICES];
-int case_choice_count;
+_Thread_local CaseChoice case_choice[MAX_CASE_CHOICES];
+_Thread_local int case_choice_count;
 
 /* Il motivo del fallimento di un conto che ha incontrato un'applicazione
  * definita per casi senza un caso scelto. Ha un nome perché chi cerca una
@@ -1855,9 +1856,9 @@ const char *const CASE_UNDECIDED = "un'applicazione definita per casi è calcola
 
 /* L'ultima applicazione che ha fatto fallire un conto con CASE_UNDECIDED: la
  * sua definizione, il suo nodo e il valore dell'argomento. */
-const Map *undecided_map;
-const Node *undecided_node;
-Rat undecided_argument;
+_Thread_local const Map *undecided_map;
+_Thread_local const Node *undecided_node;
+_Thread_local Rat undecided_argument;
 
 /* Ritorna 1 se a e b sono scritte allo stesso modo, termine per termine. */
 int rat_same(Rat a, Rat b) { return poly_equal(a.num, b.num) && poly_equal(a.den, b.den); }

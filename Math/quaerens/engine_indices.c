@@ -126,11 +126,11 @@
  * dichiarato di \varepsilon e delle posizioni degli indici (capitolo 39 di
  * parser.c: metric è NULL senza metrica); il lavoro fatto; 1 se il budget è
  * finito. */
-static int index_dimension;
-static const int *index_ranks;
-static const IndexStatement *index_statement;
-static long long index_work;
-static int index_stopped;
+static _Thread_local int index_dimension;
+static _Thread_local const int *index_ranks;
+static _Thread_local const IndexStatement *index_statement;
+static _Thread_local long long index_work;
+static _Thread_local int index_stopped;
 
 /* Ritorna il valore dell'indice entry di un simbolo: il numero scritto, o il
  * valore che value[] dà alla sua lettera. */
@@ -143,12 +143,12 @@ static Rat index_value(IndexNode *node, int *value);
  * inversa, come frazioni di polinomi nelle lettere degli elementi (numeri,
  * per una metrica di numeri). Li prepara index_metric_values(), nell'arena;
  * senza metrica non si usano. */
-static Rat *index_lower, *index_upper;
+static _Thread_local Rat *index_lower, *index_upper;
 
 /* 38h. Ritorna il polinomio 1 senza prendere memoria dall'arena: è il
  * denominatore di quasi tutti i valori, e viene chiesto a ogni simbolo. */
 static Poly index_one(void) {
-    static Term one;
+    static _Thread_local Term one;
     one.coef = num_int(1);
     one.mono.count = 0;
     return (Poly){1, &one};
@@ -493,7 +493,7 @@ static int index_put_poly(char *out, size_t size, Poly p) {
  * indici liberi nella dimensione dell'enunciato: così ciò che il verdetto
  * mostra è stato letto da chi legge gli enunciati, e non solo scritto. */
 static int index_reread(const char *left_text, const char *right_text, Poly left, Poly right) {
-    static char text[2 * MAX_FORMULA];
+    static _Thread_local char text[2 * MAX_FORMULA];
     IndexStatement again;
     const IndexStatement *current = index_statement;
     int value[INDEX_LETTERS] = {0};
@@ -542,8 +542,8 @@ static int index_put_point(char *out, size_t size, const IndexStatement *s, cons
  * membri non sono zero, con il loro valore riletto (38f). index_sampled è 0
  * se un tale punto non c'è o non si è potuto scrivere; il testo del punto è
  * vuoto quando non ci sono indici liberi. */
-static char index_sample_point[1024], index_sample_value[512];
-static int index_sampled;
+static _Thread_local char index_sample_point[1024], index_sample_value[512];
+static _Thread_local int index_sampled;
 
 /* 38d. Prova tutti i punti degli indici liberi dell'enunciato s, già
  * preparato. Ritorna 1 se in ognuno i due membri sono uguali; 0 se in uno
@@ -708,7 +708,7 @@ static void index_put_conventions(const IndexStatement *s, int has_delta, int ha
         for (int i = 0; i < s->dimension; i++) {
             /* 38h. Un elemento che è una funzione: numeratore e denominatore
              * di g_{ii}, se sono polinomi che si sanno scrivere. */
-            static char above[256], below[256];
+            static _Thread_local char above[256], below[256];
             proof_add(i ? ", " : "");
             if (!s->metric_top) index_put_number(s->metric[i]);
             else if (index_plain(index_lower[i]) && index_put_poly(above, sizeof above, index_lower[i].num)) proof_add("%s", above);
@@ -764,7 +764,7 @@ static int index_mentions(const IndexNode *node, IndexKind kind) {
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate
  * precedenti non sono più validi. */
 Verdict prove_indices(const char *formula) {
-    static char note[640], detail[1024 + 2 * 512 + 96], point[1024], side[2][512];
+    static _Thread_local char note[640], detail[1024 + 2 * 512 + 96], point[1024], side[2][512];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "con il conto su tutti i valori degli indici", NULL, NULL};
     IndexStatement statement;
     int value[INDEX_LETTERS];
