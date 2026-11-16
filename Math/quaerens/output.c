@@ -1,3 +1,17 @@
+/* MODULO output: il documento finale: enunciati, spiegazioni, dimostrazioni,
+ * soluzioni e grafici in LaTeX, e la sua compilazione in PDF (capitoli 41 e
+ * 22).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in output.h, e il resto
+ * è static. */
+#include "output.h"
+#include "parser.h"
+#include "engine_induction.h"
+#include "engine_explanation.h"
+#include "engine_derivatives.h"
+#include "engine_statement.h"
+
 /* =============================================================================
  * output.c: la generazione del documento finale
  * =============================================================================
@@ -40,8 +54,8 @@
  *
  * LA SPIEGAZIONE
  *
- * Di un enunciato di cui il motore ha registrato i passaggi (capitolo 40 di
- * main.c) il documento non riporta solo la dimostrazione: prima spiega, come
+ * Di un enunciato di cui il motore ha registrato i passaggi (capitolo 40 del
+ * motore) il documento non riporta solo la dimostrazione: prima spiega, come
  * alla lavagna. Che cosa si chiede, la figura, poi un passo alla volta, e in
  * fondo la dimostrazione di sempre, in piccolo, come registro. È ciò che
  * --proofs fa sempre, dove il motore ha registrato i passaggi: chi chiede
@@ -58,12 +72,13 @@
  *
  * COME STA NEL PROGRAMMA
  *
- * È un volume dello stesso libro di main.c, che lo include dopo il suo
- * capitolo 20. Usa ciò che main.c ha già presentato: il verdetto (capitolo
- * 13), la riga che lo riassume, verdict_print() (capitolo 20), e la
- * spiegazione (capitolo 40). Di plot.c usa l'apertura del PDF e l'aggiunta
- * di una pagina. I capitoli hanno i numeri 41 e 22: la numerazione è una
- * sola per main.c, parser.c e output.c, e il 41, nato dopo, sta prima
+ * È un modulo del motore, compilato per conto suo: ciò che gli altri ne
+ * usano, il documento e le funzioni che lo scrivono, è dichiarato in
+ * output.h. Usa il verdetto (capitolo 13), la riga che lo riassume,
+ * verdict_print() (capitolo 20), e la spiegazione (capitolo 40): li riceve
+ * dalle interfacce dei loro moduli. Dei grafici usa l'apertura del PDF e
+ * l'aggiunta di una pagina. I capitoli hanno i numeri 41 e 22: la
+ * numerazione è una sola per tutti i moduli, e il 41, nato dopo, sta prima
  * perché il 22 lo usa.
  *
  * INDICE DEI CAPITOLI
@@ -195,7 +210,7 @@ static void put_explanation_table(FILE *out, const Explanation *explanation) {
 /* La frase di ogni regola di derivazione (DerivativeRule, 27n), e per
  * RULE_FUNCTION quella di ogni funzione (Function): la regola generale,
  * scritta con u, v e c, mai con l'espressione dell'esercizio. Le formule
- * sono quelle di 27c-27f, in testa al capitolo 27 di main.c.
+ * sono quelle di 27c-27f, in testa al capitolo 27 del motore.
  *
  * Warning: se aggiungi una regola o una funzione a derive(), aggiungi qui la
  * sua frase. */
@@ -390,18 +405,6 @@ static void put_explanation_steps(FILE *out, const Explanation *explanation) {
  * al grafico: l'apertura, il grafico, i passi, la dimostrazione.
  */
 
-/* Il documento finale in corso di scrittura, con il PDF dei suoi grafici. */
-typedef struct {
-    FILE *tex;              /* il documento LaTeX, aperto in scrittura */
-    char tex_path[1024];    /* il suo percorso */
-    int want_pdf;           /* 1 se alla fine va compilato in PDF */
-    PlPdf *plots;           /* il PDF dei grafici; NULL finché non ce n'è uno */
-    char plots_path[1040];  /* il suo percorso: quello del documento, con
-                               "-plots.pdf" al posto dell'estensione */
-    int plots_pages;        /* pagine scritte finora nel PDF dei grafici */
-    int plots_failed;       /* 1 se un grafico non si è potuto scrivere */
-} Document;
-
 /* Scrive su out il testo, sostituendo i caratteri che in LaTeX hanno un
  * significato speciale: serve per riportare in un documento un nome di file o
  * un messaggio del programma, che possono contenere barre e graffe. */
@@ -545,7 +548,7 @@ static int compile_pdf(const char *tex_path) {
  * Con un nome che finisce in .pdf scrive il documento LaTeX con lo stesso
  * nome e l'estensione .tex, e document_close() poi lo compila. Ritorna NULL
  * se riesce, altrimenti il motivo, in italiano. */
-static const char *document_open(Document *document, const char *path) {
+const char *document_open(Document *document, const char *path) {
     memset(document, 0, sizeof *document);
     size_t length = strlen(path);
     if (length < 5 || length >= sizeof document->tex_path) return "nome del documento non valido";
@@ -578,7 +581,7 @@ static const char *document_open(Document *document, const char *path) {
 
 /* Scrive il titolo di una parte del documento: il nome del file di enunciati
  * che sta per essere letto. */
-static void document_section(Document *document, const char *title) {
+void document_section(Document *document, const char *title) {
     fprintf(document->tex, "\n\\section*{");
 
     /* Il titolo è un percorso, una parola sola per LaTeX: dopo ogni / e ogni
@@ -593,7 +596,7 @@ static void document_section(Document *document, const char *title) {
 
 /* Apre (opening = 1) o chiude (opening = 0) l'elenco degli enunciati di un
  * file. */
-static void document_list(Document *document, int opening) {
+void document_list(Document *document, int opening) {
     fprintf(document->tex, opening ? "\\begin{enumerate}\n" : "\\end{enumerate}\n");
 }
 
@@ -632,7 +635,7 @@ static void document_figure(Document *document, const PlFigure *plot, int values
  * da lì: che cosa si chiede, il grafico, i passi; la dimostrazione viene in
  * fondo, in piccolo, come registro di ciò che i passi hanno spiegato. Senza
  * spiegazione la voce è quella di sempre. */
-static void document_item(Document *document, const char *formula, const Verdict *verdict, const PlFigure *plot, const Explanation *explanation) {
+void document_item(Document *document, const char *formula, const Verdict *verdict, const PlFigure *plot, const Explanation *explanation) {
     FILE *tex = document->tex;
     int explained = explanation && explanation->steps > 0 && verdict->proof;
     fprintf(tex, "\\item ");
@@ -668,7 +671,7 @@ static void document_item(Document *document, const char *formula, const Verdict
  * stato chiesto un PDF, lo fa compilare. Ritorna NULL se tutto è riuscito,
  * altrimenti che cosa non è riuscito, in italiano: il testo vale fino alla
  * chiamata successiva. */
-static const char *document_close(Document *document) {
+const char *document_close(Document *document) {
     static char problem[1200];
     problem[0] = '\0';
     fprintf(document->tex, "\\end{document}\n");

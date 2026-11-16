@@ -1,3 +1,21 @@
+/* MODULO engine_multivariable: funzioni di più variabili: derivate parziali,
+ * gradiente, hessiana, punti critici (capitoli 35-36).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in
+ * engine_multivariable.h, e il resto è static. */
+#include "engine_multivariable.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_sign_tables.h"
+#include "engine_explanation.h"
+#include "engine_quantifiers_verdict.h"
+#include "engine_sequences.h"
+#include "engine_derivatives.h"
+
 /* =============================================================================
  * 35. FUNZIONI DI PIÙ VARIABILI: DERIVATE PARZIALI, GRADIENTE, HESSIANA
  * ============================================================================
@@ -1579,7 +1597,7 @@ static Verdict prove_critical(const char *formula, const PartialStatement *st) {
  * DIMOSTRATO. Il RISOLTO dei punti critici non porta mai certificato: la
  * completezza dell'elenco non ne ha (36c). Svuota l'arena e la tabella degli
  * atomi: i risultati di chiamate precedenti non sono più validi. */
-static Verdict prove_partial(const char *formula) {
+Verdict prove_partial(const char *formula) {
     static PartialStatement st;
     static char completed[4 * MAX_FORMULA], problem[640], reading[DEFINITE_NOTE_BYTES];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
@@ -1642,9 +1660,8 @@ static Verdict prove_partial(const char *formula) {
  * conosce, oppure comincia con la definizione di una funzione,
  * f(x, y) = ..., seguita più avanti da \implies. Lo usa il capitolo 20. Usa
  * il lettore di token del parser, e lascia il suo stato da reimpostare. */
-static int uses_partial_notation(const char *formula) {
+int uses_partial_notation(const char *formula) {
     for (const char *p = strchr(formula, '\\'); p; p = strchr(p + 1, '\\'))
         if ((strncmp(p, "\\partial", 8) == 0 && !isalpha((unsigned char)p[8])) || (strncmp(p, "\\nabla", 6) == 0 && !isalpha((unsigned char)p[6]))) return 1;
     return strstr(formula, "\\implies") && starts_with_definition(formula);
 }
-

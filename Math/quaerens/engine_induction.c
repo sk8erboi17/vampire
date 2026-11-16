@@ -1,3 +1,15 @@
+/* MODULO engine_induction: induzione su somme e prodotti: caso base, passo,
+ * verdetto (capitolo 13).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_induction.h, e
+ * il resto è static. */
+#include "engine_induction.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_derivatives.h"
+
 /* =============================================================================
  * 13. INDUZIONE: CASO BASE, PASSO, VERDETTO
  * ============================================================================
@@ -55,50 +67,14 @@
  *        indipendente, checker.c.
  */
 
-/* Esito di un tentativo di dimostrazione. */
-typedef enum { PROVED, REFUTED, NOT_PROVED, UNSUPPORTED, SOLVED } Outcome;
-
-/* Il verdetto su un enunciato, di qualunque tipo.
- *
- * I campi variable, base e witness riguardano le dimostrazioni per induzione;
- * per gli altri enunciati variable vale 0, method dice come sono stati
- * dimostrati e il controesempio, se c'è, è il testo in detail. Le stringhe
- * puntate non appartengono al verdetto: method e note sono costanti; reason,
- * detail, proof e certificate restano valide fino al verdetto successivo. */
-typedef struct {
-    Outcome outcome;
-    int variable;        /* variabile di induzione, o 0 */
-    long long base;      /* PROVED per induzione: il caso base n0 */
-    long long witness;   /* REFUTED per induzione: un n in cui non vale */
-    const char *reason;  /* NOT_PROVED, UNSUPPORTED: perché, in italiano;
-                            PROVED per induzione o con la tabella dei
-                            segni, REFUTED e SOLVED con la tabella dei
-                            segni, senza certificato: perché il certificato
-                            manca; altrimenti NULL */
-    const char *detail;  /* REFUTED senza induzione: il controesempio, o NULL;
-                            SOLVED: le soluzioni, come condizione in LaTeX */
-    const char *proof;   /* dimostrazione scritta in LaTeX, o NULL */
-    const char *method;  /* PROVED senza induzione, SOLVED: come, in italiano */
-    const char *note;    /* PROVED, REFUTED: avvertenza su come è stato letto
-                            l'enunciato, o NULL;
-                            SOLVED: che cosa indicano i nomi usati nelle
-                            soluzioni, o dove vale una derivata, o NULL */
-    const char *certificate;  /* PROVED: il certificato che il verificatore
-                                 indipendente ha accettato (13h, 18p-15), o NULL;
-                                 REFUTED su insiemi qualsiasi: il controesempio,
-                                 come certificato accettato (28f); REFUTED e
-                                 SOLVED con la tabella dei segni: la tabella,
-                                 come certificato accettato (18p-15) */
-} Verdict;
-
 /* Il testo della dimostrazione dell'enunciato in corso: LaTeX, in inglese come
  * gli altri testi destinati a un documento. proof_reset() lo svuota,
  * proof_add() vi aggiunge un pezzo con la sintassi di printf. Un testo più
  * lungo di PROOF_BYTES viene rifiutato, salvo i modelli che crescono sullo heap. */
 static char proof_initial[PROOF_BYTES];
-static char *proof_text = proof_initial;
-static size_t proof_length, proof_capacity = PROOF_BYTES;
-static int proof_growable, proof_broken;
+char *proof_text = proof_initial;
+size_t proof_length, proof_capacity = PROOF_BYTES;
+int proof_growable, proof_broken;
 
 /* Allarga un testo sullo heap entro il budget richiesto. Il deposito
  * iniziale resta statico per i domini che usano testi di lunghezza nota;
@@ -129,11 +105,11 @@ static int text_reserve(char **text, size_t *capacity, char *initial, size_t nee
  * di un enunciato sugli insiemi, di uno su insiemi qualsiasi (28f).
  * Deve restare a zero: un valore diverso vuol dire che una regola ha
  * sbagliato, e i test lo controllano. */
-static int unjustified_steps;
+int unjustified_steps;
 
 /* Svuota il documento e restituisce il deposito iniziale; i risultati
  * della chiamata precedente, come per l'arena, non sono piu validi. */
-static void proof_reset(void) {
+void proof_reset(void) {
     if (proof_text != proof_initial) free(proof_text);
     proof_text = proof_initial; proof_capacity = PROOF_BYTES;
     proof_length = 0; proof_growable = proof_broken = 0;
@@ -143,7 +119,7 @@ static void proof_reset(void) {
 /* Aggiunge LaTeX. Solo la stampa di un modello abilita la crescita: gli
  * altri domini conservano i propri controlli di lunghezza. Un testo che
  * non entra resta marcato come incompleto, mai consegnato come modello. */
-static void proof_add(const char *format, ...) {
+void proof_add(const char *format, ...) {
     if (proof_broken) return;
     va_list arguments;
     va_start(arguments, format);
@@ -466,14 +442,14 @@ static int zero_free(Poly q, int atom, long long base, long long *where) {
     return answer;
 }
 
-static int condition_holds(Requirement kind, Poly p, long long base, long long *where);
+int condition_holds(Requirement kind, Poly p, long long base, long long *where);
 
 /* Ritorna 1 se l'atomo è certamente positivo per ogni n >= base: n da 1 in
  * su, pi greco, le potenze di un primo, i prodotti di fattori positivi, le
  * potenze di una base positiva (una radice di n + 1 è l'atomo "n + 1" elevato
  * a 1/2), il logaritmo di un primo, l'arcotangente di un argomento positivo.
  * Zero vuol dire "non si sa". */
-static int atom_is_positive(int atom, long long base) {
+int atom_is_positive(int atom, long long base) {
     const Atom *a = &atoms[atom];
     long long where;
     if (a->kind == ATOM_VAR) return a->id == VAR_PI || (a->id == induction_var && base >= 1);
@@ -916,7 +892,7 @@ static int difference_rule(Requirement kind, Poly q, long long base, long long *
  * n >= base: ritorna 1 se sì, 0 se no (e mette in *where un n in cui
  * fallisce), -1 se non lo sa stabilire. Le regole sono descritte in testa al
  * paragrafo 13c. */
-static int condition_holds(Requirement kind, Poly p, long long base, long long *where) {
+int condition_holds(Requirement kind, Poly p, long long base, long long *where) {
     long long c[MAX_UNIVARIATE + 1], scale;
     *where = base;
 
@@ -991,7 +967,7 @@ static int condition_holds(Requirement kind, Poly p, long long base, long long *
  * fallisce in *where) o -1. Prima sul prodotto dei suoi fattori; se così non
  * si decide, e i fattori sono più d'uno, sul segno di ciascuno: il prodotto
  * di fattori che hanno ognuno un segno fisso ha un segno fisso. */
-static int condition_decided(const Condition *c, long long base, long long *where) {
+int condition_decided(const Condition *c, long long base, long long *where) {
     Poly product = c->factor[0];
     for (int f = 1; f < c->count; f++) product = poly_mul(product, c->factor[f]);
     int holds = failure ? -1 : condition_holds(c->kind, product, base, where);
@@ -1019,7 +995,7 @@ static int condition_decided(const Condition *c, long long base, long long *wher
  * terza serve perché il calcolo con i numeri non controlla tutto: un
  * logaritmo di cos(1) non è un numero, e il suo segno lo decide solo
  * condition_holds(). */
-static int defined_for_every(const Statement *statement, long long base, long long *where, const char **why) {
+int defined_for_every(const Statement *statement, long long base, long long *where, const char **why) {
     Rat n = rat_atom(atom_var(induction_var));
     int answer = 1, broken = 0;
 
@@ -1284,19 +1260,11 @@ static const Frac point_samples[] = {{2, 1}, {3, 1}, {1, 2}, {5, 1}, {1, 3}, {-2
                                      {-1, 2}, {4, 1}, {-3, 1}, {1000, 1}, {1, 1000}};
 enum { POINT_SAMPLES = sizeof point_samples / sizeof *point_samples };
 
-/* Ciò che un conto di prova lascia dietro di sé e che va tolto quando il
- * conto non serve più: gli atomi, le basi e le arcotangenti nati durante il
- * conto, e la memoria presa dall'arena. */
-typedef struct {
-    int atoms, polys, atans;  /* quanti ce n'erano prima del conto */
-    size_t arena;             /* byte dell'arena occupati prima del conto */
-} Scratch;
-
 /* Ritorna lo stato di adesso, da ridare a scratch_drop() dopo il conto. */
-static Scratch scratch_mark(void) { return (Scratch){atom_count, base_poly_count, atan_count, arena_used}; }
+Scratch scratch_mark(void) { return (Scratch){atom_count, base_poly_count, atan_count, arena_used}; }
 
 /* Toglie tutto ciò che è nato dopo mark. */
-static void scratch_drop(Scratch mark) {
+void scratch_drop(Scratch mark) {
     atom_count = mark.atoms;
     base_poly_count = mark.polys;
     atan_count = mark.atans;
@@ -1728,7 +1696,7 @@ static const char *verify_instances(const Statement *statement, long long base, 
  * solo che il conto è stato fatto. */
 
 /* Scrive il numero v in LaTeX. */
-static void put_frac(Frac v) {
+void put_frac(Frac v) {
     if (v.den == 1) proof_add("%lld", v.num);
     else proof_add("%s\\frac{%lld}{%lld}", v.num < 0 ? "-" : "", llabs(v.num), v.den);
 }
@@ -1736,8 +1704,8 @@ static void put_frac(Frac v) {
 /* La sostituzione in corso mentre put_node() scrive: la variabile shown_name
  * va scritta come l'espressione shown_value. Con shown_value NULL non si
  * sostituisce nulla. */
-static int shown_name;
-static const Node *shown_value;
+int shown_name;
+const Node *shown_value;
 
 /* Ritorna quanto strettamente il nodo tiene insieme i suoi operandi, per
  * decidere le parentesi: 1 somme e differenze, 2 somme e prodotti scritti con
@@ -1766,7 +1734,7 @@ static int node_precedence(const Node *n) {
  * Warning: se aggiungi un tipo di nodo o una funzione, aggiungine il caso
  * anche qui; ciò che questa funzione scrive deve rileggersi, con il parser
  * del capitolo 9, come l'espressione di partenza. */
-static void put_node(const Node *n, int need) {
+void put_node(const Node *n, int need) {
     static const char *const call_name[] = {[FN_SIN] = "sin", [FN_COS] = "cos", [FN_TAN] = "tan", [FN_COT] = "cot",
                                             [FN_ARCTAN] = "arctan", [FN_LN] = "ln", [FN_ARCSIN] = "arcsin",
                                             [FN_ARCCOS] = "arccos", [FN_ARCCOT] = "arccot"};
@@ -1911,7 +1879,7 @@ static void put_node(const Node *n, int need) {
 
 /* Ritorna l'albero dell'espressione a * variable + c, con a positivo, scritta
  * nel modo più breve: n, n + 1, 2 n - 1. */
-static Node *node_affine(long long a, int variable, long long c) {
+Node *node_affine(long long a, int variable, long long c) {
     Node *n = node_new(N_VAR, NULL, NULL);
     n->name = variable;
     if (a != 1) n = node_new(N_MUL, node_num(a), n);
@@ -1923,16 +1891,16 @@ static Node *node_affine(long long a, int variable, long long c) {
 /* Prototipi in avanti necessari: un atomo può contenere una frazione (le
  * arcotangenti), un polinomio (le basi) o un monomio (gli esponenti), e
  * questi sono fatti di atomi. */
-static void put_rat(Rat r);
-static void put_terms(Poly p);
-static void put_mono(const Mono *m);
+void put_rat(Rat r);
+void put_terms(Poly p);
+void put_mono(const Mono *m);
 
 /* Diventa 1 quando put_rat() incontra una quantità che il LaTeX degli
  * enunciati non sa dire: un numero immaginario, o una potenza di e^i che non
  * sia una potenza di -1. Seni e coseni sono calcolati con gli esponenziali
  * complessi, ma in quella forma non si possono né scrivere in modo leggibile
  * né rileggere: chi chiama rinuncia a scrivere l'espressione. */
-static int unwritable;
+int unwritable;
 
 /* Scrive la somma o il prodotto dell'atomo BIGOP `atom` con `shift` termini
  * in più: l'estremo superiore è dilation * n + offset + shift. Le successioni
@@ -1975,7 +1943,7 @@ static void put_bigop(int atom, long long shift) {
  *   ATAN   \arctan dell'argomento.
  *
  * Warning: se aggiungi un tipo di atomo, aggiungine il caso qui. */
-static void put_atom(int atom, Frac exp) {
+void put_atom(int atom, Frac exp) {
     const Atom *a = &atoms[atom];
     int one = exp.num == 1 && exp.den == 1;
     switch (a->kind) {
@@ -2067,10 +2035,10 @@ static void put_atom(int atom, Frac exp) {
  * due scritture valgono lo stesso numero, perché u, base di una radice, non
  * è negativo. Serve al capitolo 25: la tabella dei segni (18p) legge le
  * radici quadrate ma non gli esponenti frazionari. */
-static int surd_powers;
+int surd_powers;
 
 /* Scrive il monomio m: i suoi fattori, separati da uno spazio sottile. */
-static void put_mono(const Mono *m) {
+void put_mono(const Mono *m) {
     for (int i = 0; i < m->count; i++) {
         const Atom *a = &atoms[m->factor[i].atom];
         Frac e = m->factor[i].exp;
@@ -2098,7 +2066,7 @@ static void put_mono(const Mono *m) {
 
 /* Scrive il polinomio negli atomi p, un termine dopo l'altro: segno, valore
  * assoluto del coefficiente (taciuto se è 1 davanti a degli atomi), atomi. */
-static void put_terms(Poly p) {
+void put_terms(Poly p) {
     if (p.count == 0) { proof_add("0"); return; }
     for (int i = 0; i < p.count; i++) {
         const Term *t = &p.term[i];
@@ -2124,7 +2092,7 @@ static void put_terms(Poly p) {
 
 /* Scrive la frazione di polinomi r; solo il numeratore se il denominatore è
  * 1. Come per put_bigop(), la sostituzione in corso non riguarda gli atomi. */
-static void put_rat(Rat r) {
+void put_rat(Rat r) {
     const Node *kept = shown_value;
     shown_value = NULL;
     if (poly_is_one(r.den)) {
@@ -2139,22 +2107,16 @@ static void put_rat(Rat r) {
     shown_value = kept;
 }
 
-/* Un pezzo del testo della dimostrazione in corso: i caratteri [from, to) di
- * proof_text. È una formula appena scritta, che si vuole poter rileggere. */
-typedef struct {
-    size_t from, to;
-} Span;
-
 /* Toglie dal testo della dimostrazione ciò che segue i primi length
  * caratteri. */
-static void proof_cut(size_t length) {
+void proof_cut(size_t length) {
     proof_length = length;
     proof_text[length] = 0;
 }
 
 /* Scrive il membro `side` dell'enunciato con la variabile di induzione
  * sostituita da value (NULL: così com'è) e ritorna il pezzo scritto. */
-static Span put_side(const Node *side, const Node *value) {
+Span put_side(const Node *side, const Node *value) {
     Span span = {proof_length, 0};
     shown_name = induction_var;
     shown_value = value;
@@ -2167,7 +2129,7 @@ static Span put_side(const Node *side, const Node *value) {
 /* Scrive prefix e poi il valore r, e ritorna 1 con il pezzo del valore in
  * *span. Se r non si può scrivere, perché troppo lungo, o non reale, o
  * perché un conto è fallito, non scrive nulla e ritorna 0. */
-static int put_value(const char *prefix, Rat r, Span *span) {
+int put_value(const char *prefix, Rat r, Span *span) {
     size_t start = proof_length;
     if (failure || r.num.count + r.den.count > 14) return 0;
     proof_add("%s", prefix);
@@ -2193,7 +2155,7 @@ static int put_value(const char *prefix, Rat r, Span *span) {
  * caratteri del testo e dai numeri. Un errore nel modo di scrivere (una
  * parentesi mancante, una sostituzione fatta male, un segno) cambia il valore
  * di ciò che si rilegge, e qui si vede. */
-static int reread_equal(Span a, Span b, long long base) {
+int reread_equal(Span a, Span b, long long base) {
     char text[MAX_FORMULA];
     Statement statement;
     size_t kept = arena_used;
@@ -2213,7 +2175,7 @@ static int span_same(Span a, Span b) {
 
 /* Ritorna il valore del membro `side` dell'enunciato con la variabile di
  * induzione legata a n. */
-static Rat side_value(const Node *side, Rat n) {
+Rat side_value(const Node *side, Rat n) {
     env_count = 0;
     library_depth = 0;
     env_push(induction_var, n);
@@ -2227,7 +2189,7 @@ static Rat side_value(const Node *side, Rat n) {
  * dilation * n + offset + 1 a dilation * (n + 1) + offset. Ogni uguaglianza
  * scritta viene riletta (13g) a partire da n = base: ritorna 1 se reggono
  * tutte. */
-static int put_new_terms(long long base) {
+int put_new_terms(long long base) {
     int sound = 1;
     for (int x = 0; x < atom_count; x++) {
         const Atom *a = &atoms[x];
@@ -2472,28 +2434,28 @@ static void put_induction_proof(const Statement *statement, long long base, Rat 
 
 /* Il certificato dell'enunciato in corso, nella notazione di checker.c. */
 static char certificate_initial[CERTIFICATE_BYTES];
-static char *certificate_text = certificate_initial;
-static size_t certificate_length, certificate_capacity = CERTIFICATE_BYTES;
+char *certificate_text = certificate_initial;
+size_t certificate_length, certificate_capacity = CERTIFICATE_BYTES;
 
 /* Diventa 1 quando il certificato in corso non si può scrivere: una quantità
  * che la notazione non ha, o memoria insufficiente per il testo dinamico. */
-static int certificate_broken;
+int certificate_broken;
 
 /* Le successioni del vocabolario nominate nel certificato in corso: il bit i
  * è la riga i di library[]. Vanno definite nel certificato stesso. */
-static unsigned certificate_sequences;
+unsigned certificate_sequences;
 _Static_assert(LIBRARY_COUNT <= 32, "certificate_sequences ha un bit per ogni riga del vocabolario");
 
 /* Perché l'ultimo certificato chiesto a certify() non c'è o non vale, in
  * italiano. Resta valido fino alla chiamata successiva. */
-static char certificate_problem[256];
+char certificate_problem[256];
 
 /* 1 mentre si scrive il certificato di una tabella dei segni (18p-15): solo
  * allora il valore assoluto e la radice quadrata hanno una parola, (abs a) e
  * (sqrt a), che il verificatore conosce nel suo capitolo 12. In un
  * certificato di induzione resterebbero parole sconosciute: lì il
  * certificato manca, e il verdetto dice perché. */
-static int cert_signs;
+int cert_signs;
 
 /* Diverso da zero mentre si scrive il certificato di una derivata, di una
  * primitiva o di un integrale (27m, 30cert): è il nome della variabile reale, e
@@ -2501,10 +2463,10 @@ static int cert_signs;
  * capitolo 13: (exp a) per e^a, (sin a), (cos a), (atan a), (root m a),
  * (pi). La lettera e, se non è la variabile, è il numero di Nepero, (exp 1),
  * come nel capitolo 27. */
-static int cert_real;
+int cert_real;
 
 /* Aggiunge un pezzo al certificato, con la sintassi di printf. */
-static void cert_add(const char *format, ...) {
+void cert_add(const char *format, ...) {
     if (certificate_broken) return;
     va_list arguments;
     va_start(arguments, format);
@@ -2525,12 +2487,12 @@ static void cert_add(const char *format, ...) {
 
 /* Scrive una lettera dell'enunciato. \pi e la lettera ausiliaria di
  * body_is_positive() non sono parametri: la notazione non li ha. */
-static void cert_letter(long long name) {
+void cert_letter(long long name) {
     if (name < 128 && isalpha((int)name)) cert_add("%c", (int)name);
     else certificate_broken = 1;
 }
 
-static void cert_node(const Node *n);
+void cert_node(const Node *n);
 
 /* Scrive "(word a)" oppure, se b non è NULL, "(word a b)". */
 static void cert_call(const char *word, const Node *a, const Node *b) {
@@ -2580,7 +2542,7 @@ static void cert_bigop(const Node *node, const Node *upper) {
  *
  * Warning: se aggiungi un tipo di nodo o una funzione, decidi qui se la
  * notazione dei certificati lo sa dire; altrimenti resta senza certificato. */
-static void cert_node(const Node *n) {
+void cert_node(const Node *n) {
     static const char *const binary[] = {[N_ADD] = "+", [N_SUB] = "-", [N_MUL] = "*", [N_DIV] = "/", [N_POW] = "^"};
     switch (n->kind) {
     case N_NUM:
@@ -2668,7 +2630,7 @@ static void cert_atom(int atom);
  * verificatore è una frazione, e una voce brick che non è un polinomio gli
  * fa respingere tutto il certificato, non solo ignorare il suggerimento
  * (la derivata di \ln(x^{-4} + 1) restava senza verdetto per questo). */
-static int brick_fits(const Atom *a) {
+int brick_fits(const Atom *a) {
     if (a->kind != ATOM_LN || a->base == BASE_PRIME) return 0;
     if (a->base != BASE_POLY) return 1;
     Poly p = base_polys[a->id];
@@ -2680,7 +2642,7 @@ static int brick_fits(const Atom *a) {
 
 /* Scrive la base di un atomo POW o LN che non sia e^i: un numero primo, un
  * altro atomo, o un polinomio. */
-static void cert_base(const Atom *a) {
+void cert_base(const Atom *a) {
     if (a->base == BASE_PRIME) cert_add("%lld", a->id);
     else if (a->base == BASE_ATOM) cert_atom((int)a->id);
     else cert_poly(base_polys[a->id]);
@@ -2742,7 +2704,7 @@ static void cert_atom(int atom) {
 }
 
 /* Scrive il numero razionale c. */
-static void cert_frac(Frac c) {
+void cert_frac(Frac c) {
     if (c.den == 1) cert_add("%lld", c.num);
     else cert_add("(/ %lld %lld)", c.num, c.den);
 }
@@ -2943,7 +2905,7 @@ static CkAnswer certify(const Statement *statement, long long base, Rat d, Rat d
 /* Il motivo con cui induct() rifiuta un enunciato che non è un'uguaglianza.
  * Ha un nome perché prove() (capitolo 20) lo riconosce, e allora passa
  * l'enunciato all'induzione sulle disuguaglianze (capitolo 25). */
-static const char *const NOT_AN_EQUALITY = "il passo induttivo del capitolo 13 tratta solo le uguaglianze";
+const char *const NOT_AN_EQUALITY = "il passo induttivo del capitolo 13 tratta solo le uguaglianze";
 
 /* Il metodo dell'induzione su un enunciato già analizzato: caso base, passo,
  * verifiche e dimostrazione scritta, come descritto in testa al capitolo.
@@ -3043,7 +3005,7 @@ static Verdict induct_equality(const Statement *input, int variable, int has_bas
  * solo qui perché è qui che la dimostrazione scritta la dichiara
  * (put_induction_proof()) e che il certificato dice di non saperla
  * esprimere (certify()): altrove verrebbe usata in silenzio. */
-static Verdict induct(const Statement *input, int variable, int has_base, long long base, int nested) {
+Verdict induct(const Statement *input, int variable, int has_base, long long base, int nested) {
     binomial_ok = 1;
     binomial_used = 0;
     Verdict verdict = induct_equality(input, variable, has_base, base, nested);
@@ -3056,7 +3018,7 @@ static Verdict induct(const Statement *input, int variable, int has_base, long l
  *
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate precedenti
  * non sono più validi. */
-static Verdict prove_by_induction(const char *formula, int variable, int has_base, long long base) {
+Verdict prove_by_induction(const char *formula, int variable, int has_base, long long base) {
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     Statement statement;
 
@@ -3076,4 +3038,3 @@ static Verdict prove_by_induction(const char *formula, int variable, int has_bas
     if (failure) { verdict.reason = failure; return verdict; }
     return induct(&statement, variable, has_base, base, 0);
 }
-

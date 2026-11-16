@@ -1,3 +1,13 @@
+/* MODULO engine_intervals: i numeri reali come intervalli con l'errore
+ * garantito (capitolo 24).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_intervals.h, e
+ * il resto è static. */
+#include "engine_intervals.h"
+#include "engine_foundations.h"
+#include "parser.h"
+
 /* =============================================================================
  * 24. INTERVALLI: NUMERI REALI CON L'ERRORE GARANTITO
  * ============================================================================
@@ -29,26 +39,19 @@
  * operazione su un "non so" dà "non so".
  */
 
-/* Un numero reale noto a meno di un errore: sta tra low e high, compresi.
- * Invariante: low <= high, tutti e due finiti; altrimenti vuol dire "non
- * so". */
-typedef struct {
-    double low, high;
-} Range;
-
 #define RANGE_EPS (4 * DBL_EPSILON)  /* allargamento relativo dopo ogni operazione */
 
 /* Ritorna il "non so". */
-static Range range_none(void) { return (Range){1, -1}; }
+Range range_none(void) { return (Range){1, -1}; }
 
 /* Ritorna 1 se r è un intervallo vero, 0 se è un "non so". Un estremo
  * infinito o non numerico, sottratto a se stesso, non dà zero. */
-static int range_known(Range r) { return r.low <= r.high && r.low - r.low == 0 && r.high - r.high == 0; }
+int range_known(Range r) { return r.low <= r.high && r.low - r.low == 0 && r.high - r.high == 0; }
 
 /* Ritorna l'intervallo [low, high] allargato quanto basta a coprire
  * l'errore dell'operazione che ha prodotto i due estremi. DBL_MIN copre i
  * numeri così piccoli che l'allargamento relativo sparirebbe. */
-static Range range_wide(double low, double high) {
+Range range_wide(double low, double high) {
     double a = low < 0 ? -low : low, b = high < 0 ? -high : high;
     Range r = {low - a * RANGE_EPS - DBL_MIN, high + b * RANGE_EPS + DBL_MIN};
     return range_known(r) ? r : range_none();
@@ -57,23 +60,23 @@ static Range range_wide(double low, double high) {
 /* Ritorna un intervallo che contiene num / den, con den diverso da zero. Le
  * due conversioni in double e la divisione sbagliano ognuna di mezza unità:
  * l'allargamento le copre. */
-static Range range_ratio(__int128 num, __int128 den) {
+Range range_ratio(__int128 num, __int128 den) {
     double q = (double)num / (double)den;
     return range_wide(q, q);
 }
 
 /* Ritorna -a: cambiare segno è esatto. */
-static Range range_neg(Range a) { return range_known(a) ? (Range){-a.high, -a.low} : range_none(); }
+Range range_neg(Range a) { return range_known(a) ? (Range){-a.high, -a.low} : range_none(); }
 
 /* Ritorna a + b. */
-static Range range_add(Range a, Range b) {
+Range range_add(Range a, Range b) {
     if (!range_known(a) || !range_known(b)) return range_none();
     return range_wide(a.low + b.low, a.high + b.high);
 }
 
 /* Ritorna a * b: il più piccolo e il più grande dei quattro prodotti degli
  * estremi. */
-static Range range_mul(Range a, Range b) {
+Range range_mul(Range a, Range b) {
     if (!range_known(a) || !range_known(b)) return range_none();
     double p[4] = {a.low * b.low, a.low * b.high, a.high * b.low, a.high * b.high}, low = p[0], high = p[0];
     for (int i = 1; i < 4; i++) {
@@ -90,8 +93,8 @@ static Range range_inv(Range a) {
 }
 
 /* Ritorna a - b e a / b. */
-static Range range_sub(Range a, Range b) { return range_add(a, range_neg(b)); }
-static Range range_div(Range a, Range b) { return range_mul(a, range_inv(b)); }
+Range range_sub(Range a, Range b) { return range_add(a, range_neg(b)); }
+Range range_div(Range a, Range b) { return range_mul(a, range_inv(b)); }
 
 /* Ritorna a allargato di margin da tutte e due le parti: per il resto di
  * una serie troncata. */
@@ -118,7 +121,7 @@ static Range range_odd_series(Range y, int sign) {
 
 /* Ritorna il logaritmo naturale di 2: è 2 atanh(1/3), perché
  * atanh(y) = ln((1 + y) / (1 - y)) / 2. */
-static Range range_ln2(void) {
+Range range_ln2(void) {
     return range_mul(range_ratio(2, 1), range_odd_series(range_ratio(1, 3), 1));
 }
 
@@ -140,7 +143,7 @@ static Range range_ln_at(double v) {
 
 /* Ritorna il logaritmo naturale di a, "non so" se a non è tutto positivo. Il
  * logaritmo cresce: bastano i due estremi. */
-static Range range_ln(Range a) {
+Range range_ln(Range a) {
     if (!range_known(a) || !(a.low > 0)) return range_none();
     Range low = range_ln_at(a.low), high = range_ln_at(a.high);
     return range_known(low) && range_known(high) ? (Range){low.low, high.high} : range_none();
@@ -151,7 +154,7 @@ static Range range_ln(Range a) {
  * Si scrive v = k ln 2 + r con r piccolo: allora e^v = 2^k e^r, ed e^r è la
  * somma di r^j / j!. Con |r| < 1/2 il resto dopo 30 termini è sotto 10^-40.
  * Moltiplicare per 2^k è esatto finché il numero resta nei double. */
-static Range range_exp_at(double v) {
+Range range_exp_at(double v) {
     if (v - v != 0 || v > 700 || v < -700) return range_none();
     long long k = (long long)(v / 0.6931471805599453 + (v < 0 ? -0.5 : 0.5));
     Range r = range_sub((Range){v, v}, range_mul(range_ratio(k, 1), range_ln2())), term = {1, 1}, sum = {1, 1};
@@ -165,7 +168,7 @@ static Range range_exp_at(double v) {
 }
 
 /* Ritorna e elevato ad a. L'esponenziale cresce: bastano i due estremi. */
-static Range range_exp(Range a) {
+Range range_exp(Range a) {
     if (!range_known(a)) return range_none();
     Range low = range_exp_at(a.low), high = range_exp_at(a.high);
     return range_known(low) && range_known(high) ? (Range){low.low, high.high} : range_none();
@@ -176,7 +179,7 @@ static Range range_exp(Range a) {
  * Il metodo di Newton dà un double vicino alla radice, ma non dice quanto;
  * lo si allarga e poi si controlla, elevando al quadrato con gli intervalli,
  * che i due estremi stiano davvero uno sotto e uno sopra. */
-static Range range_sqrt(Range a) {
+Range range_sqrt(Range a) {
     if (!range_known(a) || a.low < 0) return range_none();
     double bound[2];
     for (int side = 0; side < 2; side++) {
@@ -197,7 +200,7 @@ static Range range_sqrt(Range a) {
  * arriva con la formula di bisezione dell'angolo, atan(t) = 2 atan(u) con
  * u = t / (1 + sqrt(1 + t^2)), ripetuta finché |u| <= 1/2: ogni volta
  * l'angolo si dimezza, e bastano tre giri anche per un t enorme. */
-static Range range_atan(Range a) {
+Range range_atan(Range a) {
     Range one = {1, 1};
     int doublings = 0;
     for (; range_known(a) && (a.low < -0.5 || a.high > 0.5) && doublings < 8; doublings++)
@@ -210,7 +213,7 @@ static Range range_atan(Range a) {
 
 /* Ritorna pi greco, con la formula di Machin:
  * pi = 16 atan(1/5) - 4 atan(1/239). */
-static Range range_pi(void) {
+Range range_pi(void) {
     return range_sub(range_mul(range_ratio(16, 1), range_odd_series(range_ratio(1, 5), -1)), range_mul(range_ratio(4, 1), range_odd_series(range_ratio(1, 239), -1)));
 }
 
@@ -224,7 +227,7 @@ static Range range_pi(void) {
  * intervalli, che contiene il risultato vero: la scelta tra i due casi
  * guarda se l'estremo è proprio il numero 1, non decide nulla
  * dell'enunciato. */
-static Range range_asin(Range a) {
+Range range_asin(Range a) {
     Range ends[2], one = {1, 1}, half_pi = range_div(range_pi(), range_ratio(2, 1));
     if (!range_known(a) || a.low < -1 || a.high > 1) return range_none();
     for (int side = 0; side < 2; side++) {
@@ -238,7 +241,7 @@ static Range range_asin(Range a) {
 
 /* Ritorna pi/2 - b: arccos a = pi/2 - arcsin a, arccot a = pi/2 - arctan a
  * (con l'arcocotangente in (0, pi)). */
-static Range range_from_half_pi(Range b) { return range_sub(range_div(range_pi(), range_ratio(2, 1)), b); }
+Range range_from_half_pi(Range b) { return range_sub(range_div(range_pi(), range_ratio(2, 1)), b); }
 
 /* Mette in *sine e *cosine il seno e il coseno di a.
  *
@@ -248,7 +251,7 @@ static Range range_from_half_pi(Range b) { return range_sub(range_div(range_pi()
  *     sin r = r - r^3/3! + r^5/5! - ...      cos r = 1 - r^2/2! + r^4/4! - ...
  *
  * sommate fino al grado 60 hanno un resto sotto 10^-45 (4^61 / 61!). */
-static void range_sin_cos(Range a, Range *sine, Range *cosine) {
+void range_sin_cos(Range a, Range *sine, Range *cosine) {
     *sine = *cosine = range_none();
     if (!range_known(a) || a.low < -1e9 || a.high > 1e9) return;
     Range turn = range_mul(range_ratio(2, 1), range_pi());
@@ -269,14 +272,14 @@ static void range_sin_cos(Range a, Range *sine, Range *cosine) {
 
 /* Se il segno di r è certo lo mette in *side (1 o -1) e ritorna 1; ritorna
  * 0 se r contiene lo zero o è un "non so". */
-static int range_side(Range r, int *side) {
+int range_side(Range r, int *side) {
     if (!range_known(r) || (r.low <= 0 && r.high >= 0)) return 0;
     *side = r.low > 0 ? 1 : -1;
     return 1;
 }
 
 /* Ritorna a elevato all'intero e, con moltiplicazioni ripetute. */
-static Range range_power(Range a, long long e) {
+Range range_power(Range a, long long e) {
     Range result = {1, 1};
     for (long long i = 0; i < (e < 0 ? -e : e) && range_known(result); i++) result = range_mul(result, a);
     return e < 0 ? range_inv(result) : result;
@@ -293,7 +296,7 @@ static Range range_power(Range a, long long e) {
  * dei segni, dove conta il segno certo di una differenza, e a tracciare le
  * curve di un grafico, dove basta il punto medio. Somme, prodotti estesi e
  * applicazioni dichiarate non li calcola. */
-static Range node_range(const Node *node, int name, Range x, int *undefined) {
+Range node_range(const Node *node, int name, Range x, int *undefined) {
     Range a, b, sine, cosine;
     switch (node->kind) {
     case N_NUM: return range_ratio(node->value, 1);
@@ -359,7 +362,7 @@ static Range node_range(const Node *node, int name, Range x, int *undefined) {
 /* Ritorna un intervallo che contiene il numero p, un polinomio negli atomi
  * che sono numeri: un primo elevato a un razionale, il logaritmo di un
  * primo, i numeri e e pi. "Non so" se p contiene altro. */
-static Range poly_range(Poly p) {
+Range poly_range(Poly p) {
     Range sum = {0, 0};
     for (int t = 0; t < p.count; t++) {
         const Term *term = &p.term[t];
@@ -384,4 +387,3 @@ static Range poly_range(Poly p) {
     }
     return sum;
 }
-

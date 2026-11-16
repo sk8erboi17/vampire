@@ -1,3 +1,18 @@
+/* MODULO engine_explanation: la spiegazione: i passaggi registrati e
+ * ricontrollati (capitolo 40).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_explanation.h,
+ * e il resto è static. */
+#include "engine_explanation.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+
 /* =============================================================================
  * 40. LA SPIEGAZIONE: I PASSAGGI REGISTRATI E RICONTROLLATI
  * ============================================================================
@@ -111,150 +126,24 @@
  * i due. Il numero 40 dice solo che è nato dopo.
  */
 
-#define EXPLAIN_BYTES 65536     /* testo di una spiegazione, tutte le formule insieme */
-#define MAX_EXPLAIN_STEPS 200   /* passi di una spiegazione */
-#define MAX_EXPLAIN_POINTS 12   /* punti di una tabella che si spiega: di più non sta in una pagina */
-#define MAX_EXPLAIN_COLUMNS (2 * MAX_EXPLAIN_POINTS + 1)
-#define MAX_EXPLAIN_FACTORS 24  /* fattori diversi di una tabella che si spiega */
-#define MAX_EXPLAIN_LINES (MAX_EXPLAIN_FACTORS + 2 * MAX_PANELS + 3)
-
-/* I tipi di passo di una spiegazione. Che cosa portano i campi di un passo
- * è scritto accanto a ogni tipo; un campo non nominato vale zero o NULL.
- *
- * Warning: se aggiungi un tipo, aggiungi la sua frase in put_explanation()
- * (capitolo 41, output.c). */
-typedef enum {
-    EXPLAIN_ASK,         /* che cosa si chiede: text[0] la condizione (il primo
-                            membro, se l'enunciato è un'equivalenza), text[1]
-                            l'insieme su cui varia la variabile, text[2] il
-                            secondo membro di un'equivalenza */
-    EXPLAIN_COMPARISON,  /* comincia il lavoro sul confronto numero group:
-                            text[0] il confronto com'è scritto, count in quante
-                            colonne non ha un valore, text[1] quali */
-    EXPLAIN_MOVE,        /* tutto a un membro: text[0] la differenza dei due
-                            membri, text[1] il segno di confronto con lo zero */
-    EXPLAIN_COMBINE,     /* la stessa come una sola frazione di polinomi:
-                            text[0] e text[1] come sopra, flag 1 se ha un
-                            denominatore */
-    EXPLAIN_FACTOR,      /* numeratore e denominatore scomposti in fattori:
-                            text[0], text[1] e flag come sopra */
-    EXPLAIN_ZERO,        /* gli zeri di un fattore: text[0] il fattore, count
-                            quanti zeri (0, 1 o 2), text[1] e text[2] gli
-                            zeri; se count è 0, flag è il segno del fattore */
-    EXPLAIN_POINTS,      /* i punti della tabella, in ordine: count quanti,
-                            text[0] l'elenco */
-    EXPLAIN_TABLE,       /* la tabella dei segni: sta nei campi della spiegazione */
-    EXPLAIN_TEST,        /* un valore di prova per il confronto numero group:
-                            text[0] il valore della variabile, text[1] e
-                            text[2] i valori dei due membri, text[3] il segno
-                            di confronto, flag 1 se lì il confronto vale */
-    EXPLAIN_DERIVE,      /* la derivata di un pezzo dell'espressione (27n):
-                            text[0] il pezzo, text[1] la sua derivata, flag
-                            la regola usata (DerivativeRule), count la
-                            funzione se la regola è RULE_FUNCTION, group 1 se
-                            serve anche la regola della catena */
-    EXPLAIN_VALUE,       /* un caso di un enunciato per induzione (40b):
-                            text[0] il valore di n, text[1] e text[2] i
-                            valori dei due membri */
-    EXPLAIN_BASE,        /* il caso base: text[0] e text[1] i due membri con
-                            il numero al posto di n, text[2] e text[3] i loro
-                            valori */
-    EXPLAIN_HYPOTHESIS,  /* l'ipotesi induttiva: text[0] l'enunciato */
-    EXPLAIN_TARGET,      /* un membro dell'enunciato scritto per n + 1, da cui
-                            parte una catena: text[0] il membro, group 1 se è
-                            il primo, 2 se è il secondo */
-    EXPLAIN_REWRITE,     /* un passaggio della catena: text[0] la nuova forma,
-                            flag che cosa si è fatto (ExplainRewrite), group
-                            come sopra */
-    EXPLAIN_ANSWER       /* la risposta. Per un'induzione: count 1 se il passo
-                            è svolto nei passi che precedono. Per una
-                            derivata: text[0] la derivata. Per una richiesta
-                            di soluzioni:
-                            text[0] le soluzioni, count 0, oppure 1 se sono
-                            tutti i valori, 2 se nessuno. Per un "per ogni" o
-                            un "esiste": flag 1 se l'enunciato è vero, count 1
-                            se una colonna lo decide da sola, e allora text[0]
-                            è quella colonna (NULL se la tabella ne ha una sola) */
-} ExplainKind;
-
-/* Un passo di una spiegazione: un fatto che il motore ha stabilito e
- * ricontrollato, con le formule che lo dicono. Le formule sono testi LaTeX
- * dentro il deposito della spiegazione (Explanation.text). */
-typedef struct {
-    ExplainKind kind;
-    int group;            /* il confronto a cui si riferisce, da 1; 0 se a tutti */
-    int count, flag;      /* secondo il tipo: vedi ExplainKind */
-    const char *text[4];  /* secondo il tipo: vedi ExplainKind */
-} ExplainStep;
-
-/* Che cosa dice una riga della tabella di una spiegazione. */
-typedef enum {
-    EXPLAIN_LINE_FACTOR,      /* il segno di un fattore */
-    EXPLAIN_LINE_VALUE,       /* il segno della differenza dei due membri di un
-                                 confronto, o che lì non ha un valore */
-    EXPLAIN_LINE_COMPARISON,  /* se un confronto vale */
-    EXPLAIN_LINE_CONDITION,   /* se vale la condizione spiegata, quando non è un
-                                 solo confronto */
-    EXPLAIN_LINE_CLAIM,       /* se vale il secondo membro di un'equivalenza */
-    EXPLAIN_LINE_AGREE        /* se i due membri di un'equivalenza dicono lo stesso */
-} ExplainLineKind;
-
 /* Il contenuto di una casella: per una riga di segni -1, 0, 1 oppure
  * EXPLAIN_NO_VALUE; per una riga di verità 1 (vero) o 0 (falso). */
 enum { EXPLAIN_NO_VALUE = 2 };
-
-/* Una riga della tabella di una spiegazione: una casella per colonna. */
-typedef struct {
-    ExplainLineKind kind;
-    int group;           /* EXPLAIN_LINE_VALUE, EXPLAIN_LINE_COMPARISON: il confronto, da 1 */
-    const char *label;   /* la formula di cui la riga parla, o NULL se la riga
-                            è di un tipo che si dice a parole */
-    signed char cell[MAX_EXPLAIN_COLUMNS];
-} ExplainLine;
-
-/* Che cosa chiede l'enunciato spiegato: le soluzioni di una condizione, che
- * valga per ogni valore, che valga per uno, una derivata (27n), oppure
- * un'uguaglianza per ogni n, dimostrata per induzione (40b). */
-typedef enum { EXPLAIN_SOLVE, EXPLAIN_FORALL, EXPLAIN_EXISTS, EXPLAIN_DERIVATIVE, EXPLAIN_INDUCTION } ExplainRequest;
-
-/* La spiegazione di un enunciato: come ci si arriva, un passo alla volta.
- * La riempie il motore (explain_signs()) e la legge chi scrive il documento
- * (capitolo 41). Con steps = 0 non c'è spiegazione.
- *
- * Invariante: ogni testo puntato sta in text[], e ogni fatto registrato ha
- * superato i controlli di 40a. */
-typedef struct {
-    int variable;                /* la lettera della variabile */
-    ExplainRequest request;      /* che cosa chiede l'enunciato */
-    int equivalence;             /* 1 se la condizione è "A se e solo se B" e si
-                                    spiega A, confrontandone la verità con B */
-    int comparisons;             /* quanti confronti si spiegano */
-    int steps;                   /* passi validi in step[] */
-    ExplainStep step[MAX_EXPLAIN_STEPS];
-    int columns;                 /* colonne della tabella: i punti e gli
-                                    intervalli, da sinistra */
-    const char *head[MAX_EXPLAIN_COLUMNS];  /* che cosa indica ogni colonna:
-                                    "x = 2", "-3 < x < 2"; NULL se la tabella
-                                    ha una sola colonna, tutti i valori */
-    int lines;                   /* righe valide in line[] */
-    ExplainLine line[MAX_EXPLAIN_LINES];
-    char text[EXPLAIN_BYTES];    /* il deposito dei testi */
-} Explanation;
 
 /* La spiegazione dell'ultimo enunciato, se ne ha una. Come il grafico
  * (18q), appartiene al motore, che la svuota quando comincia l'enunciato
  * successivo (prove_core()); chi scrive il documento la legge prima.
  * explanations_wanted dice se le spiegazioni servono: finché nessuno le
  * mette in un documento non vengono costruite. */
-static Explanation explanation;
-static int explanations_wanted;
+Explanation explanation;
+int explanations_wanted;
 
 /* Lo stato della spiegazione in corso. explain_wrong: un anello non ha
  * superato un controllo di 40a, o ciò che si è scritto non si rilegge.
  * explain_broken: un limite del programma (numeri troppo grandi, troppo
  * testo, troppe colonne) ha impedito di scrivere o di controllare. In tutti
  * e due i casi la spiegazione si abbandona; solo il primo è un errore. */
-static int explain_wrong, explain_broken;
+int explain_wrong, explain_broken;
 
 /* Il testo della dimostrazione messo da parte mentre si scrive una
  * spiegazione (explain_capture()). */
@@ -274,7 +163,7 @@ static struct {
  * seconda famiglia di funzioni uguali, con un altro deposito, sarebbe solo
  * un secondo posto in cui sbagliare una parentesi. La dimostrazione già
  * scritta, a cui punta il verdetto, non viene toccata. */
-static void explain_capture(int on) {
+void explain_capture(int on) {
     if (on) {
         explain_proof.text = proof_text;
         explain_proof.length = proof_length;
@@ -299,7 +188,7 @@ static void explain_capture(int on) {
  * aveva prima di scriverlo) e lo ritorna: una stringa a sé dentro il
  * deposito. Se il deposito è finito annota il limite e ritorna un testo
  * vuoto. */
-static const char *explain_piece(size_t start) {
+const char *explain_piece(size_t start) {
     if (proof_broken || proof_length + 1 >= proof_capacity) { explain_broken = 1; return ""; }
 
     /* Lo zero che chiude il pezzo resta nel deposito: il prossimo comincia
@@ -312,7 +201,7 @@ static const char *explain_piece(size_t start) {
 /* Aggiunge un passo del tipo kind, per il confronto group, e lo ritorna con
  * gli altri campi a zero. Se i passi sono troppi annota il limite e ritorna
  * un passo di riserva. */
-static ExplainStep *explain_step(ExplainKind kind, int group) {
+ExplainStep *explain_step(ExplainKind kind, int group) {
     static ExplainStep spare;
     ExplainStep *step = &spare;
     if (explanation.steps == MAX_EXPLAIN_STEPS) explain_broken = 1;
@@ -1144,7 +1033,7 @@ static void explain_answer(const Verdict *verdict) {
  * errore annotato, i segnali di memoria e pila finite) viene rimesso
  * com'era: chi ha chiesto il verdetto non deve accorgersi che dopo c'è
  * stata una spiegazione. */
-static void explain_signs(const Formula *thesis, const Verdict *verdict) {
+void explain_signs(const Formula *thesis, const Verdict *verdict) {
     static ExplainChain chain[MAX_PANELS];
     const Formula *panel[MAX_PANELS + 1];
     int negated, count = 0;
@@ -1263,18 +1152,6 @@ static void explain_signs(const Formula *thesis, const Verdict *verdict) {
  */
 
 #define EXPLAIN_VALUES 6  /* i primi casi di un enunciato per induzione che si mostrano */
-
-/* Che cosa fa un passaggio della catena del passo induttivo (EXPLAIN_REWRITE).
- *
- * Warning: se aggiungi un passaggio, aggiungi la sua frase in
- * put_explanation_steps() (capitolo 41, output.c). */
-typedef enum {
-    REWRITE_SPLIT_SUM,      /* la somma fino a n + 1: quella fino a n, più l'ultimo termine */
-    REWRITE_SPLIT_PRODUCT,  /* il prodotto fino a n + 1: quello fino a n, per l'ultimo fattore */
-    REWRITE_HYPOTHESIS,     /* la somma (o il prodotto) fino a n sostituita con
-                               l'altro membro: è l'ipotesi induttiva */
-    REWRITE_EXPAND          /* i conti: l'espressione in forma di polinomio */
-} ExplainRewrite;
 
 /* Chiude il pezzo di testo cominciato in start, come explain_piece(), e
  * mette in *span il posto che occupa nel deposito: serve a chi lo deve far
@@ -1422,7 +1299,7 @@ static void explain_induction_step(const Node *const side[2], long long base) {
  * com'era ciò che il conto lascia in giro. Se l'enunciato non è tra quelli
  * che si sanno spiegare la spiegazione resta vuota; se un controllo
  * fallisce resta vuota e unjustified_steps sale. */
-static void explain_induction(const char *formula, const Verdict *verdict) {
+void explain_induction(const char *formula, const Verdict *verdict) {
     Statement statement = {NULL, NULL, REL_EQ};
     explanation.steps = 0;
     if (verdict->outcome != PROVED || !verdict->variable || !verdict->proof || strstr(formula, "\\frac{d")) return;
@@ -1518,4 +1395,3 @@ static void explain_induction(const char *formula, const Verdict *verdict) {
     stack_exhausted = stack;
     scratch_drop(mark);
 }
-

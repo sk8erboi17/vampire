@@ -1,3 +1,15 @@
+/* MODULO engine_sets: relazioni tra insiemi: decisione per regioni, verifica
+ * indipendente, dimostrazione scritta (capitoli 15-16).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_sets.h, e il
+ * resto è static. */
+#include "engine_sets.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+
 /* =============================================================================
  * 15. INSIEMI: DECISIONE PER REGIONI
  * ============================================================================
@@ -1797,7 +1809,7 @@ static Verdict prove_set_tree(SetNode *root) {
  * verdetto, con la dimostrazione scritta o il controesempio.
  *
  * Svuota l'arena: i risultati di chiamate precedenti non sono più validi. */
-static Verdict prove_sets(const char *formula) {
+Verdict prove_sets(const char *formula) {
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "per ogni scelta degli insiemi", NULL, NULL};
 
     /* Ripartenza da zero e parsing. */
@@ -1863,7 +1875,7 @@ static long long parts_check(const SetNode *written, int letters, const SetNode 
  * ricontrollato.
  *
  * Svuota l'arena: i risultati di chiamate precedenti non sono più validi. */
-static Verdict prove_parts(const char *formula) {
+Verdict prove_parts(const char *formula) {
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "per ogni scelta degli insiemi", NULL, NULL};
     int free_map[MAX_SET_LETTERS];
 
@@ -1920,4 +1932,3 @@ static Verdict prove_parts(const char *formula) {
                   "choices of the free sets tried in universes of one, two and three elements.", compared);
     return verdict;
 }
-

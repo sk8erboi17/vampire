@@ -9,21 +9,20 @@
  */
 /**
  * @file Engine.c
- * The translation unit that holds the mathematical engine, and the
- * implementation of its C interface (Engine.h).
+ * The implementation of the C interface of the mathematical engine
+ * (Engine.h).
  *
- * The engine (Math/quaerens/) is written as one translation unit: main.c
- * includes its volumes, one per domain (engine_*.c), which include
- * parser.c and output.c where they need them, and nearly everything in it
- * is static. The checker and the plots, which in Quaerens are included
- * too, are here modules compiled apart, and the engine sees their
- * interfaces only. This file includes it whole and defines,
- * below it, the few functions the rest of Vampire calls. That is why the
- * interface can reach the engine's internals without the engine exporting
- * them.
+ * The engine (Math/quaerens/) is a set of modules compiled apart, one per
+ * domain, each with its interface: NAME.c holds the chapters, NAME.h what
+ * the other modules use of it, and the rest is static. The checker and the
+ * plots are modules of their own too (Proof/IndependentChecker, Math/Plot),
+ * and the engine sees their interfaces only. This file is one more user of
+ * those interfaces: it includes the ones it needs and defines the few
+ * functions the rest of Vampire calls. What it uses of the engine is
+ * therefore exported by the modules, like what they use of each other.
  *
- * The engine's own main() is renamed and never called: the command line of
- * this program is Vampire's.
+ * The program of the engine on its own, Math/quaerens/main.c, is not part
+ * of this: the command line of Vampire is Vampire's.
  *
  * Checklist: the interface relies on these names of the engine: engine_init,
  * next_item, read_item, prove_item, prove, verdict_print, logic_task and
@@ -32,18 +31,23 @@
  * greek_letters,
  * unjustified_steps, figure, figures_wanted, explanation,
  * explanations_wanted and the document_* functions of output.c. If the
- * engine renames one, this file stops compiling, which is the intent.
+ * engine renames one, or makes it static, this file stops compiling, which
+ * is the intent.
  */
 
-/* The independent checker and the plots are modules of their own in this
- * build (Proof/IndependentChecker, Math/Plot): the engine gets their
- * interfaces, not their sources. */
-#define QUAERENS_CHECKER_INTERFACE "Math/EngineModules.h"
-#define QUAERENS_PLOT_INTERFACE "Math/Plot.h"
-
-#define main quaerens_standalone_main
-#include "quaerens/main.c"
-#undef main
+/* The interfaces of the modules of the engine that this file uses. They
+ * come before Engine.h: the first thing they include gives the names that
+ * the modules export a prefix for the linker (engine_names.h), and every
+ * declaration read after it must be read with those names. */
+#include "quaerens/engine_foundations.h"
+#include "quaerens/parser.h"
+#include "quaerens/engine_evaluation.h"
+#include "quaerens/engine_induction.h"
+#include "quaerens/engine_sign_tables.h"
+#include "quaerens/engine_explanation.h"
+#include "quaerens/engine_logic.h"
+#include "quaerens/engine_statement.h"
+#include "quaerens/output.h"
 
 #include "Engine.h"
 
@@ -148,7 +152,7 @@ static QrVerdict export_verdict(const Verdict* verdict, int conditional, int rem
 }
 
 /* Decides the item with the engine's procedure for logic set to task (the
- * values of logic_task in Math/quaerens/main.c). The task matters only if
+ * values of logic_task in Math/quaerens/engine_logic.h). The task matters only if
  * the statement is one of logic over arbitrary sets; it is put back to
  * "decide" at once, so that no later call inherits it. */
 static QrVerdict decide_item(const char* item, const char* end, int task)

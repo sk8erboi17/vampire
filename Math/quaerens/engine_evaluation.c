@@ -1,3 +1,15 @@
+/* MODULO engine_evaluation: le successioni note come dati, la valutazione di
+ * un albero in una frazione, i test di annullamento (capitoli 10-12).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_evaluation.h,
+ * e il resto è static. */
+#include "engine_evaluation.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+
 /* =============================================================================
  * 10. VOCABOLARIO: LE SUCCESSIONI NOTE, COME DATI
  * ============================================================================
@@ -17,29 +29,18 @@
  * Lucas: {'L', NULL, 2, {1, 1}, {2, 1}, NULL}).
  */
 
-/* Una successione del vocabolario. */
-typedef struct {
-    int name;                   /* lettera con cui compare (pedice), o '!' */
-    const char *definition;     /* 10a: formula in m; NULL nel caso 10b */
-    int order;                  /* 10b: ordine d della ricorrenza */
-    long long coef[MAX_ORDER];  /* 10b: coefficienti, dal termine più recente */
-    long long init[MAX_ORDER];  /* 10b: X(0), ..., X(d-1) */
-    Node *tree;                 /* 10a: la definizione già analizzata */
-} Sequence;
-
-static Sequence library[] = {
+Sequence library[] = {
     {'!', "\\prod_{j=1}^{m} j", 0, {0}, {0}, NULL},
     {'H', "\\sum_{j=1}^{m} \\frac{1}{j}", 0, {0}, {0}, NULL},
     {'F', NULL, 2, {1, 1}, {0, 1}, NULL},
 };
-#define LIBRARY_COUNT ((int)(sizeof library / sizeof *library))
 
 /* Quanto dell'arena è occupato dal vocabolario: da non svuotare mai. */
-static size_t arena_keep;
+size_t arena_keep;
 
 /* Prepara il motore: analizza le definizioni del vocabolario. Va chiamata una
  * volta prima di ogni altra funzione dei capitoli successivi. */
-static void engine_init(void) {
+void engine_init(void) {
     /* Il punto da cui si misura la pila (stack_used()): chi chiama questa
      * funzione è in cima al programma, o quasi. */
     char here;
@@ -77,14 +78,6 @@ static void engine_init(void) {
  * quei punti, e solo lì, sono certi.
  */
 
-/* Un legame numerico: name e il nome della variabile, value la frazione
- * negli atomi che la sostituisce. I polinomi di value sono posseduti
- * dall'arena della valutazione; la cella del legame non li libera. */
-typedef struct {
-    int name;
-    Rat value;
-} Binding;
-
 /* Le variabili legate in questo momento: l'ultima aggiunta nasconde le
  * precedenti con lo stesso nome. */
 /* I blocchi mantengono stabili gli indirizzi restituiti da env_lookup(),
@@ -93,33 +86,33 @@ typedef struct {
 #define ENV_BLOCK_BINDINGS 64
 static Binding **env_block;
 static size_t env_block_capacity, env_blocks;
-static int env_count;
+int env_count;
 
 /* La cella del legame index, gia allocata: nessuna ricerca o allocazione. */
-static Binding *env_at(int index) {
+Binding *env_at(int index) {
     return &env_block[(size_t)index / ENV_BLOCK_BINDINGS][(size_t)index % ENV_BLOCK_BINDINGS];
 }
 
 /* Più di zero mentre si valuta una definizione del vocabolario. */
-static int library_depth;
+int library_depth;
 
 /* Il più piccolo n per cui tutte le somme e i prodotti scritti nell'enunciato
  * hanno almeno un termine. È il caso base quando l'enunciato non ne indica
  * uno; eval_bigop() lo alza. */
-static long long default_base;
+long long default_base;
 
 /* Un valore sotto il quale n non scende mai nell'enunciato in corso. Serve a
  * stabilire il segno di espressioni come n - 1 (vedi factorize()). */
-static long long domain_floor;
+long long domain_floor;
 
 /* I valori dati ai parametri dell'enunciato quando lo si calcola in un punto
  * preciso: il parametro point_name[i] vale point_value[i]. Durante la
  * dimostrazione l'elenco è vuoto e i parametri restano lettere; lo riempie
  * solo la verifica numerica (13e), che lega questi valori per primi: sono
  * quindi i primi point_count posti di `env` (vedi difference()). */
-static int point_name[MAX_POINT];
-static Frac point_value[MAX_POINT];
-static int point_count;
+int point_name[MAX_POINT];
+Frac point_value[MAX_POINT];
+int point_count;
 
 /* I fatti del dominio (11q, più sotto): mentre domain_on è diverso da zero si
  * sta calcolando un'uguaglianza che vale "dove i due membri sono definiti", e
@@ -138,7 +131,7 @@ static int domain_on;
 /* Lega name a value, senza spostare le celle gia visibili. Un fallimento
  * annota anche work_allocation_failed: eventuali tentativi che ripuliscono
  * failure non possono consegnare un risultato basato su una pila incompleta. */
-static int env_push(int name, Rat value) {
+int env_push(int name, Rat value) {
     size_t block = (size_t)env_count / ENV_BLOCK_BINDINGS;
     if (!work_reserve((void **)&env_block, &env_block_capacity, block + 1, sizeof *env_block)) return 0;
     if (block == env_blocks) {
@@ -151,10 +144,10 @@ static int env_push(int name, Rat value) {
 }
 
 /* Scioglie l'ultima variabile legata. */
-static void env_pop(void) { if (env_count > 0) env_count--; }
+void env_pop(void) { if (env_count > 0) env_count--; }
 
 /* Ritorna il valore legato a name, o NULL se name è un parametro libero. */
-static const Rat *env_lookup(int name) {
+const Rat *env_lookup(int name) {
     for (int i = env_count - 1; i >= 0; i--)
         if (env_at(i)->name == name) return &env_at(i)->value;
     return NULL;
@@ -169,17 +162,10 @@ static int env_varies(int name) {
     return 0;
 }
 
-static Rat eval(const Node *node);
-
-/* Un indice che nasconde una variabile dell'ambiente dentro una somma.
- * name e il nome locale, outer il contesto esterno preso in prestito.
- * La cella vive nel frame ricorsivo che la possiede: una cella per indice,
- * senza copiare un vettore sempre piu lungo a ogni livello. */
-typedef struct NameScope NameScope;
-struct NameScope { int name; const NameScope *outer; };
+Rat eval(const Node *node);
 
 /* Ritorna 1 se name e nascosto da uno degli indici interni attivi. */
-static int name_shadowed(const NameScope *scope, int name) {
+int name_shadowed(const NameScope *scope, int name) {
     for (; scope; scope = scope->outer) if (scope->name == name) return 1;
     return 0;
 }
@@ -200,7 +186,7 @@ static int uses_bound_variable(const Node *node, const NameScope *shadow) {
 }
 
 /* Valuta il corpo della somma o prodotto node con l'indice legato a index. */
-static Rat eval_body(const Node *node, Rat index) {
+Rat eval_body(const Node *node, Rat index) {
     env_push(node->name, index);
     Rat value = eval(node->c);
     env_pop();
@@ -210,19 +196,19 @@ static Rat eval_body(const Node *node, Rat index) {
 /* Ritorna 1 se l'atomo è non negativo per ogni n ammesso: n stesso, quando
  * parte da zero o più; la lettera ausiliaria; le potenze di un numero primo;
  * i prodotti di fattori positivi. */
-static int atom_is_nonnegative(int atom) {
+int atom_is_nonnegative(int atom) {
     const Atom *a = &atoms[atom];
     if (a->kind == ATOM_VAR) return a->id == VAR_SLACK || (a->id == induction_var && domain_floor >= 0);
     if (a->kind == ATOM_BIGOP) return a->positive;
     return a->kind == ATOM_POW && a->base == BASE_PRIME;
 }
 
-static int poly_is_real(Poly p);
+int poly_is_real(Poly p);
 
 /* Ritorna 1 se l'atomo ha certamente valore reale. Le variabili sono numeri
  * reali per convenzione; non lo sono gli atomi e^{i M}, e per prudenza nemmeno
  * somme e prodotti, il cui termine potrebbe contenerne. */
-static int atom_is_real(int atom) {
+int atom_is_real(int atom) {
     const Atom *a = &atoms[atom];
     if (a->kind == ATOM_BIGOP) return 0;
     if (a->kind != ATOM_POW) return 1;
@@ -233,7 +219,7 @@ static int atom_is_real(int atom) {
 
 /* Ritorna 1 se p ha certamente valore reale: coefficienti reali e atomi
  * reali. */
-static int poly_is_real(Poly p) {
+int poly_is_real(Poly p) {
     for (int i = 0; i < p.count; i++) {
         if (p.term[i].coef.im.num != 0) return 0;
         for (int f = 0; f < p.term[i].mono.count; f++)
@@ -296,7 +282,7 @@ static int body_is_positive(const Node *node, long long lower) {
  * binomiale che la regola sta trattando come 1 mentre calcola il resto del
  * termine, o NULL; binomial_live dice che in quel conto la lettera
  * ausiliaria sta al posto dell'indice della somma, che è un intero. */
-static int binomial_ok, binomial_used, binomial_live;
+int binomial_ok, binomial_used, binomial_live;
 static const Node *binomial_skip;
 
 /* Prototipo in avanti necessario: la regola valuta il termine della somma
@@ -472,7 +458,7 @@ static Rat eval_sequence(int name, Rat index) {
 }
 
 /* Moltiplica il monomio di out per atom^exp; con exp nullo non fa nulla. */
-static void term_times(Term *out, int atom, Frac exp) {
+void term_times(Term *out, int atom, Frac exp) {
     if (exp.num == 0) return;
     Mono factor = mono_atom(atom, exp);
     out->mono = mono_mul(&out->mono, &factor);
@@ -485,7 +471,7 @@ static void term_times(Term *out, int atom, Frac exp) {
  * Si prova a dividere per 2, 3, 4, ...: il primo divisore trovato è per forza
  * primo, e se nessuno fino alla radice quadrata divide, il numero stesso è
  * primo. *value non deve superare 10^12, o il ciclo sarebbe troppo lungo. */
-static int pop_prime(long long *value, long long *prime, long long *times) {
+int pop_prime(long long *value, long long *prime, long long *times) {
     if (*value <= 1) return 0;
     long long p = 2;
     while (p * p <= *value && *value % p != 0) p++;
@@ -500,7 +486,7 @@ static int pop_prime(long long *value, long long *prime, long long *times) {
  * per ogni atomo il minimo esponente tra i termini, contando zero dove manca.
  * Con esponenti negativi anche x^{-1} può essere comune:
  * x + 1/x = x^{-1} (x^2 + 1). */
-static Mono poly_common(Poly p) {
+Mono poly_common(Poly p) {
     Mono common = p.term[0].mono;
     for (int i = 1; i < p.count; i++) {
         const Mono *other = &p.term[i].mono;
@@ -542,7 +528,7 @@ static int atom_raised(int atom, const Mono *m) {
  * prodotto di potenze, a esponente intero positivo, di n e di atomi come 2^n.
  * Mentre la regola 11n calcola il termine di una somma conta come intero
  * anche la lettera ausiliaria, che lì sta al posto dell'indice. */
-static int mono_is_integer(const Mono *m) {
+int mono_is_integer(const Mono *m) {
     for (int i = 0; i < m->count; i++) {
         const Atom *a = &atoms[m->factor[i].atom];
         Frac e = m->factor[i].exp;
@@ -582,8 +568,8 @@ static int mono_is_integer(const Mono *m) {
  * qui servono solo a fondere gli esponenti, (x^{n})^{m} = x^{n m}, che per
  * una base positiva e esponenti interi è vero. Fuori dalla ricerca
  * power_letter() ritorna sempre 0. */
-static int power_letter(int atom);
-static int power_exponent(const Mono *m);
+int power_letter(int atom);
+int power_exponent(const Mono *m);
 
 static Rat symbolic_power(Poly p, const Mono *m, Frac q) {
     Term out;
@@ -786,7 +772,7 @@ static int deflate(long long *c, int degree, long long a, long long b) {
  * c[d]. Se c[0] non è zero i candidati sono dunque in numero finito, e
  * provandoli tutti si trovano tutte le radici razionali. Se c[0] è zero, lo
  * zero è una radice: si divide per x e si ricomincia. */
-static int rational_roots(const long long *c, int degree, Frac *root) {
+int rational_roots(const long long *c, int degree, Frac *root) {
     int count = 0;
 
     /* Le potenze di x che dividono il polinomio danno la radice zero. */
@@ -1118,7 +1104,7 @@ static Factorization factorize(Poly p) {
  * Prototipo in avanti necessario: 11q-4 usa la regola 12a, che sta nel
  * capitolo del test di annullamento. */
 static Poly poly_reduce_radicals(Poly p, int keep_value);
-static Rat fractional_power(Rat base, Frac q, int odd) {
+Rat fractional_power(Rat base, Frac q, int odd) {
     Term out;
     Mono none;
     out.coef = num_int(1);
@@ -1197,7 +1183,7 @@ static Rat fractional_power(Rat base, Frac q, int odd) {
  * numero.
  *
  * Una potenza p^M di un primo dà M ln(p), così ln(2^n) = n ln 2. */
-static Rat logarithm(Rat x) {
+Rat logarithm(Rat x) {
     if (x.num.count == 0) { fail_undefined("logaritmo di zero"); return rat_int(0); }
     require(NEVER_ZERO, x.num, "logaritmo di zero");
     Rat total = rat_int(0);
@@ -1240,7 +1226,7 @@ static Rat logarithm(Rat x) {
  * lo è, la condizione la annota chi chiama, che conosce l'argomento com'è
  * scritto (vedi require_positive()). Nel conto di un'uguaglianza dove i due
  * membri sono definiti, x > 0 è un fatto del dominio (11q). */
-static Rat logarithm_of_positive(Rat x) {
+Rat logarithm_of_positive(Rat x) {
     Num value;
     if (rat_number(x, &value) && (value.im.num != 0 || value.re.num <= 0)) {
         fail_undefined("logaritmo di un numero non positivo");
@@ -1253,8 +1239,8 @@ static Rat logarithm_of_positive(Rat x) {
 
 /* Argomenti degli atomi ATAN dell'enunciato in corso, ciascuno una volta:
  * l'atomo di id k vale l'arcotangente di atan_args[k]. */
-static Rat atan_args[MAX_ATOMS];
-static int atan_count;
+Rat atan_args[MAX_ATOMS];
+int atan_count;
 
 /* Ritorna arctan(x) come combinazione di atomi.
  *
@@ -1267,7 +1253,7 @@ static int atan_count;
  *     esce fuori;
  *   - arctan(1) = pi/4, perché tan(pi/4) = 1. Tra gli argomenti razionali è
  *     l'unico valore, con 0, che sia un multiplo razionale di pi greco. */
-static Rat arctangent(Rat x) {
+Rat arctangent(Rat x) {
     if (!poly_is_real(x.num) || !poly_is_real(x.den)) { fail("arcotangente di un'espressione che non è certamente reale"); return rat_int(0); }
     if (x.num.count == 0) return rat_int(0);
 
@@ -1573,7 +1559,7 @@ static int binomial_sum(const Node *node, long long lower, Rat upper, Rat *out) 
  * prodotto degli atomi e^{i M} elevati a q. Per esempio, con theta = (n+1) x/2
  * = n x/2 + x/2 si ottiene (e^{i n x})^{1/2} (e^{i x})^{1/2}: le formule di
  * addizione di seno e coseno sono già qui dentro. */
-static Rat exp_i(Rat theta, int sign) {
+Rat exp_i(Rat theta, int sign) {
     Term out;
     out.coef = num_int(1);
     out.mono.count = 0;
@@ -1636,9 +1622,9 @@ static void require_positive(const Node *argument, Rat x) {
  * preparando: abs_node[i] è il nodo del valore assoluto numero i, e il bit i
  * di abs_pattern dice se in questo conto il suo argomento va preso con il
  * segno cambiato. Fuori da quei conti abs_count è zero. */
-static const Node *abs_node[MAX_ABS];
-static int abs_count;
-static unsigned abs_pattern;
+const Node *abs_node[MAX_ABS];
+int abs_count;
+unsigned abs_pattern;
 
 /* Le radici quadrate del confronto che la tabella dei segni (18p-7) sta
  * preparando: surd_node[i] è un nodo con il radicando numero i (radici con
@@ -1649,15 +1635,15 @@ static unsigned abs_pattern;
  * (surd_relate()). Le più interne vengono prima, così un radicando contiene
  * solo le lettere delle radici precedenti. Fuori da quei conti surd_count è
  * zero. */
-static const Node *surd_node[MAX_SURDS];
-static int surd_letter[MAX_SURDS];
-static Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
-static int surd_count;
+const Node *surd_node[MAX_SURDS];
+int surd_letter[MAX_SURDS];
+Rat surd_inside[MAX_SURDS], surd_value[MAX_SURDS];
+int surd_count;
 
 /* Il segno di un numero che può contenere radici quadrate di interi. È
  * definita nel capitolo 18.12 (18p), dopo il test di annullamento che le
  * serve; qui la usa il valore assoluto di un numero. */
-static int number_sign(Rat r, int *side);
+int number_sign(Rat r, int *side);
 
 /* Gli esponenziali e i logaritmi nella tabella dei segni (18p-8): mentre la
  * tabella prepara un confronto, una potenza con la variabile all'esponente e
@@ -1665,13 +1651,13 @@ static int number_sign(Rat r, int *side);
  * queste due funzioni a dirlo. Ritornano 1 e mettono in *out ciò che prende
  * il posto del nodo, oppure 0 se il nodo va calcolato come sempre. Sono
  * definite nel capitolo 18.9, con le altre lettere della tabella. */
-static int exp_letters(const Node *node, Rat *out);
-static int log_letter(const Node *node, Rat *out);
+int exp_letters(const Node *node, Rat *out);
+int log_letter(const Node *node, Rat *out);
 
 /* La radice di un prodotto di esponenziali (18p-8): se il radicando r di una
  * radice di indice index è un tale prodotto e la radice si estrae, la mette
  * in *out e ritorna 1. */
-static int exp_root(Rat r, long long index, Rat *out);
+int exp_root(Rat r, long long index, Rat *out);
 
 /* Le funzioni goniometriche nella tabella dei segni (18p-11): mentre la
  * tabella prepara un confronto di un enunciato periodico, seno, coseno,
@@ -1679,7 +1665,7 @@ static int exp_root(Rat r, long long index, Rat *out);
  * t = tan(g x / 2). trig_value() ritorna 1 e mette in *out ciò che prende
  * il posto del nodo, il cui argomento vale argument; 0 se il nodo va
  * calcolato come sempre. È definita nel capitolo 18.9. */
-static int trig_value(const Node *node, Rat argument, Rat *out);
+int trig_value(const Node *node, Rat argument, Rat *out);
 
 /* Valuta una chiamata di funzione. */
 static Rat eval_call(const Node *node) {
@@ -1835,7 +1821,7 @@ static Rat eval_call(const Node *node) {
 /* Ritorna 1 se il numero u divide il numero v, cioè se v è u per un numero
  * intero (17n): zero divide solo zero, e un altro numero divide v quando il
  * quoziente è intero. Vale per i razionali come è scritta: 1/2 divide 3. */
-static int number_divides(Num u, Num v) {
+int number_divides(Num u, Num v) {
     if (u.im.num != 0 || v.im.num != 0) return 0;
     if (u.re.num == 0) return v.re.num == 0;
     return frac_div(v.re, u.re).den == 1;
@@ -1857,40 +1843,29 @@ static int number_divides(Num u, Num v) {
  * ne ricava che cosa distinguere (18v-2) o quali casi provare (18v-3).
  */
 
-/* Una scelta di caso per un'applicazione definita per casi: f(t) vale il
- * caso piece. La fa la dimostrazione dopo aver dimostrato la condizione del
- * caso (18v-1), oppure la impone per tentativo chi cerca un valore e poi
- * ricontrolla tutto (18v-3). Vale solo per quel nodo e per quel valore di t,
- * che cambia con le variabili legate. */
-typedef struct {
-    const Node *node;  /* l'applicazione f(t), nell'albero dell'enunciato */
-    Rat argument;      /* il valore di t quando il caso è stato scelto */
-    int piece;         /* il caso: un indice di piece[] nell'applicazione */
-} CaseChoice;
-
 /* Le scelte valide in questo momento, dalla più vecchia. Chi le aggiunge le
  * toglie quando ha finito, riportando il contatore dov'era. */
-static CaseChoice case_choice[MAX_CASE_CHOICES];
-static int case_choice_count;
+CaseChoice case_choice[MAX_CASE_CHOICES];
+int case_choice_count;
 
 /* Il motivo del fallimento di un conto che ha incontrato un'applicazione
  * definita per casi senza un caso scelto. Ha un nome perché chi cerca una
  * dimostrazione lo riconosce: non è un errore dell'enunciato. */
-static const char *const CASE_UNDECIDED = "un'applicazione definita per casi è calcolata in un punto in cui il caso non è stabilito";
+const char *const CASE_UNDECIDED = "un'applicazione definita per casi è calcolata in un punto in cui il caso non è stabilito";
 
 /* L'ultima applicazione che ha fatto fallire un conto con CASE_UNDECIDED: la
  * sua definizione, il suo nodo e il valore dell'argomento. */
-static const Map *undecided_map;
-static const Node *undecided_node;
-static Rat undecided_argument;
+const Map *undecided_map;
+const Node *undecided_node;
+Rat undecided_argument;
 
 /* Ritorna 1 se a e b sono scritte allo stesso modo, termine per termine. */
-static int rat_same(Rat a, Rat b) { return poly_equal(a.num, b.num) && poly_equal(a.den, b.den); }
+int rat_same(Rat a, Rat b) { return poly_equal(a.num, b.num) && poly_equal(a.den, b.den); }
 
 /* Calcola con i numeri la condizione c di un caso, in cui ogni variabile ha
  * un numero per valore: ritorna 1 se è vera, 0 se è falsa, -1 se un membro
  * non è un numero reale o il conto non riesce. */
-static int condition_computed(const Formula *c) {
+int condition_computed(const Formula *c) {
     Num u, v;
     if (c->kind == F_NOT) {
         int inner = condition_computed(c->a);
@@ -1919,7 +1894,7 @@ static int condition_computed(const Formula *c) {
  * primo che vale, -1 se nessuno vale, -2 se il punto non è un numero o una
  * condizione non si calcola, perché nomina anche una variabile generica,
  * come un parametro (17s). */
-static int case_computed(const Map *map, Rat argument) {
+int case_computed(const Map *map, Rat argument) {
     Num t;
     if (!rat_number(argument, &t) || t.im.num != 0) return -2;
     for (int i = 0; i < map->cases && !failure; i++) {
@@ -1953,7 +1928,7 @@ static int case_of(const Map *map, const Node *node, Rat argument) {
 
 /* Ritorna il valore del nodo con le variabili legate attuali. In caso di
  * errore `failure` è impostato e il valore non ha significato. */
-static Rat eval(const Node *node) {
+Rat eval(const Node *node) {
     /* Dopo un errore il risultato verrà scartato: ci si ferma subito, anche
      * per non svolgere somme con estremi privi di senso. */
     if (failure) return rat_int(0);
@@ -2310,7 +2285,7 @@ static int arctan_combination_vanishes(Poly p) {
 
 /* Ritorna 1 se p è zero, tenendo conto delle identità 12a, 12b e 12c. Un
  * errore durante il conto (in `failure`) vale come "no". */
-static int poly_vanishes(Poly p) {
+int poly_vanishes(Poly p) {
     p = poly_reduce_radicals(p, 0);
     if (failure) return 0;
     return p.count == 0 || log_combination_vanishes(p) || arctan_combination_vanishes(p);
@@ -2318,7 +2293,7 @@ static int poly_vanishes(Poly p) {
 
 /* Ritorna L - R per l'enunciato, con la variabile di induzione legata a n e i
  * parametri legati ai valori del punto in uso, se ce n'è uno. */
-static Rat difference(const Statement *statement, Rat n) {
+Rat difference(const Statement *statement, Rat n) {
     env_count = 0;
     library_depth = 0;
 
@@ -2367,7 +2342,7 @@ static Rat difference(const Statement *statement, Rat n) {
  * Le condizioni di esistenza (capitolo 7) restano spente per tutto il test:
  * sono ciò che 13c deve controllare, e i fatti, che le suppongono vere,
  * cambierebbero quelle annotate. */
-static int vanishes_where_defined(const Statement *statement, const Node *source, Rat n) {
+int vanishes_where_defined(const Statement *statement, const Node *source, Rat n) {
     const char *was = failure;
     Statement turned = {statement->rhs, statement->lhs, statement->relation};
     int vanishes = 0, listed = conditions_on;
@@ -2390,4 +2365,3 @@ static int vanishes_where_defined(const Statement *statement, const Node *source
     conditions_on = listed;
     return vanishes;
 }
-

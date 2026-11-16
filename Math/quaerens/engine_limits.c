@@ -1,3 +1,17 @@
+/* MODULO engine_limits: limiti (capitolo 29).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_limits.h, e il
+ * resto è static. */
+#include "engine_limits.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_sign_tables.h"
+#include "engine_sequences.h"
+
 /* =============================================================================
  * 29. LIMITI
  * ============================================================================
@@ -613,7 +627,7 @@ static Pair poly_pair(Poly p) {
  * quoziente di due numeri complessi è n conj(d) / |d|^2; la parte
  * immaginaria deve poter essere zero, perché c è reale: se non può, il
  * numero non è quello che si crede, e la risposta è "non so". */
-static Range constant_range(Rat c) {
+Range constant_range(Rat c) {
     Pair n = poly_pair(c.num), d = poly_pair(c.den);
     Range size = range_add(range_square(d.re), range_square(d.im));
     Range re = range_div(range_add(range_mul(n.re, d.re), range_mul(n.im, d.im)), size);
@@ -2402,7 +2416,7 @@ static void limit_certify(const LimitStatement *st, const SideResult *sides, int
  * scritto in formula (vedi la testa del capitolo). Svuota l'arena e la
  * tabella degli atomi: i risultati di chiamate precedenti non sono più
  * validi. */
-static Verdict prove_limit(const char *formula) {
+Verdict prove_limit(const char *formula) {
     static char answer[MAX_FORMULA];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     LimitStatement st;
@@ -2548,24 +2562,12 @@ static Verdict prove_limit(const char *formula) {
  * (29i), che deve confermarlo; del coefficiente c servono solo il segno e
  * che non sia zero, che il conto decide in modo esatto (29c). */
 
-/* Il termine principale di una funzione vicino a un punto, da un lato, nelle
- * lettere t e L di 29a; oppure, se della serie non si conosce nessun
- * coefficiente, solo il suo resto: f = O(t^{e}), cioè |f| <= C t^{e} per t
- * piccolo (29b), come x^{-2} \sin x all'infinito. */
-typedef struct {
-    int found;     /* 1 se il termine principale, o il resto, è noto */
-    int bound;     /* 1 se si conosce solo il resto: f = O(t^{e}), e sign non conta */
-    int sign;      /* il segno del coefficiente c: +1 o -1 */
-    Frac e, d;     /* gli esponenti di t e di L */
-    int growth;    /* 0 senza fattore e^{G}; +1 o -1 se G tende a +\infty o a -\infty */
-} LeadingTerm;
-
 /* Il termine principale della funzione della richiesta formula,
  * "\lim_{x \to a^{\pm}} f" o "\lim_{x \to \pm\infty} f", se il controllo con
  * i numeri conferma il conto. Non lo dà se il conto è riuscito solo salendo
  * di un piano (29l): lì t non è più |x - a| o 1/|x|. Svuota l'arena e la
  * tabella degli atomi come prove_limit(). */
-static LeadingTerm limit_leading(const char *formula) {
+LeadingTerm limit_leading(const char *formula) {
     LeadingTerm out = {0, 0, 0, {0, 1}, {0, 1}, 0};
     LimitStatement st;
     SideResult r;
@@ -2590,4 +2592,3 @@ static LeadingTerm limit_leading(const char *formula) {
     }
     return (LeadingTerm){1, 0, lead.side, frac_make(s.low, s.den), lead.degree, dir};
 }
-

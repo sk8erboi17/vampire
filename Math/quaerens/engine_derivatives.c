@@ -1,3 +1,48 @@
+/* MODULO engine_derivatives: derivate: dimostrarle, calcolarle, usarle negli
+ * studi di funzione (capitolo 27).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_derivatives.h,
+ * e il resto è static. */
+#include "engine_derivatives.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+#include "engine_explanation.h"
+#include "engine_sequences.h"
+
+/* Il segno di derivata dentro un'espressione (9d) arriva dal lettore come un
+ * nodo N_DERIV, che nessun conto sa trattare: lo sostituisce con la derivata
+ * il capitolo 27 (27j), con le regole di derive() e il loro controllo con i
+ * numeri. Chi legge un enunciato fatto di espressioni (capitoli 13, 18, 25)
+ * chiama queste funzioni subito dopo il parsing, prima di ogni conto, ma sta
+ * più in alto del capitolo 27, che a sua volta usa la valutazione, gli
+ * intervalli e la tabella dei segni: per questo i prototipi sono qui.
+ *
+ * derivatives_expanded() ritorna l'albero con le derivate al posto dei
+ * segni, oppure annota in `failure` perché un segno non si espande;
+ * formula_derivatives_expanded() fa lo stesso su ogni confronto di un
+ * enunciato con quantificatori. derivative_signs conta i segni espansi
+ * dall'ultima volta che qualcuno l'ha azzerato. derivative_doubt() dice se
+ * un enunciato deciso dalla tabella dei segni dipende da punti in cui una
+ * funzione è definita ma le regole non ne danno la derivata (27l): NULL se
+ * no, altrimenti il motivo. */
+Node *derivatives_expanded(Node *tree);
+void formula_derivatives_expanded(Formula *f);
+const char *derivative_doubt(const Formula *thesis);
+int derivative_signs;
+
+/* 1 se derivative_doubt() ha trovato un estremo del dominio di una funzione
+ * in cui la derivata (da tutte e due le parti) non esiste: il verdetto lo
+ * dice, perché chi conta la derivata da una parte sola leggerebbe in un
+ * altro modo la risposta. */
+int derivative_edges;
+const char *const DERIVATIVE_EDGES = "negli estremi del dominio la derivata, che chiede la funzione definita da tutte e due le parti, non c'è";
+
 /* =============================================================================
  * 27. DERIVATE: DIMOSTRARLE, CALCOLARLE, USARLE NEGLI STUDI DI FUNZIONE
  * ============================================================================
@@ -140,7 +185,7 @@
 /* Il motivo con cui prove_derivative() rifiuta ciò che non è scritto come una
  * derivata. Ha un nome perché prove() (capitolo 20) lo riconosce e lo
  * sostituisce con il motivo più preciso del lettore, se c'è. */
-static const char *const NOT_A_DERIVATIVE = "l'enunciato non comincia con il segno di derivata";
+const char *const NOT_A_DERIVATIVE = "l'enunciato non comincia con il segno di derivata";
 
 /* Ritorna tree con i figli a, b e c al posto dei suoi: tree stesso se sono
  * gli stessi, altrimenti una copia con gli altri campi uguali. Non copiare
@@ -165,7 +210,7 @@ static Node *node_rebuilt(const Node *tree, Node *a, Node *b, Node *c) {
  * I nodi che non cambiano restano gli stessi (node_rebuilt()). Mette 0 in
  * *closed, che chi chiama ha messo a 1, se tree contiene lettere. Un conto
  * che fallisce lascia l'albero com'è. */
-static Node *node_fold(const Node *tree, int *closed) {
+Node *node_fold(const Node *tree, int *closed) {
     if (!tree) return NULL;
     if (tree->kind == N_NUM) return (Node *)tree;
     if (tree->kind == N_VAR || tree->kind == N_SEQ || tree->kind == N_BIGOP || tree->kind == N_APPLY || tree->kind == N_DERIV) { *closed = 0; return (Node *)tree; }
@@ -187,7 +232,7 @@ static Node *node_fold(const Node *tree, int *closed) {
 
 /* Ritorna outer per la derivata di inner rispetto a x: la regola della
  * catena. Se inner è x stessa il fattore è 1 e non si scrive. */
-static Node *derive(const Node *f, int x);
+Node *derive(const Node *f, int x);
 static Node *chain(Node *outer, const Node *inner, int x) {
     if (inner->kind == N_VAR && inner->name == x) return outer;
     return node_new(N_MUL, outer, derive(inner, x));
@@ -202,7 +247,7 @@ static Node *chain(Node *outer, const Node *inner, int x) {
  * Le semplificazioni sono solo quelle che evitano di scrivere zeri e
  * fattori 1: un fattore costante resta fuori dalla derivata, e la catena
  * tace la derivata di x. Il resto lo fa la valutazione. */
-static Node *derive(const Node *f, int x) {
+Node *derive(const Node *f, int x) {
     Node *u = f->a, *v = f->b;
     if (failure) return node_num(0);
 
@@ -318,7 +363,7 @@ enum { DERIVATIVE_POINTS = sizeof derivative_points / sizeof *derivative_points 
  * sola variabile x: la lettera order vale l'intero at, ogni altra lettera
  * (tranne e, che è un numero) un razionale fisso, diverso da lettera a
  * lettera, e i sotto-alberi interi sono già calcolati (node_fold()). */
-static Node *sample_tree(const Node *tree, int x, int order, long long at) {
+Node *sample_tree(const Node *tree, int x, int order, long long at) {
     Node *copy = node_replace(tree, order, node_num(at));
     for (int letter = 'A'; letter <= 'z'; letter++) {
         if (!isalpha(letter) || letter == x || letter == 'e' || !node_has_variable(copy, letter)) continue;
@@ -326,16 +371,6 @@ static Node *sample_tree(const Node *tree, int x, int order, long long at) {
     }
     return node_fold(copy, &(int){1});
 }
-
-/* Quante derivate di f, oltre quella del caso base, vengono calcolate una
- * dopo l'altra per confrontarle con la formula; il più grande caso base
- * ammesso, perché ogni derivata allunga l'albero; la lunghezza oltre la
- * quale si smette di derivare; e quindi l'ordine più alto di una derivata
- * controllata con i numeri. */
-#define DIRECT_ORDERS 3
-#define MAX_DERIVATIVE_BASE 4
-#define MAX_DERIVATIVE_NODES 20000
-#define MAX_JET (MAX_DERIVATIVE_BASE + DIRECT_ORDERS)
 
 /* LE DERIVATE CON I NUMERI: LA SERIE DI TAYLOR TRONCATA (27h)
  *
@@ -416,15 +451,6 @@ static Node *sample_tree(const Node *tree, int x, int order, long long at) {
  * quoziente di serie e non come 1 / cos^2, le radici e le potenze attraverso
  * exp e ln, il logaritmo e l'arcotangente con 27h-3. Un errore di derive()
  * non si ripete uguale qui. */
-
-/* Una funzione vicino a x0, data dai primi coefficienti della sua serie di
- * Taylor: c[k] contiene f^(k)(x0) / k!. Invariante, per le serie che
- * jet_eval() ritorna: se c[0] è "non so" lo sono tutti, e la serie dice "non
- * so". */
-typedef struct {
-    int order;             /* K: il grado più alto tenuto, da 0 a MAX_JET */
-    Range c[MAX_JET + 1];  /* i coefficienti da 0 a order; gli altri non contano */
-} Jet;
 
 /* Ritorna la costante value come serie di ordine order. */
 static Jet jet_constant(Range value, int order) {
@@ -547,7 +573,7 @@ static Jet jet_arc(Jet u, int sine) {
  *
  * Sfrutta node_fold() e node_replace() per svolgere somme e prodotti: i nodi
  * che crea per un termine li toglie dall'arena appena calcolato il termine. */
-static Jet jet_eval(const Node *node, int x, Range at, int order) {
+Jet jet_eval(const Node *node, int x, Range at, int order) {
     Jet a, sine, cosine, result = jet_constant(range_none(), order);
     switch (node->kind) {
     case N_NUM: result = jet_constant(range_ratio(node->value, 1), order); break;
@@ -640,7 +666,7 @@ static Jet jet_eval(const Node *node, int x, Range at, int order) {
 
 /* Ritorna un intervallo che contiene il valore di tree, già passato da
  * sample_tree(), in at; "non so" se non si calcola o non è definito. */
-static Range sample_value(const Node *tree, int x, Range at) { return jet_eval(tree, x, at, 0).c[0]; }
+Range sample_value(const Node *tree, int x, Range at) { return jet_eval(tree, x, at, 0).c[0]; }
 
 /* Quanto devono essere vicini due valori dello stesso numero, calcolati in
  * due modi, per dire che coincidono: in rapporto alla grandezza del numero,
@@ -659,7 +685,7 @@ static Range sample_value(const Node *tree, int x, Range at) { return jet_eval(t
  * garantita sulla differenza vera, ricavata da un intervallo come al
  * capitolo 24. E la risposta 1 non dimostra nulla: dice solo che il
  * controllo non ha trovato errori. */
-static int numbers_agree(Range a, Range b) {
+int numbers_agree(Range a, Range b) {
     Range gap = range_sub(a, b);
     int side;
     if (range_side(gap, &side)) return -1;
@@ -703,7 +729,7 @@ static void derivatives_check(DerivativeCheck *check, Node *const *derived, int 
 
 /* Ritorna il numero di nodi di tree, contando una volta per ogni strada i
  * sotto-alberi condivisi: è il costo di un conto sull'albero. */
-static long long node_count(const Node *tree) {
+long long node_count(const Node *tree) {
     return tree ? 1 + node_count(tree->a) + node_count(tree->b) + node_count(tree->c) : 0;
 }
 
@@ -829,10 +855,10 @@ static Node *node_domain(const Node *f) {
 #define MAX_EXPANDED 8
 static const Node *expanded_function[MAX_EXPANDED], *expanded_value[MAX_EXPANDED];
 
-/* Vedi la dichiarazione dopo l'inclusione di parser.c. I segni annidati,
+/* Vedi la dichiarazione in testa a questo file. I segni annidati,
  * \frac{d}{dx}(\frac{d}{dx}(g)), si espandono dal più interno: la funzione
  * del più esterno è già un'espansione, con le sue condizioni. */
-static Node *derivatives_expanded(Node *tree) {
+Node *derivatives_expanded(Node *tree) {
     if (!tree || failure) return tree;
     Node *a = derivatives_expanded(tree->a), *b = derivatives_expanded(tree->b), *c = derivatives_expanded(tree->c);
     if (failure || tree->kind != N_DERIV) return failure ? tree : node_rebuilt(tree, a, b, c);
@@ -856,8 +882,8 @@ static Node *derivatives_expanded(Node *tree) {
     return value;
 }
 
-/* Vedi la dichiarazione dopo l'inclusione di parser.c. */
-static void formula_derivatives_expanded(Formula *f) {
+/* Vedi la dichiarazione in testa a questo file. */
+void formula_derivatives_expanded(Formula *f) {
     if (!f || failure) return;
     f->left = derivatives_expanded(f->left);
     f->right = derivatives_expanded(f->right);
@@ -951,7 +977,7 @@ static const Node *shared_power(const Node *tree, const Node *other, int x) {
     return found ? found : shared_power(tree->c, other, x);
 }
 
-static int derivative_identity(const Node *left, const Node *right, const Node *function, int order, long long base, int x) {
+int derivative_identity(const Node *left, const Node *right, const Node *function, int order, long long base, int x) {
     Statement s = {(Node *)left, (Node *)right, REL_EQ};
     const Node *source = function;
     int holds = 1, kept = induction_var;
@@ -1092,7 +1118,7 @@ static int node_has_root(const Node *tree, int x) {
  * integranda, lower, upper e value gli estremi e il valore di un integrale
  * (NULL altrimenti). Ritorna NULL, oppure il motivo per cui il certificato
  * non c'è. */
-static const char *calculus_certificate(const char *kind, int x, const char *order, const Node *function, const Node *claim,
+const char *calculus_certificate(const char *kind, int x, const char *order, const Node *function, const Node *claim,
                                         const Node *lower, const Node *upper, const Node *value) {
     certificate_length = 0;
     certificate_broken = 0;
@@ -1148,7 +1174,7 @@ static const char *calculus_certificate(const char *kind, int x, const char *ord
  * c'era già. Nel motivo i
  * due punti diventano virgole: in una riga RISOLTO dopo il primo ": " viene
  * la risposta, e gli script di tools/fuzz/ la cercano lì. */
-static void calculus_certify(Verdict *verdict, const char *why, const Node *function, int x) {
+void calculus_certify(Verdict *verdict, const char *why, const Node *function, int x) {
     static char problem[512], note[512];
     const char *text = certificate_text;
     if (!why) {
@@ -1265,7 +1291,7 @@ static Node *node_scaled(long long number, Node *rest) {
  * a (b c) = (a b) c, -(-a) = a, a - (b + c) = a - b - c, e un numero in
  * comune tra numeratore e denominatore si semplifica, (6 u) / (4 v) =
  * (3 u) / (2 v). */
-static Node *node_tidy(const Node *tree) {
+Node *node_tidy(const Node *tree) {
     long long p, q, product, top, bottom;
     Node *above, *below;
     int closed = 1;
@@ -1352,23 +1378,6 @@ static Node *node_tidy(const Node *tree) {
  * cosa ripetuta sulla derivata), le derivate dimostrate invece che
  * richieste, e la figura con la retta tangente in un punto.
  */
-
-/* Le regole di derivazione, per dire quale ha dato una riga: quelle da 27c
- * a 27f, in testa al capitolo.
- *
- * Warning: se aggiungi una regola a derive(), aggiungila qui, in
- * explain_rules(), e la sua frase in put_explanation_steps() (capitolo 41,
- * output.c). */
-typedef enum {
-    RULE_SUM,          /* somme, differenze, segno meno: termine per termine */
-    RULE_FACTOR,       /* un fattore o un divisore che non contiene la variabile */
-    RULE_PRODUCT,      /* (u v)' = u' v + u v' */
-    RULE_QUOTIENT,     /* (u / v)' = (u' v - u v') / v^2 */
-    RULE_POWER,        /* (u^c)' = c u^{c-1} u' */
-    RULE_EXPONENTIAL,  /* (c^u)' = c^u ln(c) u' */
-    RULE_TOWER,        /* u^v = e^{v ln u} */
-    RULE_FUNCTION      /* f(u)' = f'(u) u', con f una funzione */
-} DerivativeRule;
 
 /* 27n. Ritorna 1 se checker.c accetta che la derivata rispetto a x
  * dell'espressione scritta in function sia quella scritta in derivative: i
@@ -1565,7 +1574,7 @@ static Verdict solve_derivative(Node *f, int x, int order, Verdict verdict) {
  * accetta; altrimenti dice perché manca, in reason, e se il verificatore lo
  * respinge il verdetto è NON DIMOSTRATO. Svuota l'arena e la tabella degli
  * atomi: i risultati di chiamate precedenti non sono più validi. */
-static Verdict prove_derivative(const char *formula, int variable, int has_base, long long base) {
+Verdict prove_derivative(const char *formula, int variable, int has_base, long long base) {
     static char text[320];
     Verdict verdict = {UNSUPPORTED, variable, has_base ? base : 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     DerivativeStatement statement;
@@ -1794,10 +1803,10 @@ static Verdict prove_derivative(const char *formula, int variable, int has_base,
  * le stesse espressioni dell'enunciato; se non sa risolverla, non sa
  * nemmeno decidere l'enunciato. */
 
-/* Vedi la dichiarazione dopo l'inclusione di parser.c. thesis è
+/* Vedi la dichiarazione in testa a questo file. thesis è
  * l'enunciato, già controllato, di cui si sono espansi derivative_signs
  * segni. Lascia il testo della dimostrazione com'era. */
-static const char *derivative_doubt(const Formula *thesis) {
+const char *derivative_doubt(const Formula *thesis) {
     static char reason[sizeof solution_text + 200];
     const Formula *q = thesis;
     while (q->kind == F_NOT) q = q->a;
@@ -1849,4 +1858,3 @@ static const char *derivative_doubt(const Formula *thesis) {
     proof_cut(length);
     return doubt;
 }
-

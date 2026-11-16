@@ -1,3 +1,19 @@
+/* MODULO engine_linear_algebra: algebra lineare esatta: matrici, determinanti,
+ * sistemi lineari (capitoli 32-33).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in
+ * engine_linear_algebra.h, e il resto è static. */
+#include "engine_linear_algebra.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_sign_tables.h"
+#include "engine_quantifiers_verdict.h"
+#include "engine_sequences.h"
+#include "engine_integrals.h"
+
 /* =============================================================================
  * 32. ALGEBRA LINEARE ESATTA: MATRICI A ELEMENTI RAZIONALI
  * ============================================================================
@@ -1121,7 +1137,7 @@ static void matrix_certificate(const MatrixStatement *st, MatrixValue left, Matr
 
 static const char *const LETTER_SHAPE =
     "accanto a una lettera gli elementi di una matrice sono polinomi nelle lettere minuscole: niente divisioni per una lettera, radici, funzioni o nomi di matrici";
-static const char *const LETTER_CASES =
+const char *const LETTER_CASES =
     "con una lettera l'inversa cambia con il valore della lettera, e un rango si discute solo quando è confrontato con un numero, "
     "\\operatorname{rank} A = 2: qui la discussione per casi non è ancora trattata";
 static const char *const LETTER_MATRIX =
@@ -1510,7 +1526,7 @@ static Verdict prove_matrix_letters(const char *formula) {
  * valore cambia ciò che si rilegge, e il verificatore lo respinge.
  *
  * Un enunciato che dice dove stanno le sue lettere, con \mathbb, è di 32g. */
-static Verdict prove_matrix(const char *formula) {
+Verdict prove_matrix(const char *formula) {
     static char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], note[256], problem[512];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, MATRIX_METHOD, NULL, NULL};
     MatrixStatement st;
@@ -1605,7 +1621,7 @@ static Verdict prove_matrix(const char *formula) {
  * ambienti di matrix_environments[] (capitolo 31): è un enunciato di questo
  * capitolo, e prove_core() lo manda qui. Un altro ambiente, come cases, non
  * conta. */
-static int uses_matrices(const char *formula) {
+int uses_matrices(const char *formula) {
     for (const char *p = strstr(formula, "\\begin"); p; p = strstr(p + 1, "\\begin")) {
         const char *name = p + 6;
         while (isspace((unsigned char)*name)) name++;
@@ -3988,7 +4004,7 @@ static void parameter_case(const Frac *value, int count, int which, char *text, 
  * dei determinanti, o le regole sui quantificatori. Una richiesta si risolve
  * in due tempi: i casi si scrivono, e l'enunciato che li afferma ripassa da
  * capo per questa stessa funzione. */
-static Verdict prove_parameter(const char *formula) {
+Verdict prove_parameter(const char *formula) {
     static char rewritten[4 * MAX_FORMULA], notes[PROOF_BYTES / 4], method[256], reason[768], answer[4 * MAX_FORMULA], reread[16 * MAX_FORMULA];
     static char cases[MAX_SPECIAL + 1][REQUEST_TEXT];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, LINEAR_METHOD, NULL, NULL};
@@ -4225,7 +4241,7 @@ static Verdict prove_parameter(const char *formula) {
  *
  * Un enunciato che mette una lettera in \mathbb{R}, con un quantificatore o
  * con \{k \in \mathbb{R} \mid ...\}, ha un parametro: è di 33h. */
-static Verdict prove_linear(const char *formula) {
+Verdict prove_linear(const char *formula) {
     static char answer[3 * MAX_FORMULA], reread[4 * MAX_FORMULA], problem[512];
     static LinearEvidence evidence;
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, LINEAR_METHOD, NULL, NULL};
@@ -4289,7 +4305,7 @@ static Verdict prove_linear(const char *formula) {
  * un = (31s). Senza questa eccezione tre enunciati dei test sugli insiemi
  * finivano qui, e uno vero risultava non supportato. Usa il lettore di
  * token del parser, e lascia il suo stato da reimpostare. */
-static int uses_linear_systems(const char *formula) {
+int uses_linear_systems(const char *formula) {
     int found = 0, defined = 0;
     syntax_error = NULL;
     cursor = formula;
@@ -4300,4 +4316,3 @@ static int uses_linear_systems(const char *formula) {
     syntax_error = NULL;
     return found;
 }
-

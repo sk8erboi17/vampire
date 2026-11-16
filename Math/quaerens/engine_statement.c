@@ -1,3 +1,27 @@
+/* MODULO engine_statement: dimostrare un enunciato: quale capitolo lo legge, e
+ * il verdetto (capitolo 20).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_statement.h, e
+ * il resto è static. */
+#include "engine_statement.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_sets.h"
+#include "engine_sign_tables.h"
+#include "engine_explanation.h"
+#include "engine_quantifiers_verdict.h"
+#include "engine_sequences.h"
+#include "engine_derivatives.h"
+#include "engine_logic.h"
+#include "engine_limits.h"
+#include "engine_integrals.h"
+#include "engine_linear_algebra.h"
+#include "engine_multivariable.h"
+#include "engine_indices.h"
+
 /* =============================================================================
  * 20. DIMOSTRARE UN ENUNCIATO
  * ============================================================================
@@ -595,7 +619,7 @@ static Verdict prove_core(const char *formula, int variable, int has_base, long 
 }
 
 /* Scrive su out il verdetto in una riga, senza a capo. */
-static void verdict_print(FILE *out, const Verdict *verdict) {
+void verdict_print(FILE *out, const Verdict *verdict) {
     switch (verdict->outcome) {
     case PROVED:
         if (verdict->variable) fprintf(out, "DIMOSTRATO per induzione su %c >= %lld", verdict->variable, verdict->base);
@@ -655,7 +679,7 @@ static void verdict_print(FILE *out, const Verdict *verdict) {
  * rendono inutilizzabile tutto il tentativo, anche se una strada interna
  * ha cancellato failure per provarne un'altra. Ogni chiamata riparte dai
  * contatori inizializzati dai metodi; le capacita allocate si riusano. */
-static Verdict prove(const char *formula, int variable, int has_base, long long base) {
+Verdict prove(const char *formula, int variable, int has_base, long long base) {
     work_allocation_failed = stack_exhausted = 0;
 
     /* Anche il conto delle catene riparte da qui, e non dal lettore: i
@@ -676,7 +700,7 @@ static Verdict prove(const char *formula, int variable, int has_base, long long 
 }
 
 /* Dimostra l'enunciato contenuto nel testo [item, end) di un \item. */
-static Verdict prove_item(const char *item, const char *end) {
+Verdict prove_item(const char *item, const char *end) {
     Item statement;
     const char *problem = read_item(item, end, &statement);
     if (problem) return (Verdict){problem==OUT_OF_MEMORY?NOT_PROVED:UNSUPPORTED, 'n', 0, 0, problem, NULL, NULL, NULL, NULL, NULL};
@@ -697,238 +721,4 @@ static Verdict prove_item(const char *item, const char *end) {
      * verdetto deve sapere che c'era e che non è stato considerato. */
     if (statement.remark && verdict.outcome == REFUTED) verdict.note = "ignorato un commento tra parentesi dopo la formula";
     return verdict;
-}
-
-/* I capitoli 41 e 22, la scrittura del documento finale, stanno in output.c:
- * il documento LaTeX con enunciati, spiegazioni, dimostrazioni, soluzioni e
- * grafici, e la sua compilazione in PDF. Va incluso qui, dopo il verdetto
- * che riporta e prima di chi lo chiama. */
-#include "output.c"
-
-/* =============================================================================
- * 23. MAIN
- * ============================================================================
- *
- * Modi d'uso:
- *
- *     mathresearcher FILE.tex ...                  dimostra o risolve ogni enunciato dei file
- *     mathresearcher --proofs OUT.pdf FILE.tex ... scrive anche il documento con le
- *                                                  dimostrazioni, le soluzioni e i grafici:
- *                                                  in LaTeX (OUT.tex, con i grafici in
- *                                                  OUT-plots.pdf) e compilato in PDF; dove
- *                                                  il motore ha registrato i passaggi, ogni
- *                                                  voce comincia con lo svolgimento
- *     mathresearcher --plain-proofs OUT.pdf FILE.tex ...
- *                                                  lo stesso documento senza gli svolgimenti:
- *                                                  le sole dimostrazioni, con i grafici
- *     mathresearcher --certificates OUT FILE.tex ...
- *                                                  scrive anche i certificati verificati,
- *                                                  da far ricontrollare a checker
- *     mathresearcher                               legge un enunciato da stdin
- *
- * --model-work N e --model-memory BYTES regolano i budget della ricerca SAT
- * (20.000.000 operazioni e 128 MiB di default), non un massimo di elementi.
- * --model-steps N regola gli elementi che i quantificatori provano
- * ricalcolando un enunciato sui modelli (40.000.000 di default): un modello
- * che non si riesce a ricalcolare non è un controesempio, e il verdetto lo dice.
- * Il verificatore riceve due volte e mezza quel budget.
- * --stack-budget BYTES regola la pila concessa agli alberi di un enunciato
- * lungo (4 MiB di default, per una pila di 8 MB): oltre, l'esito è "pila di
- * lavoro esaurita".
- * --verification-work N regola le visite del verificatore numerico
- * (20.000.000 di default): una verifica interrotta non conferma nulla.
- * --saturation-work N e --saturation-memory BYTES regolano le visite e la
- * memoria della ricerca per clausole (2.000.000 e 128 MiB di default).
- * Tutte le opzioni si possono dare insieme. Il codice di uscita è 0 se tutti
- * gli enunciati sono stati dimostrati o risolti, 1 altrimenti.
- */
-
-/* Conteggio dei verdetti su un file. */
-typedef struct {
-    int total;        /* \item trovati */
-    int proved;
-    int certified;    /* tra i dimostrati, quelli con il certificato verificato */
-    int refuted;
-    int not_proved;
-    int unsupported;
-    int solved;       /* insiemi di soluzioni trovati */
-} Report;
-
-/* Dimostra tutti gli enunciati del file path. Riempie *report con i conteggi
- * e, se out non è NULL, vi scrive una riga per enunciato. Se document non è
- * NULL vi scrive, come elenco, ogni enunciato con la sua dimostrazione e il
- * suo grafico; se certificates non è NULL vi scrive i certificati
- * verificati, uno dopo l'altro. Ritorna 0 se il file non si può leggere, 1
- * altrimenti. */
-static int prove_file(const char *path, Report *report, FILE *out, Document *document, FILE *certificates) {
-    memset(report, 0, sizeof *report);
-    char *text = read_file(path);
-    if (!text) return 0;
-
-    if (document) document_list(document, 1);
-    const char *position = text, *item, *end;
-    while (next_item(&position, &item, &end)) {
-        Verdict verdict = prove_item(item, end);
-        report->total++;
-        switch (verdict.outcome) {
-        case PROVED:      report->proved++; break;
-        case REFUTED:     report->refuted++; break;
-        case NOT_PROVED:  report->not_proved++; break;
-        case UNSUPPORTED: report->unsupported++; break;
-        case SOLVED:      report->solved++; break;
-        }
-        if (verdict.certificate) {
-            if (verdict.outcome == PROVED) report->certified++;
-            if (certificates) fprintf(certificates, "%s\n", verdict.certificate);
-        }
-        if (out) {
-            fprintf(out, "%4d. ", report->total);
-            verdict_print(out, &verdict);
-            fputc('\n', out);
-        }
-
-        /* Nel documento l'enunciato va com'è scritto nel file: lo si rilegge
-         * dal testo, perché prove_item() ne ritorna solo il verdetto. */
-        if (document) {
-            Item statement;
-            const char *unreadable = read_item(item, end, &statement);
-            document_item(document, unreadable ? NULL : statement.formula, &verdict, figure, &explanation);
-        }
-    }
-    if (document) document_list(document, 0);
-    free(text);
-    return 1;
-}
-
-/* Legge un budget decimale positivo senza conversioni con trabocco. */
-static int read_model_budget(const char *text, unsigned long long *value) {
-    unsigned long long n = 0;
-    if (!*text) return 0;
-    for (; *text; text++) {
-        if (*text < '0' || *text > '9' || n > (ULLONG_MAX - (unsigned)(*text - '0')) / 10) return 0;
-        n = 10 * n + (unsigned)(*text - '0');
-    }
-    *value = n;
-    return n != 0;
-}
-
-/* Legge una riga completa da stream in memoria posseduta dal chiamante,
- * da liberare dopo l'uso. Non tronca l'input a un buffer numerico interno.
- * NULL indica EOF prima della riga oppure errore di risorse in failure. */
-static char *read_input_line(FILE *stream) {
-    char *line=NULL;size_t length=0,capacity=0;int ch;
-    while ((ch=fgetc(stream))!=EOF && ch!='\n') {
-        if (length>(size_t)-1-2 || !work_reserve((void **)&line,&capacity,length+2,1)) {
-            free(line);fail(OUT_OF_MEMORY);return NULL;
-        }
-        line[length++]=(char)ch;
-    }
-    /* Un errore dello stream non e la fine di una formula: il prefisso gia
-     * letto non deve diventare un enunciato diverso da quello ricevuto. */
-    if (ferror(stream)) { free(line);fail("errore durante la lettura dell'enunciato");return NULL; }
-    if (ch==EOF && !length) { free(line);return NULL; }
-    if (!work_reserve((void **)&line,&capacity,length+1,1)) { free(line);return NULL; }
-    line[length]=0;return line;
-}
-
-int main(int argc, char **argv) {
-    engine_init();
-
-    /* Senza argomenti: un solo enunciato da stdin, con la sua dimostrazione. */
-    if (argc < 2) {
-        printf("Enunciato in LaTeX: ");
-        char *line=read_input_line(stdin);
-        if (!line) { if (failure) fprintf(stderr,"ERRORE: %s\n",failure); return 1; }
-        Verdict verdict = prove(line, 'n', 0, 0);
-        verdict_print(stdout, &verdict);
-        putchar('\n');
-        if (verdict.proof) printf("\n%s\n", verdict.proof);
-        free(line);
-        return verdict.outcome == PROVED || verdict.outcome == SOLVED ? 0 : 1;
-    }
-
-    /* Le opzioni, prima dei file.
-     *
-     * --proofs: il documento finale (capitolo 22). Chiederlo è anche ciò che
-     * fa costruire i grafici e le spiegazioni (capitolo 40): senza un
-     * documento non servono.
-     *
-     * --plain-proofs: lo stesso documento senza le spiegazioni, con le sole
-     * dimostrazioni e i grafici delle tabelle dei segni: quello che il
-     * programma scriveva prima del capitolo 40. È un'opzione a sé, e non un
-     * valore in più di --proofs, perché le opzioni si leggono a coppie, un
-     * nome e il suo valore: così prende il file allo stesso modo. Le due non
-     * si danno insieme: il documento è uno.
-     *
-     * --certificates: il file in cui scrivere i certificati. */
-    FILE *certificates = NULL;
-    Document document;
-    int first = 1, documented = 0;
-    for (; first + 1 < argc && strncmp(argv[first], "--", 2) == 0; first += 2) {
-        if (strcmp(argv[first], "--model-work") == 0 || strcmp(argv[first], "--model-memory") == 0 ||
-            strcmp(argv[first], "--stack-budget") == 0 || strcmp(argv[first], "--model-steps") == 0 || strcmp(argv[first], "--verification-work") == 0 || strcmp(argv[first], "--saturation-work") == 0 ||
-            strcmp(argv[first], "--saturation-memory") == 0) {
-            unsigned long long budget;
-            int stack = strcmp(argv[first], "--stack-budget") == 0;
-            int memory = stack || strcmp(argv[first], "--model-memory") == 0 || strcmp(argv[first], "--saturation-memory") == 0;
-            int steps = strcmp(argv[first], "--model-steps") == 0;
-            if (!read_model_budget(argv[first + 1], &budget) || (memory && budget > (size_t)-1) || (steps && budget >= LLONG_MAX)) {
-                printf("ERRORE: budget positivo non rappresentabile: %s\n", argv[first + 1]); return 1;
-            }
-            if (stack) stack_budget = (size_t)budget;
-            else if (strcmp(argv[first], "--saturation-memory") == 0) saturation_memory_limit = (size_t)budget;
-            else if (strcmp(argv[first], "--saturation-work") == 0) saturation_work_limit = budget;
-            else if (memory) model_memory_limit = (size_t)budget;
-            else if (steps) model_step_limit = (long long)budget;
-            else if (strcmp(argv[first], "--verification-work") == 0) verification_work_limit = budget;
-            else model_work_limit = budget;
-            continue;
-        }
-        if (strcmp(argv[first], "--certificates") == 0 && !certificates) {
-            certificates = fopen(argv[first + 1], "w");
-            if (!certificates) { printf("ERRORE: impossibile scrivere %s\n", argv[first + 1]); return 1; }
-            continue;
-        }
-        int worked = strcmp(argv[first], "--proofs") == 0;
-        if ((!worked && strcmp(argv[first], "--plain-proofs") != 0) || documented) { printf("ERRORE: opzione sconosciuta o ripetuta: %s\n", argv[first]); return 1; }
-        const char *problem = document_open(&document, argv[first + 1]);
-        if (problem) { printf("ERRORE: %s: %s\n", problem, argv[first + 1]); return 1; }
-
-        /* Tutti e due i segnali si assegnano, non solo quello che si
-         * accende: il documento asciutto deve esserlo anche se qualcuno ha
-         * già chiesto le spiegazioni. */
-        documented = figures_wanted = 1;
-        explanations_wanted = worked;
-    }
-
-    /* Un file per argomento. */
-    int all_proved = 1;
-    for (int i = first; i < argc; i++) {
-        Report report;
-        printf("%s\n", argv[i]);
-        if (documented) document_section(&document, argv[i]);
-        if (!prove_file(argv[i], &report, stdout, documented ? &document : NULL, certificates)) {
-            printf("ERRORE: impossibile leggere il file\n");
-            all_proved = 0;
-            continue;
-        }
-        printf("Riepilogo: %d enunciati, %d dimostrati (%d con certificato verificato), %d falsi, %d non dimostrati, %d non supportati",
-               report.total, report.proved, report.certified, report.refuted, report.not_proved, report.unsupported);
-
-        /* Gli insiemi di soluzioni si contano solo se ce ne sono: così la
-         * riga di un file di soli enunciati resta quella di sempre. */
-        if (report.solved) printf(", %d risolti", report.solved);
-        printf(".\n");
-        if (report.proved + report.solved != report.total) all_proved = 0;
-    }
-    if (unjustified_steps)
-        printf("ATTENZIONE: %d passi di dimostrazione (formule rilette, o certificati respinti dal verificatore) "
-               "non hanno superato il controllo indipendente e sono stati scartati\n", unjustified_steps);
-    if (certificates) fclose(certificates);
-    if (documented) {
-        const char *problem = document_close(&document);
-        if (problem) printf("ERRORE: %s\n", problem);
-    }
-    if (figure) pl_close(figure);
-    return all_proved ? 0 : 1;
 }

@@ -1,3 +1,20 @@
+/* MODULO engine_sequences: induzione su una disuguaglianza, successioni
+ * definite per ricorrenza (capitoli 25-26).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_sequences.h, e
+ * il resto è static. */
+#include "engine_sequences.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+#include "engine_quantifiers_verdict.h"
+#include "engine_derivatives.h"
+
 /* =============================================================================
  * 25. INDUZIONE SU UNA DISUGUAGLIANZA
  * ============================================================================
@@ -610,7 +627,7 @@ static Verdict inequality_plan(const Statement *statement, int variable, int has
  * non dimostra e non risolve, il testo è quello che il metodo ha lasciato,
  * oppure, con keep, quello di prima. Il grafico non viene costruito:
  * sarebbe quello di un passo, non dell'enunciato. */
-static Verdict ask_method(Verdict (*method)(const char *), const char *question, const char *short_text, int keep) {
+Verdict ask_method(Verdict (*method)(const char *), const char *question, const char *short_text, int keep) {
     static char written[PROOF_BYTES];
     static const char box[] = " $\\Box$";
     size_t length = proof_length, closing = sizeof box - 1;
@@ -653,7 +670,7 @@ static Verdict ask_sign_table(const char *question) {
  * Il verdetto DIMOSTRATO è senza certificato, e lo dice in reason. Svuota
  * l'arena e la tabella degli atomi: i risultati di chiamate precedenti non
  * sono più validi. */
-static Verdict prove_inequality(const char *formula, int variable, int has_base, long long base) {
+Verdict prove_inequality(const char *formula, int variable, int has_base, long long base) {
     static char reason[400];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL}, refusal = verdict;
     long long start = 0;
@@ -816,7 +833,7 @@ static const char *const FOREIGN_TERM = "un termine della successione ha un indi
  * Warning: value non deve contenere lettere che in tree sono indici di
  * somme, o verrebbero catturate. Qui value è un numero, n + j, oppure
  * un'espressione nella lettera di una successione. */
-static Node *node_replace(const Node *tree, int name, Node *value) {
+Node *node_replace(const Node *tree, int name, Node *value) {
     if (!tree) return NULL;
     if (tree->kind == N_VAR && tree->name == name) return value;
     Node *copy = node_new(tree->kind, node_replace(tree->a, name, value), node_replace(tree->b, name, value));
@@ -929,7 +946,7 @@ static const char *declared_read(const SequenceStatement *statement, int variabl
 
 /* Ritorna 1 se in tree compare la variabile name, non come indice di una
  * somma né come nome di una successione. */
-static int node_has_variable(const Node *tree, int name) {
+int node_has_variable(const Node *tree, int name) {
     if (!tree) return 0;
     if (tree->kind == N_VAR && tree->name == name) return 1;
     return node_has_variable(tree->a, name) || node_has_variable(tree->b, name) || node_has_variable(tree->c, name);
@@ -949,7 +966,7 @@ static int relation_holds(Relation rel, int side) {
 
 /* Scrive nella dimostrazione il confronto lhs rel rhs, in LaTeX, e ritorna
  * il pezzo scritto. */
-static Span put_comparison(const Node *lhs, Relation rel, const Node *rhs) {
+Span put_comparison(const Node *lhs, Relation rel, const Node *rhs) {
     static const char *const sign[] = {[REL_EQ] = "=", [REL_GE] = "\\ge", [REL_LE] = "\\le", [REL_GT] = ">", [REL_LT] = "<"};
     Span span = {proof_length, 0};
     put_node(lhs, 0);
@@ -1253,7 +1270,7 @@ static Verdict bound_plan(const SequenceStatement *statement, const Declared *se
  * Il verdetto DIMOSTRATO è senza certificato, e dice perché in reason.
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate
  * precedenti non sono più validi. */
-static Verdict prove_sequence(const char *formula, int variable, int has_base, long long base) {
+Verdict prove_sequence(const char *formula, int variable, int has_base, long long base) {
     static char reason[400];
     Verdict verdict = {UNSUPPORTED, variable, base, 0, NULL, NULL, NULL, NULL, NULL, NULL}, refusal = verdict;
 
@@ -1351,7 +1368,7 @@ static int node_iterates(const Node *node) {
  * un'applicazione, come descritto in testa al paragrafo, e ne ritorna il
  * verdetto. Svuota l'arena, come prove_sequence(): al ritorno le applicazioni
  * e la tesi non valgono più. */
-static Verdict decide_iterates(const Formula *thesis) {
+Verdict decide_iterates(const Formula *thesis) {
     static char sequence[MAX_FORMULA], prefix[PROOF_BYTES / 4], shown[3][MAX_FORMULA / 3];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "per induzione, sulle iterate come successione", NULL, NULL};
     verdict.reason = "le iterate f^{n} si dimostrano in un'uguaglianza f^{n}(x) = E, per ogni n dal primo indice e per ogni x, "
@@ -1435,4 +1452,3 @@ static Verdict decide_iterates(const Formula *thesis) {
     decided.proof = proof_text;
     return decided;
 }
-

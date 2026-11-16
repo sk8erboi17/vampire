@@ -1,3 +1,22 @@
+/* MODULO engine_integrals: integrali: primitive, integrali definiti e impropri
+ * (capitolo 30).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_integrals.h, e
+ * il resto è static. */
+#include "engine_integrals.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+#include "engine_quantifiers_verdict.h"
+#include "engine_sequences.h"
+#include "engine_derivatives.h"
+#include "engine_limits.h"
+
 /* =============================================================================
  * 30. INTEGRALI: PRIMITIVE, INTEGRALI DEFINITI E IMPROPRI
  * ============================================================================
@@ -281,7 +300,7 @@ static PrimitiveCheck primitive_check(const Node *f, const Node *F, int x) {
 static const char *primitive_method;
 
 /* Aggiunge a text, di size byte, il razionale v in LaTeX: 3, -\frac{5}{2}. */
-static void frac_latex(Frac v, char *text, size_t size) {
+void frac_latex(Frac v, char *text, size_t size) {
     if (v.den == 1) text_add(text, size, "%lld", v.num);
     else text_add(text, size, "%s\\frac{%lld}{%lld}", v.num < 0 ? "-" : "", v.num < 0 ? -v.num : v.num, v.den);
 }
@@ -289,7 +308,7 @@ static void frac_latex(Frac v, char *text, size_t size) {
 /* Aggiunge alla somma scritta in text il termine coef body: col segno davanti
  * se non è il primo, senza il coefficiente se vale 1 o -1. Un body vuoto è
  * il numero coef; un coefficiente nullo non scrive nulla. */
-static void term_latex(Frac coef, const char *body, char *text, size_t size) {
+void term_latex(Frac coef, const char *body, char *text, size_t size) {
     if (coef.num == 0) return;
     int first = text[0] == 0, negative = coef.num < 0;
     Frac magnitude = negative ? frac_neg(coef) : coef;
@@ -3205,7 +3224,7 @@ static Verdict prove_improper(const char *formula) {
 /* Prova a dimostrare, o a risolvere, l'enunciato su un integrale scritto in
  * formula (vedi 9j e la testa del capitolo). Svuota l'arena e la tabella
  * degli atomi: i risultati di chiamate precedenti non sono più validi. */
-static Verdict prove_integral(const char *formula) {
+Verdict prove_integral(const char *formula) {
     static char answer[ANSWER_BYTES + 8];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL};
     IntegralStatement statement;
@@ -3282,4 +3301,3 @@ static Verdict prove_integral(const char *formula) {
     calculus_certify(&verdict, calculus_certificate("antiderivative", x, NULL, F, f, NULL, NULL, NULL), F, x);
     return verdict;
 }
-

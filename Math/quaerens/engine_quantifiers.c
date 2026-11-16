@@ -1,3 +1,16 @@
+/* MODULO engine_quantifiers: enunciati con quantificatori sui numeri: le
+ * regole di dimostrazione (capitoli da 18 a 18.7).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_quantifiers.h,
+ * e il resto è static. */
+#include "engine_quantifiers.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_quantifiers_verdict.h"
+
 /* =============================================================================
  * 18. QUANTIFICATORI: REGOLE DI DIMOSTRAZIONE
  * ============================================================================
@@ -194,17 +207,17 @@
 /* Le variabili generiche della dimostrazione in corso, dalla più esterna. */
 static Bound *universal;
 static size_t universal_capacity;
-static int universal_count;
+int universal_count;
 
 /* Una cella per variabile, invece di una maschera a 32 bit: 1 se e stata
  * nominata da un'ipotesi esistenziale. Il vettore segue quello dei legami. */
-static unsigned char *universal_named;
-static size_t universal_named_capacity;
+unsigned char *universal_named;
+size_t universal_named_capacity;
 
 /* Introduce una variabile generica, azzerandone la qualifica di testimone.
  * 0 e failure quando uno dei depositi non puo crescere. Gli insiemi restano
  * posseduti dagli alberi, quindi il loro indirizzo non cambia con realloc. */
-static int universal_push(Bound bound) {
+int universal_push(Bound bound) {
     size_t need = (size_t)universal_count + 1;
     if (!work_reserve((void **)&universal, &universal_capacity, need, sizeof *universal) ||
         !work_reserve((void **)&universal_named, &universal_named_capacity, need, sizeof *universal_named)) return 0;
@@ -217,14 +230,14 @@ static int universal_push(Bound bound) {
  * se non ce n'è una, e il resto r del caso che si sta trattando. split_case
  * dice anche quale dei valori di un "esiste" si sta scegliendo, o
  * ricontrollando (vedi Formula): fuori dai casi vale 0. */
-static int split_modulus, split_case;
+int split_modulus, split_case;
 
 /* Quante volte establish() può ancora essere chiamata per la prova in corso.
  * Provare un valore dopo l'altro per più "esiste" annidati, o le due letture
  * di una lunga catena di equivalenze, fa crescere i tentativi in modo
  * esponenziale: finiti i passi la ricerca si ferma e il verdetto è NON
  * DIMOSTRATO, invece di esaurire tempo e memoria. */
-static int search_left;
+int search_left;
 
 /* Mette da parte i tentativi rimasti oltre MAX_SEARCH / 10 e ritorna quanti
  * sono; chi chiama li restituisce, con search_left += ..., quando ha finito.
@@ -250,27 +263,21 @@ static int universal_index(int atom) {
     return -1;
 }
 
-/* Un valore dato a una variabile per dimostrare un "esiste". */
-typedef struct {
-    int name;     /* la lettera */
-    Frac value;   /* il numero scelto */
-} Choice;
-
 /* I numeri scelti finora, dal quantificatore più esterno. Quando la
  * dimostrazione smentisce l'enunciato, sono il controesempio da riportare. */
-static Choice *chosen;
+Choice *chosen;
 static size_t chosen_capacity;
-static int chosen_count;
+int chosen_count;
 
 /* 1 se una scelta è stata fatta dentro un caso sul resto (18o), o dentro una
  * distinzione di casi su una variabile (18v-2): allora i numeri scelti
  * cambiano da un caso all'altro, e non formano un controesempio da
  * riportare. */
-static int chosen_by_cases;
+int chosen_by_cases;
 
 /* Quante distinzioni di casi su una variabile (18v-2) racchiudono il punto
  * della dimostrazione in cui si è. */
-static int region_depth;
+int region_depth;
 
 /* 18v-4. I fatti "u non divide w" del caso in esame. Nascono da una
  * distinzione di casi (18v-2): nel caso "k \nmid y" la variabile y non si
@@ -283,10 +290,10 @@ typedef struct {
 
 static Exclusion *excluded;
 static size_t excluded_capacity;
-static int excluded_count;
+int excluded_count;
 
 /* Annota che alla variabile name è stato dato il valore value. */
-static void choose(int name, Frac value) {
+void choose(int name, Frac value) {
     if (split_modulus || region_depth) chosen_by_cases = 1;
     if (work_reserve((void **)&chosen, &chosen_capacity, (size_t)chosen_count + 1, sizeof *chosen))
         chosen[chosen_count++] = (Choice){name, value};
@@ -314,7 +321,7 @@ static void witness_drop(Formula *f) { f->has_witness &= ~(1u << split_case); }
  * WitnessRecord, nel capitolo 18.5), e quante ipotesi "esiste" 18u-1 ha
  * preso con il loro testimone. Come le scelte, tornano indietro con un
  * tentativo abbandonato: di quel tentativo non resta nulla da ricontrollare. */
-static int record_count, hypotheses_named;
+int record_count, hypotheses_named;
 
 /* Un punto della dimostrazione scritta e dell'elenco delle scelte a cui si
  * può tornare quando un tentativo fallisce. */
@@ -345,7 +352,7 @@ static char primed[MAX_ATOMS];
 static void put_source(const Formula *f) { proof_add("%.*s", (int)(f->end - f->start), f->start); }
 
 /* Scrive l'insieme set com'è scritto nell'enunciato. */
-static void put_numbers(const NumberSet *set) { proof_add("%.*s", (int)(set->end - set->start), set->start); }
+void put_numbers(const NumberSet *set) { proof_add("%.*s", (int)(set->end - set->start), set->start); }
 
 /* Ritorna il grado del monomio: la somma dei suoi esponenti. */
 static long long mono_degree(const Mono *m) {
@@ -365,7 +372,7 @@ static const Term *poly_leading(Poly p) {
 
 /* Scrive in LaTeX il polinomio p, dai termini di grado più alto. p deve essere
  * un polinomio "vero" nelle variabili dell'enunciato (vedi rat_polynomials()). */
-static void put_poly(Poly p) {
+void put_poly(Poly p) {
     if (p.count == 0) { proof_add("0"); return; }
     int written = 0;
     for (long long degree = mono_degree(&poly_leading(p)->mono); degree >= 0; degree--)
@@ -406,7 +413,7 @@ static void put_factor(Poly p) {
 }
 
 /* Ritorna -p. */
-static Poly poly_negate(Poly p) { return poly_add(poly_const(num_int(0)), p, 1); }
+Poly poly_negate(Poly p) { return poly_add(poly_const(num_int(0)), p, 1); }
 
 /* Scrive la frazione num/den, o solo num se den è 1. Se den comincia con un
  * segno meno si cambia segno a entrambi: si legge meglio. */
@@ -421,10 +428,10 @@ static void put_ratio(Poly num, Poly den) {
 }
 
 /* Ritorna 1 se p è una costante, zero compreso. */
-static int poly_is_constant(Poly p) { return p.count == 0 || (p.count == 1 && p.term[0].mono.count == 0); }
+int poly_is_constant(Poly p) { return p.count == 0 || (p.count == 1 && p.term[0].mono.count == 0); }
 
 /* Ritorna 1 se l'atomo x compare in p. */
-static int poly_uses(Poly p, int x) {
+int poly_uses(Poly p, int x) {
     for (int i = 0; i < p.count; i++)
         if (mono_exponent(&p.term[i].mono, x).num != 0) return 1;
     return 0;
@@ -462,11 +469,11 @@ static int poly_uses(Poly p, int x) {
  * una dimostrazione, e 0 altrove: la regola dei resti (18r) e la verifica del
  * capitolo 19 vogliono polinomi nelle sole variabili, e per loro una potenza
  * resta ciò che era. */
-static int power_letters;
+int power_letters;
 
 /* 18x. Ritorna 1 se il monomio m è fatto di variabili generiche intere con
  * esponenti interi positivi: l'esponente di una potenza che fa da lettera. */
-static int power_exponent(const Mono *m) {
+int power_exponent(const Mono *m) {
     for (int i = 0; i < m->count; i++) {
         int who = universal_index(m->factor[i].atom);
         Frac e = m->factor[i].exp;
@@ -479,7 +486,7 @@ static int power_exponent(const Mono *m) {
  * esponente fatto di variabili generiche intere, con esponenti interi
  * positivi, e base un numero positivo o una variabile generica dei
  * razionali positivi. Fuori dalla ricerca (power_letters a 0) ritorna 0. */
-static int power_letter(int atom) {
+int power_letter(int atom) {
     const Atom *a = &atoms[atom];
     if (!power_letters || a->kind != ATOM_POW || a->exponent.count == 0 || !power_exponent(&a->exponent)) return 0;
     if (a->base == BASE_PRIME) return 1;
@@ -503,7 +510,7 @@ static int power_letter(int atom) {
  * il passo inverso, moltiplicando sopra e sotto per la potenza di x che
  * manca. Dove r è definita quella potenza non è zero, quindi r si annulla
  * esattamente dove si annulla *num. */
-static int rat_polynomials(Rat r, Poly *num, Poly *den) {
+int rat_polynomials(Rat r, Poly *num, Poly *den) {
     *num = r.num;
     *den = r.den;
 
@@ -1355,7 +1362,7 @@ static int term_is_closed(const Node *node, const NameScope *shadow) {
  * espressione", e quindi vero, pur non esistendo. Che due valori siano
  * diversi si conclude solo se una di quelle regole prova che la differenza
  * non è zero. Un errore di calcolo vuol dire solo che non si sa. */
-static int closed_gap(const Formula *source) {
+int closed_gap(const Formula *source) {
     long long where;
     if (failure || !term_is_closed(source->left, NULL) || !term_is_closed(source->right, NULL)) return -1;
     condition_count = conditions_lost = 0;
@@ -2126,7 +2133,7 @@ static int establish(Formula *f, int negated);
 
 /* Ritorna 1 se la lettera name compare nel sotto-albero node, come variabile,
  * come indice di una somma o come nome di una successione. */
-static int node_uses_letter(const Node *node, int name) {
+int node_uses_letter(const Node *node, int name) {
     if (!node) return 0;
     if (node->name == name && (node->kind == N_VAR || node->kind == N_BIGOP || node->kind == N_SEQ || node->kind == N_APPLY)) return 1;
     return node_uses_letter(node->a, name) || node_uses_letter(node->b, name) || node_uses_letter(node->c, name);
@@ -2134,7 +2141,7 @@ static int node_uses_letter(const Node *node, int name) {
 
 /* Ritorna 1 se la lettera name compare nella condizione f: quantificata, o
  * dentro un'espressione. */
-static int formula_uses_letter(const Formula *f, int name) {
+int formula_uses_letter(const Formula *f, int name) {
     if (!f) return 0;
     if ((f->kind == F_FORALL || f->kind == F_EXISTS) && f->variable == name) return 1;
     return node_uses_letter(f->left, name) || node_uses_letter(f->right, name) ||
@@ -2589,7 +2596,7 @@ typedef struct {
 
 /* La richiesta in attesa, se split_pending: la raccoglie in_regions(). */
 static Split split_wanted;
-static int split_pending;
+int split_pending;
 
 /* Annota la richiesta s, se non ce n'è già una: vale la prima. */
 static void split_ask(Split s) {
@@ -3167,7 +3174,7 @@ static int claim_established(void *data) {
 /* 18v-2. Dimostra body, negata se negated, distinguendo i casi che servono
  * sulle variabili generiche dal posto from in su: quelle appena introdotte
  * da un "per ogni". */
-static int establish_in_regions(Formula *body, int negated, int from) {
+int establish_in_regions(Formula *body, int negated, int from) {
     Claim claim = {body, negated};
     return in_regions(claim_established, &claim, body, from, 0);
 }
@@ -3391,7 +3398,7 @@ static int solve_with(Formula *f, int negated, const Formula *equation) {
 
 /* Se il caso piece di map è un punto, "x = c" con x la variabile della regola
  * e c un numero, mette c in *point e ritorna 1. */
-static int case_point(const Map *map, int piece, Frac *point) {
+int case_point(const Map *map, int piece, Frac *point) {
     const Formula *c = map->piece[piece].when;
     Num value;
     if (c->kind != F_EQUAL) return 0;
@@ -3575,50 +3582,16 @@ static int solve_for(Formula *f, int negated) {
  *     chiedeva che w fosse intero, è stata fermata così.
  */
 
-/* Una parte di una disgiunzione da dimostrare, con il segno con cui va
- * letta: la disgiunzione vale quando vale una delle sue parti. */
-typedef struct {
-    Formula *source;  /* la condizione */
-    int negated;      /* 1 se va presa negata */
-} Leaf;
-
-/* Ciò che 18u-3 ha affermato trovando un valore, annotato perché la verifica
- * del capitolo 19 lo ricontrolli con i numeri (record_holds()). Un'istanza
- * dice: per ogni valore delle variabili generiche per cui le parti `leaf`
- * della disgiunzione sono tutte false (cioè le ipotesi valgono), i valori
- * `value` degli "esiste" `quantifier` stanno nei loro insiemi e rendono vera
- * `body`, letta con il segno `sign`.
- *
- * Le espressioni, i nodi e gli insiemi a cui punta stanno nell'arena e negli
- * alberi della dimostrazione in corso: valgono finché questa non riparte. */
-typedef struct {
-    int generics;                    /* variabili generiche, in generic[] */
-    Bound *generic;        /* nell'ordine in cui la verifica dà loro un valore: prima
-                                        i testimoni a cui 18u-1 ha dato un nome, poi le altre;
-                                        il vettore e posseduto dall'arena della dimostrazione */
-    int bindings;                    /* variabili legate a un valore, in binding[] */
-    Binding *binding;        /* quelle di env in quel momento: il valore è
-                                        un'espressione nelle variabili generiche;
-                                        il vettore e posseduto dall'arena */
-    int leaves;                      /* parti della disgiunzione, in leaf[] */
-    Leaf leaf[MAX_LEAVES];           /* tutte tranne quella dell'"esiste" */
-    int names;                       /* "esiste" a cui è stato dato un valore, da 1 a MAX_NAMED */
-    Formula *quantifier[MAX_NAMED];  /* i loro nodi, dal più esterno */
-    Rat value[MAX_NAMED];            /* i valori: espressioni nelle variabili generiche */
-    const Formula *body;             /* la condizione che segue gli "esiste" */
-    int sign;                        /* 1 se body va presa negata */
-} WitnessRecord;
-
 /* I valori trovati da 18u-3 nella dimostrazione in corso: i primi
  * record_count (vedi Mark). */
-static WitnessRecord witness_records[MAX_RECORDS];
+WitnessRecord witness_records[MAX_RECORDS];
 
 /* universal_named e dichiarato con la pila dei legami: la verifica da un
  * valore prima ai testimoni delle ipotesi, poi alle altre variabili. */
 
 /* Prototipo in avanti inevitabile: forget_choices() sta nel capitolo 19, con
  * la verifica a cui serve, e 18u deve chiamarla quando riesce. */
-static void forget_choices(Formula *f);
+void forget_choices(Formula *f);
 
 /* Elenca in leaf[], a partire dal posto count, le parti della disgiunzione
  * f (negata se negated): scende nelle negazioni e nei connettivi che, con
@@ -4085,7 +4058,7 @@ static int letter_outside_exponents(const Node *node, int letter) {
 
 /* 18x. Ritorna 1 se nella condizione f la lettera compare, e solo negli
  * esponenti delle potenze. */
-static int letter_only_in_exponents(const Formula *f, int letter) {
+int letter_only_in_exponents(const Formula *f, int letter) {
     if (!f) return 1;
     if (letter_outside_exponents(f->left, letter) || letter_outside_exponents(f->right, letter)) return 0;
     return letter_only_in_exponents(f->a, letter) && letter_only_in_exponents(f->b, letter);
@@ -4982,7 +4955,7 @@ static int cases_define(const Map *map) {
  * Senza questo passo le ipotesi dell'enunciato potrebbero non essere
  * soddisfatte da nessuna applicazione, e allora qualunque tesi ne seguirebbe:
  * un verdetto FALSO sarebbe sbagliato, e uno DIMOSTRATO non direbbe nulla. */
-static int map_defined(const Map *map) {
+int map_defined(const Map *map) {
     Poly num, den;
     if (map->cases) return cases_define(map);
     proof_add("\\item \\emph{The %srule defines %s from $", map->partner ? "first component of the " : map->component ? "second component of the " : "",
@@ -5019,7 +4992,7 @@ static int map_defined(const Map *map) {
 /* Dimostra la tesi f dividendola nelle affermazioni di cui è la congiunzione:
  * ognuna ha il suo titolo, con il testo dell'enunciato, e sotto i suoi passi.
  * Ritorna 1 se le dimostra tutte. */
-static int prove_claims(Formula *f) {
+int prove_claims(Formula *f) {
     if (f->kind == F_AND) return prove_claims(f->a) && prove_claims(f->b);
     proof_add("\\item \\emph{Claim:} $");
     put_source(f);
@@ -5085,26 +5058,18 @@ static int prove_claims(Formula *f) {
  * di quella verifica hanno bisogno.
  */
 
-/* Una condizione "modulus divide dividend" di un enunciato deciso sui resti. */
-typedef struct {
-    const Formula *source;  /* il nodo F_DIVIDES o F_IN, oppure l'uguaglianza
-                               sotto un "esiste k" che dice la stessa cosa */
-    long long modulus;      /* D, positivo */
-    Poly dividend;          /* N, a coefficienti interi */
-} Congruence;
-
 /* Le condizioni dell'enunciato in corso, e un multiplo comune dei loro
  * moduli: il periodo M. */
-static Congruence congruences[MAX_CONGRUENCES];
-static int congruence_count;
-static long long residue_period;
+Congruence congruences[MAX_CONGRUENCES];
+int congruence_count;
+long long residue_period;
 
 /* Le variabili intere visibili nel punto dell'enunciato che si sta
  * esaminando, dalla più esterna, e il resto dato a ciascuna. */
-static int *residue_name;
-static long long *residue_value;
+int *residue_name;
+long long *residue_value;
 static size_t residue_name_capacity, residue_value_capacity;
-static int residue_count;
+int residue_count;
 
 /* Ritorna 1 se f è un'uguaglianza o una disgiunzione di uguaglianze. */
 static int equations_only(const Formula *f) {
@@ -5115,7 +5080,7 @@ static int equations_only(const Formula *f) {
 /* Ritorna 1 se f ha la forma "esiste k in Z tale che L = R (oppure L' = R',
  * ...)": è il modo di scrivere "è un multiplo di" senza il simbolo. Che le
  * uguaglianze siano davvero di primo grado in k lo controlla chi le legge. */
-static int names_a_multiple(const Formula *f) {
+int names_a_multiple(const Formula *f) {
     return f->kind == F_EXISTS && f->numbers.integers && !f->numbers.bounded && !f->numbers.holes && equations_only(f->a);
 }
 
@@ -5165,7 +5130,7 @@ static int multiples_read(const Formula *e, int name) {
  * zero, riceve il massimo numero di variabili in vista insieme, cioè quanti
  * quantificatori sui resti stanno uno dentro l'altro. Nessuna variabile deve
  * essere legata: i conti si fanno sulle lettere. */
-static int congruences_read(const Formula *f, int *deepest) {
+int congruences_read(const Formula *f, int *deepest) {
     Num divisor;
     if (failure) return 0;
     switch (f->kind) {
@@ -5219,7 +5184,7 @@ static int congruence_holds(const Formula *source) {
 /* 18r. Ritorna 1 se la condizione f, che congruences_read() ha accettato, è
  * vera con i resti dati alle variabili in vista. Un quantificatore prova
  * tutti i resti della sua variabile, da 0 a residue_period - 1. */
-static int residue_holds(const Formula *f) {
+int residue_holds(const Formula *f) {
     switch (f->kind) {
     case F_NOT:     return !residue_holds(f->a);
     case F_AND:     return residue_holds(f->a) && residue_holds(f->b);
@@ -5245,4 +5210,3 @@ static int residue_holds(const Formula *f) {
     residue_count--;
     return holds;
 }
-

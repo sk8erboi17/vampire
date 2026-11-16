@@ -59,18 +59,50 @@ add_compile_definitions(ABSOLUTE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 ################################################################
 # the mathematical engine (C)
 ################################################################
-# Two C translation units. Math/Engine.c includes the engine's sources in
-# Math/quaerens/ and implements the interface Math/Engine.h, the only thing
-# the C++ side sees of the engine. Proof/IndependentChecker.c is the checker
-# of certificates, compiled apart from the engine on purpose (see
-# Proof/IndependentChecker.h). They are a target of their own, defined here before the
-# C++-only compile options below (-fno-rtti and the like), which a C compiler
-# would not accept quietly. Its objects go into every executable that is
-# built from the common objects.
+# The engine is a set of C modules, Math/quaerens/NAME.c, each a translation
+# unit of its own with its interface NAME.h: what the other modules use of
+# it (Math/tools/engine_modules.py check keeps them so). Math/Engine.c
+# implements with them the interface Math/Engine.h, the only thing the C++
+# side sees of the engine. Math/Plot.c is the module of the plots, and
+# Proof/IndependentChecker.c the checker of certificates, compiled apart
+# from the engine on purpose (see Proof/IndependentChecker.h). They are a
+# target of their own, defined here before the C++-only compile options
+# below (-fno-rtti and the like), which a C compiler would not accept
+# quietly. Its objects go into every executable that is built from the
+# common objects.
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
-add_library(mathengine OBJECT Math/Engine.c Math/Plot.c Proof/IndependentChecker.c)
+set(MATHENGINE_MODULES
+    Math/quaerens/engine_foundations.c
+    Math/quaerens/parser.c
+    Math/quaerens/engine_evaluation.c
+    Math/quaerens/engine_induction.c
+    Math/quaerens/engine_sets.c
+    Math/quaerens/engine_intervals.c
+    Math/quaerens/engine_quantifiers.c
+    Math/quaerens/engine_sign_tables.c
+    Math/quaerens/engine_explanation.c
+    Math/quaerens/engine_quantifiers_verdict.c
+    Math/quaerens/engine_sequences.c
+    Math/quaerens/engine_derivatives.c
+    Math/quaerens/engine_logic.c
+    Math/quaerens/engine_limits.c
+    Math/quaerens/engine_integrals.c
+    Math/quaerens/engine_linear_algebra.c
+    Math/quaerens/engine_multivariable.c
+    Math/quaerens/engine_indices.c
+    Math/quaerens/engine_statement.c
+    Math/quaerens/output.c
+)
+add_library(mathengine OBJECT ${MATHENGINE_MODULES} Math/Engine.c Math/Plot.c Proof/IndependentChecker.c)
+
+# The engine also as a program on its own, built from the same modules:
+# Math/quaerens/main.c is the last chapter of its book, with main(). It reads
+# the same statements without Vampire, which is how the engine inside
+# Vampire is compared with the engine alone.
+#     quaerens FILE.tex ...
+add_executable(quaerens Math/quaerens/main.c $<TARGET_OBJECTS:mathengine>)
 
 # The independent checker also as a program on its own, built from the same
 # source: a file of certificates can be rechecked without Vampire.

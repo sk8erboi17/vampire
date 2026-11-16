@@ -169,17 +169,20 @@
  *
  * I FILE
  *
- * Il programma è fatto di cinque file, e questo include gli altri quattro:
+ * Il motore è un libro diviso in moduli, ognuno compilato per conto suo:
  *
- *   main.c     il motore: cerca, calcola, decide, ricontrolla;
- *   parser.c   la lettura del LaTeX: dal testo agli alberi;
- *   output.c   il documento finale, con dimostrazioni, soluzioni e grafici;
- *   plot.c     i grafici: un piccolo matplotlib in C, che scrive PDF;
- *   checker.c  il verificatore indipendente dei certificati.
+ *   engine_*.c  il motore: cerca, calcola, decide, ricontrolla;
+ *   parser.c    la lettura del LaTeX: dal testo agli alberi;
+ *   output.c    il documento finale, con dimostrazioni, soluzioni e grafici;
+ *   main.c      questo file: il programma a sé, con main();
+ *   plot.c      i grafici: un piccolo matplotlib in C, che scrive PDF;
+ *   checker.c   il verificatore indipendente dei certificati.
  *
- * parser.c e output.c sono volumi di questo stesso libro: usano ciò che qui
- * viene prima della riga che li include. plot.c e checker.c sono programmi a
- * sé, che non sanno nulla degli altri, e di loro si usa solo l'interfaccia.
+ * Ogni modulo ha i suoi capitoli in NOME.c e la sua interfaccia in NOME.h:
+ * ciò che gli altri moduli ne usano. Il resto è static, e fuori dal modulo
+ * non si vede. L'elenco dei moduli segue l'indice dei capitoli. plot.c e
+ * checker.c sono programmi a sé, che non sanno nulla degli altri, e di loro
+ * si usa solo l'interfaccia.
  *
  * COME LO FA
  *
@@ -449,7 +452,7 @@
  * nella sua aritmetica o nel suo modo di leggere le formule li attraversa
  * tutti. Per questo una dimostrazione per induzione viene anche consegnata,
  * come certificato, a un secondo programma: checker.c, che ha la sua
- * aritmetica e i suoi polinomi, non usa nulla di questo file, ed è abbastanza
+ * aritmetica e i suoi polinomi, non usa nulla del motore, ed è abbastanza
  * piccolo da poterlo leggere tutto (13h). Se lo respinge, il verdetto è NON
  * DIMOSTRATO. Per un enunciato sugli insiemi il certificato è il solo
  * enunciato: il verificatore lo decide da capo, con un conto suo sulle
@@ -499,20 +502,22 @@
  *
  * COMPILAZIONE
  *
- *     cc -std=c11 -O2 -Wall -Wextra -o mathresearcher main.c
+ * La fa CMake, con il resto di Vampire. Ogni modulo è un'unità di
+ * compilazione dell'obiettivo mathengine; questo file, con quei moduli, dà
+ * il programma a sé (l'obiettivo quaerens), che legge gli stessi enunciati
+ * senza Vampire.
  *
- * Servono GCC o Clang: i conti esatti usano __int128. main.c include
- * parser.c, output.c, plot.c e checker.c, che devono stare nella stessa
- * cartella; il verificatore si compila anche da solo (vedi la testa di
- * checker.c). Per avere il documento finale in PDF serve inoltre un
- * compilatore LaTeX installato (tectonic oppure pdflatex); senza, il
- * programma scrive comunque il documento .tex e il PDF dei grafici.
+ * Servono GCC o Clang: i conti esatti usano __int128. Il verificatore si
+ * compila anche da solo (vedi la testa di checker.c). Per avere il
+ * documento finale in PDF serve inoltre un compilatore LaTeX installato
+ * (tectonic oppure pdflatex); senza, il programma scrive comunque il
+ * documento .tex e il PDF dei grafici.
  *
  * INDICE DEI CAPITOLI
  *
- * La numerazione è una sola per i tre file che formano il programma. I
- * capitoli segnati con un nome di file stanno in quel file, incluso da qui
- * nel punto in cui compaiono nell'elenco. Il capitolo 18, il più lungo, è
+ * La numerazione è una sola per tutti i moduli. I capitoli segnati con un
+ * nome di file stanno in quel file; gli altri nei moduli engine_*.c, come
+ * dice l'elenco che segue l'indice. Il capitolo 18, il più lungo, è
  * diviso in capitoli numerati 18.1, 18.2, ...: le sue regole si citano come
  * 18a, 18p, 18t-h, e con la sottonumerazione restano tutte nel capitolo che
  * dà loro il nome.
@@ -579,66 +584,313 @@
  *   23. main
  */
 
-/* I VOLUMI DEL MOTORE (generato da Math/tools/engine_volumes.py: non modificare a mano)
+/* I MODULI DEL MOTORE
  *
- * Il motore è un solo libro in più volumi, letti in quest'ordine in una sola
- * unità di compilazione: un capitolo usa ciò che i capitoli sopra di lui
- * hanno presentato, in questo volume o in quelli prima. I volumi uniti in
- * quest'ordine sono, byte per byte, il file unico da cui sono stati tagliati
- * (engine_volumes.py join lo riscrive, per confrontarlo con quello di Quaerens). */
+ * Il libro è diviso in moduli, ognuno un'unità di compilazione con la sua
+ * interfaccia: NOME.c ha i capitoli, NOME.h ciò che gli altri moduli ne
+ * usano. Un capitolo usa ancora ciò che i capitoli sopra di lui hanno
+ * presentato, e lo riceve includendo l'interfaccia del modulo che lo
+ * contiene. In ordine di lettura:
+ *
+ *   engine_foundations
+ *       limiti, errori e memoria, numeri esatti, monomi, polinomi,
+ *       atomi, frazioni di polinomi (capitoli 1-7)
+ *   parser
+ *       la lettura del LaTeX: gli alberi delle espressioni, degli
+ *       enunciati sugli insiemi, di quelli con quantificatori, delle
+ *       matrici e degli indici, i lettori che li costruiscono, gli
+ *       \item di un file (capitoli 8, 9, 14, 17, 21, 31, 34, 37 e
+ *       39)
+ *   engine_evaluation
+ *       le successioni note come dati, la valutazione di un albero
+ *       in una frazione, i test di annullamento (capitoli 10-12)
+ *   engine_induction
+ *       induzione su somme e prodotti: caso base, passo, verdetto
+ *       (capitolo 13)
+ *   engine_sets
+ *       relazioni tra insiemi: decisione per regioni, verifica
+ *       indipendente, dimostrazione scritta (capitoli 15-16)
+ *   engine_intervals
+ *       i numeri reali come intervalli con l'errore garantito
+ *       (capitolo 24)
+ *   engine_quantifiers
+ *       enunciati con quantificatori sui numeri: le regole di
+ *       dimostrazione (capitoli da 18 a 18.7)
+ *   engine_sign_tables
+ *       la tabella dei segni: punti esatti, segni, righe, soluzioni,
+ *       grafici, un parametro (capitoli 18.8-18.19)
+ *   engine_explanation
+ *       la spiegazione: i passaggi registrati e ricontrollati
+ *       (capitolo 40)
+ *   engine_quantifiers_verdict
+ *       enunciati con quantificatori: verifica indipendente e
+ *       verdetto (capitolo 19)
+ *   engine_sequences
+ *       induzione su una disuguaglianza, successioni definite per
+ *       ricorrenza (capitoli 25-26)
+ *   engine_derivatives
+ *       derivate: dimostrarle, calcolarle, usarle negli studi di
+ *       funzione (capitolo 27)
+ *   engine_logic
+ *       insiemi qualsiasi: modelli finiti, istanze, saturazione, e i
+ *       compiti svolti per Vampire (capitolo 28)
+ *   engine_limits
+ *       limiti (capitolo 29)
+ *   engine_integrals
+ *       integrali: primitive, integrali definiti e impropri
+ *       (capitolo 30)
+ *   engine_linear_algebra
+ *       algebra lineare esatta: matrici, determinanti, sistemi
+ *       lineari (capitoli 32-33)
+ *   engine_multivariable
+ *       funzioni di più variabili: derivate parziali, gradiente,
+ *       hessiana, punti critici (capitoli 35-36)
+ *   engine_indices
+ *       identità con gli indici: il conto su tutti i valori
+ *       (capitolo 38)
+ *   engine_statement
+ *       dimostrare un enunciato: quale capitolo lo legge, e il
+ *       verdetto (capitolo 20)
+ *   output
+ *       il documento finale: enunciati, spiegazioni, dimostrazioni,
+ *       soluzioni e grafici in LaTeX, e la sua compilazione in PDF
+ *       (capitoli 41 e 22)
+ *
+ * Questo file è il programma a sé: l'ultimo capitolo, con main(). Vampire
+ * non lo compila: usa i moduli attraverso Math/Engine.h. */
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_sign_tables.h"
+#include "engine_explanation.h"
+#include "engine_statement.h"
+#include "output.h"
 
-/* limiti, errori e memoria, numeri esatti, monomi, polinomi, atomi, frazioni di polinomi (capitoli 1-7; include checker.c, plot.c e parser.c dove il libro ne ha bisogno) */
-#include "engine_foundations.c"
+/* =============================================================================
+ * 23. MAIN
+ * ============================================================================
+ *
+ * Modi d'uso:
+ *
+ *     mathresearcher FILE.tex ...                  dimostra o risolve ogni enunciato dei file
+ *     mathresearcher --proofs OUT.pdf FILE.tex ... scrive anche il documento con le
+ *                                                  dimostrazioni, le soluzioni e i grafici:
+ *                                                  in LaTeX (OUT.tex, con i grafici in
+ *                                                  OUT-plots.pdf) e compilato in PDF; dove
+ *                                                  il motore ha registrato i passaggi, ogni
+ *                                                  voce comincia con lo svolgimento
+ *     mathresearcher --plain-proofs OUT.pdf FILE.tex ...
+ *                                                  lo stesso documento senza gli svolgimenti:
+ *                                                  le sole dimostrazioni, con i grafici
+ *     mathresearcher --certificates OUT FILE.tex ...
+ *                                                  scrive anche i certificati verificati,
+ *                                                  da far ricontrollare a checker
+ *     mathresearcher                               legge un enunciato da stdin
+ *
+ * --model-work N e --model-memory BYTES regolano i budget della ricerca SAT
+ * (20.000.000 operazioni e 128 MiB di default), non un massimo di elementi.
+ * --model-steps N regola gli elementi che i quantificatori provano
+ * ricalcolando un enunciato sui modelli (40.000.000 di default): un modello
+ * che non si riesce a ricalcolare non è un controesempio, e il verdetto lo dice.
+ * Il verificatore riceve due volte e mezza quel budget.
+ * --stack-budget BYTES regola la pila concessa agli alberi di un enunciato
+ * lungo (4 MiB di default, per una pila di 8 MB): oltre, l'esito è "pila di
+ * lavoro esaurita".
+ * --verification-work N regola le visite del verificatore numerico
+ * (20.000.000 di default): una verifica interrotta non conferma nulla.
+ * --saturation-work N e --saturation-memory BYTES regolano le visite e la
+ * memoria della ricerca per clausole (2.000.000 e 128 MiB di default).
+ * Tutte le opzioni si possono dare insieme. Il codice di uscita è 0 se tutti
+ * gli enunciati sono stati dimostrati o risolti, 1 altrimenti.
+ */
 
-/* le successioni note come dati, la valutazione di un albero in una frazione, i test di annullamento (capitoli 10-12) */
-#include "engine_evaluation.c"
+/* Conteggio dei verdetti su un file. */
+typedef struct {
+    int total;        /* \item trovati */
+    int proved;
+    int certified;    /* tra i dimostrati, quelli con il certificato verificato */
+    int refuted;
+    int not_proved;
+    int unsupported;
+    int solved;       /* insiemi di soluzioni trovati */
+} Report;
 
-/* induzione su somme e prodotti: caso base, passo, verdetto (capitolo 13) */
-#include "engine_induction.c"
+/* Dimostra tutti gli enunciati del file path. Riempie *report con i conteggi
+ * e, se out non è NULL, vi scrive una riga per enunciato. Se document non è
+ * NULL vi scrive, come elenco, ogni enunciato con la sua dimostrazione e il
+ * suo grafico; se certificates non è NULL vi scrive i certificati
+ * verificati, uno dopo l'altro. Ritorna 0 se il file non si può leggere, 1
+ * altrimenti. */
+static int prove_file(const char *path, Report *report, FILE *out, Document *document, FILE *certificates) {
+    memset(report, 0, sizeof *report);
+    char *text = read_file(path);
+    if (!text) return 0;
 
-/* relazioni tra insiemi: decisione per regioni, verifica indipendente, dimostrazione scritta (capitoli 15-16) */
-#include "engine_sets.c"
+    if (document) document_list(document, 1);
+    const char *position = text, *item, *end;
+    while (next_item(&position, &item, &end)) {
+        Verdict verdict = prove_item(item, end);
+        report->total++;
+        switch (verdict.outcome) {
+        case PROVED:      report->proved++; break;
+        case REFUTED:     report->refuted++; break;
+        case NOT_PROVED:  report->not_proved++; break;
+        case UNSUPPORTED: report->unsupported++; break;
+        case SOLVED:      report->solved++; break;
+        }
+        if (verdict.certificate) {
+            if (verdict.outcome == PROVED) report->certified++;
+            if (certificates) fprintf(certificates, "%s\n", verdict.certificate);
+        }
+        if (out) {
+            fprintf(out, "%4d. ", report->total);
+            verdict_print(out, &verdict);
+            fputc('\n', out);
+        }
 
-/* i numeri reali come intervalli con l'errore garantito (capitolo 24) */
-#include "engine_intervals.c"
+        /* Nel documento l'enunciato va com'è scritto nel file: lo si rilegge
+         * dal testo, perché prove_item() ne ritorna solo il verdetto. */
+        if (document) {
+            Item statement;
+            const char *unreadable = read_item(item, end, &statement);
+            document_item(document, unreadable ? NULL : statement.formula, &verdict, figure, &explanation);
+        }
+    }
+    if (document) document_list(document, 0);
+    free(text);
+    return 1;
+}
 
-/* enunciati con quantificatori sui numeri: le regole di dimostrazione (capitoli da 18 a 18.7) */
-#include "engine_quantifiers.c"
+/* Legge un budget decimale positivo senza conversioni con trabocco. */
+static int read_model_budget(const char *text, unsigned long long *value) {
+    unsigned long long n = 0;
+    if (!*text) return 0;
+    for (; *text; text++) {
+        if (*text < '0' || *text > '9' || n > (ULLONG_MAX - (unsigned)(*text - '0')) / 10) return 0;
+        n = 10 * n + (unsigned)(*text - '0');
+    }
+    *value = n;
+    return n != 0;
+}
 
-/* la tabella dei segni: punti esatti, segni, righe, soluzioni, grafici, un parametro (capitoli 18.8-18.19) */
-#include "engine_sign_tables.c"
+/* Legge una riga completa da stream in memoria posseduta dal chiamante,
+ * da liberare dopo l'uso. Non tronca l'input a un buffer numerico interno.
+ * NULL indica EOF prima della riga oppure errore di risorse in failure. */
+static char *read_input_line(FILE *stream) {
+    char *line=NULL;size_t length=0,capacity=0;int ch;
+    while ((ch=fgetc(stream))!=EOF && ch!='\n') {
+        if (length>(size_t)-1-2 || !work_reserve((void **)&line,&capacity,length+2,1)) {
+            free(line);fail(OUT_OF_MEMORY);return NULL;
+        }
+        line[length++]=(char)ch;
+    }
+    /* Un errore dello stream non e la fine di una formula: il prefisso gia
+     * letto non deve diventare un enunciato diverso da quello ricevuto. */
+    if (ferror(stream)) { free(line);fail("errore durante la lettura dell'enunciato");return NULL; }
+    if (ch==EOF && !length) { free(line);return NULL; }
+    if (!work_reserve((void **)&line,&capacity,length+1,1)) { free(line);return NULL; }
+    line[length]=0;return line;
+}
 
-/* la spiegazione: i passaggi registrati e ricontrollati (capitolo 40) */
-#include "engine_explanation.c"
+int main(int argc, char **argv) {
+    engine_init();
 
-/* enunciati con quantificatori: verifica indipendente e verdetto (capitolo 19) */
-#include "engine_quantifiers_verdict.c"
+    /* Senza argomenti: un solo enunciato da stdin, con la sua dimostrazione. */
+    if (argc < 2) {
+        printf("Enunciato in LaTeX: ");
+        char *line=read_input_line(stdin);
+        if (!line) { if (failure) fprintf(stderr,"ERRORE: %s\n",failure); return 1; }
+        Verdict verdict = prove(line, 'n', 0, 0);
+        verdict_print(stdout, &verdict);
+        putchar('\n');
+        if (verdict.proof) printf("\n%s\n", verdict.proof);
+        free(line);
+        return verdict.outcome == PROVED || verdict.outcome == SOLVED ? 0 : 1;
+    }
 
-/* induzione su una disuguaglianza, successioni definite per ricorrenza (capitoli 25-26) */
-#include "engine_sequences.c"
+    /* Le opzioni, prima dei file.
+     *
+     * --proofs: il documento finale (capitolo 22). Chiederlo è anche ciò che
+     * fa costruire i grafici e le spiegazioni (capitolo 40): senza un
+     * documento non servono.
+     *
+     * --plain-proofs: lo stesso documento senza le spiegazioni, con le sole
+     * dimostrazioni e i grafici delle tabelle dei segni: quello che il
+     * programma scriveva prima del capitolo 40. È un'opzione a sé, e non un
+     * valore in più di --proofs, perché le opzioni si leggono a coppie, un
+     * nome e il suo valore: così prende il file allo stesso modo. Le due non
+     * si danno insieme: il documento è uno.
+     *
+     * --certificates: il file in cui scrivere i certificati. */
+    FILE *certificates = NULL;
+    Document document;
+    int first = 1, documented = 0;
+    for (; first + 1 < argc && strncmp(argv[first], "--", 2) == 0; first += 2) {
+        if (strcmp(argv[first], "--model-work") == 0 || strcmp(argv[first], "--model-memory") == 0 ||
+            strcmp(argv[first], "--stack-budget") == 0 || strcmp(argv[first], "--model-steps") == 0 || strcmp(argv[first], "--verification-work") == 0 || strcmp(argv[first], "--saturation-work") == 0 ||
+            strcmp(argv[first], "--saturation-memory") == 0) {
+            unsigned long long budget;
+            int stack = strcmp(argv[first], "--stack-budget") == 0;
+            int memory = stack || strcmp(argv[first], "--model-memory") == 0 || strcmp(argv[first], "--saturation-memory") == 0;
+            int steps = strcmp(argv[first], "--model-steps") == 0;
+            if (!read_model_budget(argv[first + 1], &budget) || (memory && budget > (size_t)-1) || (steps && budget >= LLONG_MAX)) {
+                printf("ERRORE: budget positivo non rappresentabile: %s\n", argv[first + 1]); return 1;
+            }
+            if (stack) stack_budget = (size_t)budget;
+            else if (strcmp(argv[first], "--saturation-memory") == 0) saturation_memory_limit = (size_t)budget;
+            else if (strcmp(argv[first], "--saturation-work") == 0) saturation_work_limit = budget;
+            else if (memory) model_memory_limit = (size_t)budget;
+            else if (steps) model_step_limit = (long long)budget;
+            else if (strcmp(argv[first], "--verification-work") == 0) verification_work_limit = budget;
+            else model_work_limit = budget;
+            continue;
+        }
+        if (strcmp(argv[first], "--certificates") == 0 && !certificates) {
+            certificates = fopen(argv[first + 1], "w");
+            if (!certificates) { printf("ERRORE: impossibile scrivere %s\n", argv[first + 1]); return 1; }
+            continue;
+        }
+        int worked = strcmp(argv[first], "--proofs") == 0;
+        if ((!worked && strcmp(argv[first], "--plain-proofs") != 0) || documented) { printf("ERRORE: opzione sconosciuta o ripetuta: %s\n", argv[first]); return 1; }
+        const char *problem = document_open(&document, argv[first + 1]);
+        if (problem) { printf("ERRORE: %s: %s\n", problem, argv[first + 1]); return 1; }
 
-/* derivate: dimostrarle, calcolarle, usarle negli studi di funzione (capitolo 27) */
-#include "engine_derivatives.c"
+        /* Tutti e due i segnali si assegnano, non solo quello che si
+         * accende: il documento asciutto deve esserlo anche se qualcuno ha
+         * già chiesto le spiegazioni. */
+        documented = figures_wanted = 1;
+        explanations_wanted = worked;
+    }
 
-/* insiemi qualsiasi: modelli finiti, istanze, saturazione, e i compiti svolti per Vampire (capitolo 28) */
-#include "engine_logic.c"
+    /* Un file per argomento. */
+    int all_proved = 1;
+    for (int i = first; i < argc; i++) {
+        Report report;
+        printf("%s\n", argv[i]);
+        if (documented) document_section(&document, argv[i]);
+        if (!prove_file(argv[i], &report, stdout, documented ? &document : NULL, certificates)) {
+            printf("ERRORE: impossibile leggere il file\n");
+            all_proved = 0;
+            continue;
+        }
+        printf("Riepilogo: %d enunciati, %d dimostrati (%d con certificato verificato), %d falsi, %d non dimostrati, %d non supportati",
+               report.total, report.proved, report.certified, report.refuted, report.not_proved, report.unsupported);
 
-/* limiti (capitolo 29) */
-#include "engine_limits.c"
-
-/* integrali: primitive, integrali definiti e impropri (capitolo 30) */
-#include "engine_integrals.c"
-
-/* algebra lineare esatta: matrici, determinanti, sistemi lineari (capitoli 32-33) */
-#include "engine_linear_algebra.c"
-
-/* funzioni di più variabili: derivate parziali, gradiente, hessiana, punti critici (capitoli 35-36) */
-#include "engine_multivariable.c"
-
-/* identità con gli indici: il conto su tutti i valori (capitolo 38) */
-#include "engine_indices.c"
-
-/* dimostrare un enunciato: quale capitolo lo legge; il documento (include output.c); main (capitoli 20 e 23) */
-#include "engine_statement.c"
-
-/* Fine dei volumi. */
+        /* Gli insiemi di soluzioni si contano solo se ce ne sono: così la
+         * riga di un file di soli enunciati resta quella di sempre. */
+        if (report.solved) printf(", %d risolti", report.solved);
+        printf(".\n");
+        if (report.proved + report.solved != report.total) all_proved = 0;
+    }
+    if (unjustified_steps)
+        printf("ATTENZIONE: %d passi di dimostrazione (formule rilette, o certificati respinti dal verificatore) "
+               "non hanno superato il controllo indipendente e sono stati scartati\n", unjustified_steps);
+    if (certificates) fclose(certificates);
+    if (documented) {
+        const char *problem = document_close(&document);
+        if (problem) printf("ERRORE: %s\n", problem);
+    }
+    if (figure) pl_close(figure);
+    return all_proved ? 0 : 1;
+}

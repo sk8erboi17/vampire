@@ -1,3 +1,15 @@
+/* MODULO engine_indices: identità con gli indici: il conto su tutti i valori
+ * (capitolo 38).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_indices.h, e
+ * il resto è static. */
+#include "engine_indices.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+
 /* =============================================================================
  * 38. IDENTITÀ CON GLI INDICI: IL CONTO SU TUTTI I VALORI
  * ============================================================================
@@ -751,7 +763,7 @@ static int index_mentions(const IndexNode *node, IndexKind kind) {
  *
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate
  * precedenti non sono più validi. */
-static Verdict prove_indices(const char *formula) {
+Verdict prove_indices(const char *formula) {
     static char note[640], detail[1024 + 2 * 512 + 96], point[1024], side[2][512];
     Verdict verdict = {UNSUPPORTED, 0, 0, 0, NULL, NULL, NULL, "con il conto su tutti i valori degli indici", NULL, NULL};
     IndexStatement statement;
@@ -964,7 +976,7 @@ static Verdict prove_indices(const char *formula) {
  * e il motivo del rifiuto deve restare il suo.
  *
  * Usa il lettore di token del parser, e lascia il suo stato da reimpostare. */
-static int uses_index_notation(const char *formula) {
+int uses_index_notation(const char *formula) {
     int found = 0;
     if (strstr(formula, "\\colon") || starts_with_derivative(formula) || starts_with_limit(formula)) return 0;
     syntax_error = NULL;
@@ -977,4 +989,3 @@ static int uses_index_notation(const char *formula) {
     syntax_error = NULL;
     return found || strstr(formula, "{diag}") != NULL;
 }
-

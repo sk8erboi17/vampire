@@ -31,9 +31,10 @@
  * (qr_adopt_model()); a statement Vampire proved is given a proof that the
  * independent checker can recheck (qr_certify_item()).
  *
- * The interface is plain C so that the engine can stay in C while its parts
- * are being moved, one at a time, into C++ modules. Nothing else in Vampire
- * includes the engine's sources.
+ * The interface is plain C, like the engine: a set of C modules, each
+ * compiled apart with an interface of its own (Math/quaerens/NAME.h).
+ * Nothing else in Vampire sees those interfaces: only Engine.c includes
+ * them.
  *
  * Not thread-safe and not re-entrant: the engine has one state, and every
  * string it returns is valid only until the next call of this interface.

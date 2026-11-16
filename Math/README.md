@@ -258,8 +258,8 @@ prints a statement as TPTP.
 | | |
 |---|---|
 | `Parse/LaTeX` | the frontend as the rest of Vampire sees it: the statements of an input, each read and classified |
-| `Math/Engine.h`, `Math/Engine.c` | the C interface of the mathematical engine, and the translation unit that holds it |
-| `Math/quaerens/` | the engine's sources: `main.c` (its design, the index of its chapters, and one include per volume), the volumes `engine_*.c` (see below), `parser.c` (LaTeX), `output.c` (document), `plot.c` (plots), `checker.c` (checker) |
+| `Math/Engine.h`, `Math/Engine.c` | the C interface of the mathematical engine, and its implementation over the interfaces of the engine's modules |
+| `Math/quaerens/` | the engine: one module per domain, `NAME.c` with its chapters and `NAME.h` with what the other modules use of it (see below); `engine_names.h`, the names the modules export, prefixed for the linker; `main.c`, the design of the engine, the index of its chapters and the program on its own (`quaerens`); `plot.c` (plots), `checker.c` (checker) |
 | `Math/LogicStatement` | a statement of logic as a typed tree: sorts, symbols with signatures, formulas |
 | `Math/LogicTranslator` | that tree into Vampire units; possibly empty sorts |
 | `Math/NumberStatement` | a statement with quantifiers over numbers, as the engine hands it over, into a TPTP problem for Vampire's arithmetic; the form of the problem whose proof comes with numbers, and the certificate written with them |
@@ -273,43 +273,76 @@ prints a statement as TPTP.
 | `Proof/Replay` | a refutation by Vampire, inference by inference, into the explicit steps the checker follows |
 | `Humanizer/ProofNarrator` | the account of a refutation, in English and Italian |
 | `Math/tools/as_quaerens.py` | presents this executable to the fuzz scripts of the Quaerens repository |
-| `Math/tools/engine_volumes.py` | splits the engine's single file into its volumes, joins them back, checks that the two are the same |
+| `Math/tools/engine_modules.py` | made the modules and their interfaces from the engine's single translation unit, and checks that they stay modules |
 | `Math/tools/fuzz_numbers.py` | differential fuzz of the statements on integers that reach Vampire's arithmetic, against an oracle that counts |
 | `Math/tools/fuzz_equipotence.py` | differential fuzz of the statements that suppose two sets equipotent, against an oracle that compares numbers of elements |
 
 The engine by domain. In Quaerens the engine is one file of 52 thousand
-lines, a book of numbered chapters. Here the book is in volumes, one per
-domain, each a run of consecutive chapters:
+lines, a book of numbered chapters, nearly everything in it static, read by
+the compiler as one translation unit. Here it is twenty modules, each
+compiled on its own. A module is `NAME.c`, with its chapters as the book has
+them, and `NAME.h`, its interface: what the other modules use of it. The rest
+is static and no other module can reach it.
 
-| Volume | Chapters | |
-|---|---|---|
-| `engine_foundations.c` | 1-7 | limits, errors and memory, exact numbers, monomials, polynomials, atoms, fractions of polynomials |
-| `engine_evaluation.c` | 10-12 | the known sequences, an expression tree to a fraction, tests of vanishing |
-| `engine_induction.c` | 13 | induction on sums and products |
-| `engine_sets.c` | 15-16 | relations between sets by regions |
-| `engine_intervals.c` | 24 | real numbers as intervals with a guaranteed error |
-| `engine_quantifiers.c` | 18-18.7 | quantifiers over numbers: the rules of proof |
-| `engine_sign_tables.c` | 18.8-18.19 | sign tables, solutions, plots, one parameter |
-| `engine_explanation.c` | 40 | worked solutions |
-| `engine_quantifiers_verdict.c` | 19 | quantifiers: independent verification and verdict |
-| `engine_sequences.c` | 25-26 | induction on an inequality, sequences by recurrence |
-| `engine_derivatives.c` | 27 | derivatives and the study of a function |
-| `engine_logic.c` | 28 | arbitrary sets: finite models, instances, saturation, the tasks done for Vampire |
-| `engine_limits.c` | 29 | limits |
-| `engine_integrals.c` | 30 | integrals |
-| `engine_linear_algebra.c` | 32-33 | matrices, determinants, linear systems |
-| `engine_multivariable.c` | 35-36 | functions of several variables |
-| `engine_indices.c` | 38 | identities with indices |
-| `engine_statement.c` | 20, 23 | which chapter reads a statement; the document; `main` |
+| Module | Chapters | | Functions and variables: exported of all |
+|---|---|---|---|
+| `engine_foundations` | 1-7 | limits, errors and memory, exact numbers, monomials, polynomials, atoms, fractions of polynomials | 94 of 99 |
+| `parser` | 8, 9, 14, 17, 21, 31, 34, 37, 39 | LaTeX into trees: expressions, statements on sets, statements with quantifiers, matrices, indices | 134 of 503 |
+| `engine_evaluation` | 10-12 | the known sequences, an expression tree to a fraction, tests of vanishing | 53 of 95 |
+| `engine_induction` | 13 | induction on sums and products; the verdict and its proof | 45 of 103 |
+| `engine_sets` | 15-16 | relations between sets by regions | 2 of 65 |
+| `engine_intervals` | 24 | real numbers as intervals with a guaranteed error | 23 of 27 |
+| `engine_quantifiers` | 18-18.7 | quantifiers over numbers: the rules of proof | 41 of 161 |
+| `engine_sign_tables` | 18.8-18.19 | sign tables, solutions, plots, one parameter | 43 of 297 |
+| `engine_explanation` | 40 | worked solutions | 8 of 53 |
+| `engine_quantifiers_verdict` | 19 | quantifiers: independent verification and verdict | 3 of 60 |
+| `engine_sequences` | 25-26 | induction on an inequality, sequences by recurrence | 7 of 29 |
+| `engine_derivatives` | 27 | derivatives and the study of a function | 19 of 54 |
+| `engine_logic` | 28 | arbitrary sets: finite models, instances, saturation, the tasks done for Vampire | 7 of 386 |
+| `engine_limits` | 29 | limits | 3 of 102 |
+| `engine_integrals` | 30 | integrals | 3 of 113 |
+| `engine_linear_algebra` | 32-33 | matrices, determinants, linear systems | 6 of 154 |
+| `engine_multivariable` | 35-36 | functions of several variables | 2 of 43 |
+| `engine_indices` | 38 | identities with indices | 2 of 36 |
+| `engine_statement` | 20 | which chapter reads a statement; the verdict in one line | 3 of 16 |
+| `output` | 41, 22 | the document | 5 of 20 |
 
-Nothing was rewritten to make them: a volume is cut at the banner of its
-first chapter, and the volumes joined in order are, byte for byte, the single
-file (`python3 -I Math/tools/engine_volumes.py check Math/quaerens`). They
-are read in that order into one translation unit, exactly as the chapters
-were, so the compiled engine is the same program: the preprocessed
-translation unit before and after the split is identical. To bring in a new
-`main.c` from the Quaerens repository: `join`, apply the changes to the
-single file, `split`.
+In all, 503 of the 2416 functions and variables of the engine are in an
+interface, and 280 of its 501 limits and types; the other 1913 functions and
+variables are private to their module. `Math/Engine.c` is one more user of
+those interfaces, and `Math/quaerens/main.c`, with the last chapter of the
+book, is the engine as a program on its own, built from the same modules.
+
+Nobody chose the interfaces by hand: they are what is used.
+`Math/tools/engine_modules.py` read every declaration at file scope of the
+single translation unit and every name each one mentions, without the names
+that are its own (parameters, local variables, members). What a declaration
+of another module mentions is exported, with what its exported form needs
+(the types of a signature, the body of a macro). An exported limit or type
+moved to the header with its comment; an exported function or variable kept
+its definition and its comment where the book explains it, lost `static`,
+and is declared in the header. Everything else is where it was, byte for
+byte, so the chapters still read as in Quaerens. The modules are the source
+from now on, and the same tool checks that they stay modules
+(`python3 -I Math/tools/engine_modules.py check Math/quaerens Math/Engine.c`):
+whatever a module defines without `static` is declared in its interface;
+whatever an interface declares is used outside its module, or it should be
+static again; no interface includes one that includes it. That each module
+compiles alone is the build itself.
+
+Two things follow from compiling apart. A function that was static and is
+now called from another module has a name the linker sees, and the engine's
+names are short (`fail`, `note`, `gcd`): `engine_names.h` gives each of the
+518 a prefix at link time (`qre_`), so that none can be mistaken for a
+function of a library; the sources keep the names of the book. And calls
+across modules are no longer inlined: on the corpus the engine takes 92.2 s
+of processor time as modules and 93.2 s as one unit, so nothing was lost.
+
+To bring in a later `main.c` from the Quaerens repository, either make the
+same change in the module that holds the chapter, or run the tool's `split`
+again on the three files of the book (`main.c`, `parser.c`, `output.c`):
+it writes the modules anew, so what was changed only here has to be in
+that book first.
 
 Vampire's own files are touched in a handful of places, each a few lines and
 each inert unless the input is LaTeX: the options (`Shell/Options`), the
@@ -366,19 +399,14 @@ kind of certificate for a statement about numbers that a few numbers settle
 
 Not done, and not claimed:
 
-- **Two parts of the engine are modules; the rest is volumes.** The
-  checker (`Proof/IndependentChecker`) and the plots (`Math/Plot`) are
-  compiled apart and used through interfaces: the engine no longer holds
-  their sources, and the checker is in the executable once instead of
-  twice. The other parts (numbers and polynomials, sign tables, limits,
-  integrals, linear algebra, logic, indices) are files of their own, by
-  domain, but are still read in order into one translation unit behind one
-  C interface: a volume uses whatever the volumes before it define, and
-  none has an interface of its own. Making those modules means deciding,
-  volume by volume, what each exports, and giving up the shared static
-  state (the arena, the table of atoms, the proof being written): the
-  checker and the plots could be separated because Quaerens already keeps
-  them independent, and nothing else in the engine is.
+- **The modules of the engine share their state.** They are compiled
+  apart and see each other through interfaces, but the state of a proof
+  (how much of the arena of memory is used, the table of atoms, the
+  conditions collected, the reason of a failure, the budgets of work) is
+  still variables of one module that the others read and write: 161
+  declarations of variables are in the interfaces, 28 of them in that of
+  `engine_foundations`. The engine decides one statement at a time, as it
+  did, and is not reentrant.
 - **The typed C++ form exists for statements of logic only.** Mathematical
   expressions are typed trees inside the engine and are not visible to C++.
 - **Not every inference of Vampire can be followed.** The run whose
@@ -467,8 +495,13 @@ Not done, and not claimed:
   inferences; certificates are accepted by `certificate-checker` and
   rejected once altered, and every rechecked refutation is rejected once
   its last step is removed; TPTP input is untouched.
-- `python3 -I Math/tools/engine_volumes.py check Math/quaerens`: the
-  volumes of the engine, joined, split again, are the same files.
+- `python3 -I Math/tools/engine_modules.py check Math/quaerens Math/Engine.c`:
+  the modules of the engine keep their discipline (what is exported is
+  declared, named for the linker and used elsewhere; no cycle of
+  interfaces).
+- `quaerens`, the engine as a program on its own, built from the same
+  modules: on the corpus it prints, line by line, what standalone Quaerens
+  prints.
 - Fuzz, outside the checks (Python 3, standard library only): the scripts
   of the Quaerens repository run against this executable through
   `Math/tools/as_quaerens.py`, each with an oracle of its own; and
@@ -510,8 +543,9 @@ they are. No statement is answered one way by one and the other way by the
 other. The run writes 3459 certificates, and `certificate-checker`, the
 checker as a program of its own, accepts all of them.
 
-**Size.** With the checker compiled once, and not also inside the engine,
-the executable is 14.6 MB (15.0 MB before; Vampire alone is 12.0 MB).
+**Size.** The executable is 14.3 MB; Vampire alone is 12.0 MB. It was
+15.0 MB with the checker compiled twice, once inside the engine, and 14.6 MB
+with the engine as one translation unit.
 
 **Vampire's proofs, followed by the checker.** Vampire finds a refutation for
 134 of those statements: 127 theorems and 7 requests for an example that
@@ -608,7 +642,18 @@ where the engine had no answer, all 41 certified by the checker and all
 true for an oracle that only knows that equipotent sets have as many
 elements, and 26 stay without an answer (16 of them false: none was
 proved). This run is the adversary of the checker's rule for equipotence.
-AddressSanitizer and UndefinedBehaviorSanitizer:
+With the engine as modules: the 22 scripts again, against `quaerens`, the
+engine as a program on its own, 1220 statements with new seeds, no `BUG`
+(two `SUSPECT`, looked at: a false statement whose refutation needs y =
+2x^3 - 2x, outside the window of that oracle, and an equipotence with a set
+of parts, which that oracle does not read; both verdicts are right); eight
+of them against this executable, 720 statements, no `BUG`;
+`fuzz_numbers.py`, 400 statements, and `fuzz_equipotence.py`, 300
+statements, no `BUG`.
+AddressSanitizer and UndefinedBehaviorSanitizer: with the engine as modules,
+no report on the whole corpus run through `quaerens` (6506 statements, the
+same output as without the sanitizers) nor on the 56 runs of
+`checks/latex-sanity`. Before that,
 no report on 386 statements of 15 documents that use every path (161
 refutations rechecked, 97 answers of the arithmetic theories), with the
 document and the certificates written; none on 145 statements of 6

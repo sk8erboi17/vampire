@@ -1,3 +1,15 @@
+/* MODULO parser: la lettura del LaTeX: gli alberi delle espressioni, degli
+ * enunciati sugli insiemi, di quelli con quantificatori, delle matrici e degli
+ * indici, i lettori che li costruiscono, gli \item di un file (capitoli 8, 9,
+ * 14, 17, 21, 31, 34, 37 e 39).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in parser.h, e il resto
+ * è static. */
+#include "parser.h"
+#include "engine_foundations.h"
+#include "engine_evaluation.h"
+
 /* =============================================================================
  * parser.c: la lettura del LaTeX
  * =============================================================================
@@ -6,7 +18,7 @@
  *
  * Trasforma il testo LaTeX in alberi: è la parte di mathresearcher che
  * legge. Da un file .tex estrae gli enunciati, uno per \item; di ogni
- * enunciato costruisce l'albero che il motore, in main.c, dimostra o
+ * enunciato costruisce l'albero che il motore dimostra o
  * smentisce. Qui non c'è nessuna regola di dimostrazione: un errore in questo
  * file fa leggere un enunciato diverso da quello scritto, non dimostrare un
  * enunciato falso con passi sbagliati. Per questo le convenzioni di lettura
@@ -56,7 +68,7 @@
  * di 17q e 17r si fanno
  * sull'albero, dove una variabile è un posto e non una lettera, e il motore
  * li ricontrolla calcolando su modelli finiti l'enunciato com'è scritto e
- * quello svolto (28h e parts_check() in main.c). Anche il valore assoluto
+ * quello svolto (28h e parts_check() nel motore). Anche il valore assoluto
  * nella regola di un'applicazione si legge come una definizione per casi
  * (17s), e il motore ricontrolla sui numeri che i casi diano gli stessi
  * valori della regola com'è scritta.
@@ -73,21 +85,22 @@
  * ipotesi che dichiarano una metrica, e svolge gli indici alzati e abbassati
  * in contrazioni con la metrica: è uno svolgimento come quelli del capitolo
  * 17, e il motore lo ricontrolla calcolando l'identità scritta e quella
- * svolta in ogni punto (38d in main.c). Legge anche le ipotesi che danno un
+ * svolta in ogni punto (38d nel motore). Legge anche le ipotesi che danno un
  * tensore per componenti, con una tabella o un elenco, e quella che dice da
  * quale numero cominciano i valori degli indici.
  *
  * COME STA NEL PROGRAMMA
  *
- * Non è un programma a sé: è un volume dello stesso libro di main.c, che lo
- * include dopo il suo capitolo 7. Usa ciò che main.c ha già presentato: i
+ * È un modulo del motore, compilato per conto suo: ciò che gli altri ne
+ * usano, gli alberi e i loro lettori, è dichiarato in parser.h. Usa i
  * limiti (capitolo 1), gli errori e la memoria di lavoro (capitolo 2), e i
  * tipi dei numeri esatti e delle frazioni di polinomi (capitoli 3-7), che
- * compaiono nei nodi degli alberi come annotazioni lasciate dal motore. Del
- * motore, che viene dopo, usa solo eval(), dichiarata nel capitolo 17. I
- * capitoli conservano il numero che avevano quando stavano in main.c, perché
- * i commenti, i test e il README citano le regole per numero (17d, 17h): la
- * numerazione è una sola per main.c, parser.c e output.c.
+ * compaiono nei nodi degli alberi come annotazioni lasciate dal motore: li
+ * riceve da engine_foundations.h. Del motore, che nel libro viene dopo, usa
+ * solo eval(), dichiarata nel capitolo 17. I capitoli conservano il numero
+ * che hanno nel libro, perché i commenti, i test e il README citano le
+ * regole per numero (17d, 17h): la numerazione è una sola per tutti i
+ * moduli.
  *
  * INDICE DEI CAPITOLI
  *
@@ -112,65 +125,8 @@
  * consultando il vocabolario.
  */
 
-/* Tipi di nodo. Tra parentesi i figli usati.
- *
- * Warning: se aggiungi un tipo, aggiungi il ramo che lo costruisce nel parser
- * (capitolo 9) e il suo case in eval() (capitolo 11); se può comparire in un
- * enunciato con quantificatori, anche in term_check() (capitolo 17). */
-typedef enum {
-    N_NUM,    /* intero letterale: value */
-    N_VAR,    /* variabile: name */
-    N_SEQ,    /* lettera con pedice, come F_{k}: name, a = pedice */
-    N_NEG,    /* -a */
-    N_ADD,    /* a + b */
-    N_SUB,    /* a - b */
-    N_MUL,    /* a * b */
-    N_DIV,    /* a / b */
-    N_POW,    /* a ^ b */
-    N_BIGOP,  /* somma o prodotto: name = indice, a = estremo inferiore,
-                 b = estremo superiore, c = corpo, op = 1 se è un prodotto */
-    N_CALL,   /* funzione: op = quale (Function), a = argomento, b = secondo
-                 argomento se c'è */
-    N_APPLY,  /* applicazione dichiarata dall'enunciato, come f(x): name = la
-                 lettera f, a = argomento */
-    N_DERIV   /* segno di derivata di Leibniz dentro un'espressione (9d):
-                 name = la variabile x, value = l'ordine (un numero da 1 in
-                 su), a = la funzione da derivare. Lo crea solo il lettore, e
-                 il motore lo sostituisce con la derivata prima di ogni conto
-                 (27j): eval() e le altre letture dell'albero non lo trattano */
-} NodeKind;
-
-/* Le funzioni che il parser riconosce. Il secondo argomento, quando esiste, è
- * indicato tra parentesi.
- *
- * Warning: se aggiungi una funzione, aggiungi il suo nome in function_names[]
- * (capitolo 9), se è un comando LaTeX, e il suo case in eval_call(). */
-typedef enum {
-    FN_FACT,    /* a! */
-    FN_BINOM,   /* coefficiente binomiale "a su b" */
-    FN_SIN, FN_COS, FN_TAN, FN_COT,
-    FN_ARCTAN,
-    FN_LN,
-    FN_LOG,     /* logaritmo di a in base b */
-    FN_ROOT,    /* radice di a di indice b */
-    FN_ABS,     /* valore assoluto */
-    FN_ARCSIN, FN_ARCCOS,  /* le inverse di seno e coseno, a valori in
-                              [-pi/2, pi/2] e in [0, pi] */
-    FN_ARCCOT   /* l'inversa della cotangente, a valori in (0, pi) */
-} Function;
-
-/* Un nodo dell'albero: una sotto-espressione dell'enunciato. I figli non usati
- * dal tipo sono NULL. I nodi vivono nell'arena. */
-struct Node {
-    NodeKind kind;
-    long long value;  /* N_NUM */
-    int name;         /* N_VAR, N_SEQ, N_BIGOP: una lettera, o VAR_PI */
-    int op;           /* N_BIGOP, N_CALL */
-    Node *a, *b, *c;
-};
-
 /* Ritorna 1 se i due alberi sono scritti allo stesso modo, nodo per nodo. */
-static int node_equal(const Node *a, const Node *b) {
+int node_equal(const Node *a, const Node *b) {
     if (a == b) return 1;
     if (!a || !b) return 0;
     return a->kind == b->kind && a->value == b->value && a->name == b->name && a->op == b->op &&
@@ -186,178 +142,28 @@ static int node_equal(const Node *a, const Node *b) {
  * È lecito identificarle perché un atomo nasce solo per somme il cui corpo e
  * il cui estremo inferiore non dipendono da variabili legate (lo controlla
  * eval_bigop()): due scritture uguali hanno allora lo stesso valore. */
-static int bigop_same(const Node *a, const Node *b) {
+int bigop_same(const Node *a, const Node *b) {
     return a == b || (a->op == b->op && a->name == b->name && node_equal(a->a, b->a) && node_equal(a->c, b->c));
 }
-
-/* Un insieme di numeri razionali tra quelli che un enunciato può nominare:
- * \mathbb{N}, \mathbb{N}_{0}, \mathbb{Z}, \mathbb{Q}, \mathbb{Q}^{+}, privati
- * eventualmente di qualche punto con \setminus. È l'insieme su cui varia la
- * variabile di un quantificatore, oppure il dominio o il codominio di
- * un'applicazione. Le operazioni sono nel capitolo 17.
- *
- * Invariante: i punti tolti sono distinti e appartengono tutti all'insieme di
- * partenza, così due insiemi uguali hanno gli stessi punti in `hole`. */
-typedef struct {
-    int integers;             /* 1: solo numeri interi; 0: tutti i razionali */
-    int reals;                /* 1: tutti i numeri reali, non solo i razionali */
-    int complex;              /* 1: i numeri complessi, che il lettore legge come coppie di
-                                 reali (17s): resta 1 solo finché pairs_second() non li divide */
-    int bounded;              /* 1: c'è un estremo inferiore, `low` */
-    long long low;            /* l'estremo inferiore, se bounded */
-    int strict;               /* 1: low è escluso (x > low); 0: è compreso */
-    int holes;                /* punti tolti, validi in `hole` */
-    Frac hole[MAX_HOLES];
-    const char *start, *end;  /* com'è scritto nell'enunciato: [start, end) */
-} NumberSet;
-
-/* Un caso di un'applicazione definita per casi (17s): "se vale when, allora
- * f(x) = value". when è una condizione sulla sola variabile x della regola
- * (e sui parametri dell'enunciato), fatta di confronti, divisibilità e
- * appartenenze legati da connettivi; value è un'espressione razionale. Gli
- * alberi stanno nell'arena. Il tipo delle condizioni, Formula, è definito
- * nel capitolo 17: qui basta il nome della struttura. */
-typedef struct {
-    const struct Formula *when;  /* la condizione del caso */
-    Node *value;                 /* il valore di f(x) quando la condizione vale */
-} MapCase;
-
-/* Un'applicazione dichiarata dall'enunciato con "f \colon A \to B". La regola
- * che la definisce, "f(x) = espressione", arriva dopo, da un'altra ipotesi:
- * finché manca, body è NULL, cases è 0 e parameter non ha significato.
- *
- * Una regola può essere data per casi (17s): allora i casi stanno in
- * piece[], e il valore di f(x) è quello del caso la cui condizione vale.
- * body resta NULL, salvo quando i casi vengono da una regola sola con dei
- * valori assoluti: allora body è quella regola com'è scritta, e serve solo a
- * ricontrollare sui numeri che i casi dicano lo stesso.
- *
- * Un'operazione binaria, dichiarata con "\ast \colon A \times B \to C", è
- * un'applicazione con due argomenti: la sua regola è "x \ast y = espressione"
- * (vedi 9g). second e parameter2 servono solo a lei. */
-typedef struct {
-    int name;                    /* la lettera f, oppure il nome interno di un
-                                    simbolo di operazione (operation_name()) */
-    NumberSet domain, codomain;  /* A e B; per un'operazione A e C */
-    int parameter;               /* la variabile x della regola */
-    Node *body;                  /* il valore di f(x), nell'arena; NULL se manca */
-    int binary;                  /* 1 se è un'operazione binaria */
-    NumberSet second;            /* operazione: B, l'insieme del secondo argomento */
-    int parameter2;              /* operazione: la variabile y della regola */
-    int cases;                   /* definizione per casi: casi validi in piece[]; 0 se non lo è */
-    MapCase piece[MAX_MAP_CASES];
-    int partner;                 /* valori in coppie (17s): il nome dell'applicazione che dà la
-                                    seconda componente; questa dà la prima. 0 se i valori sono numeri */
-    int component;               /* 2 se è la seconda componente di un'applicazione a valori in
-                                    coppie, nascosta dentro di lei; altrimenti 0 */
-    int iterates;                /* le iterate (17s): il bit 1 se le ipotesi dicono f^{c} = f, il
-                                    bit 2 se dicono f^{n+1} = f \circ f^{n} per n da step_from in su */
-    long long iterate_from;      /* c, il primo indice delle iterate */
-    long long step_from;         /* il primo n per cui vale f^{n+1} = f \circ f^{n} */
-} Map;
 
 /* I simboli con cui un enunciato può indicare un'operazione binaria che
  * dichiara. Sono comandi LaTeX che per il resto della grammatica non vogliono
  * dire nulla: \cdot e \times, che sono il prodotto, non ci sono. Il nome
  * interno del simbolo di posto i è OPERATION_NAMES + i. */
-static const char *const operation_symbols[] = {"ast", "star", "circ", "bullet", "diamond", "perp", "oplus", "otimes", "odot"};
+const char *const operation_symbols[] = {"ast", "star", "circ", "bullet", "diamond", "perp", "oplus", "otimes", "odot"};
 
 /* Le applicazioni dichiarate dall'enunciato in corso. Chi le dichiara deve
  * svuotare la tabella quando ha finito: finché una lettera è qui, il parser
  * delle espressioni la legge come applicazione e non come variabile. */
-static Map maps[MAX_MAPS];
-static int map_count;
+Map maps[MAX_MAPS];
+int map_count;
 
 /* Ritorna l'applicazione di nome name, o NULL se non è stata dichiarata. */
-static Map *map_find(int name) {
+Map *map_find(int name) {
     for (int i = 0; i < map_count; i++)
         if (maps[i].name == name) return &maps[i];
     return NULL;
 }
-
-/* Come sono messi in relazione i due membri di un enunciato. */
-typedef enum { REL_EQ, REL_GE, REL_LE, REL_GT, REL_LT } Relation;
-
-/* Un enunciato: membro sinistro, relazione, membro destro. */
-typedef struct {
-    Node *lhs, *rhs;
-    Relation relation;
-} Statement;
-
-/* Un enunciato su una successione che l'enunciato stesso definisce per
- * ricorrenza: "se a_0 = 0 e a_{n+1} = \sqrt{6 + a_n}, allora a_n < 3". Le
- * ipotesi sono uguaglianze, i valori iniziali e la ricorrenza, più
- * eventualmente "n \ge q", che dice da quale n la ricorrenza vale; le tesi
- * sono confronti. Che le ipotesi definiscano davvero una successione lo
- * controlla il motore (capitolo 26): qui c'è solo com'è scritto. */
-typedef struct {
-    int givens;                    /* ipotesi valide in given[] */
-    Statement given[MAX_GIVEN];    /* le uguaglianze, nell'ordine in cui sono scritte */
-    int has_since;                 /* 1 se tra le ipotesi c'è "n \ge q" */
-    int since_name;                /* la lettera n di quell'ipotesi */
-    long long since;               /* il numero q */
-    int claims;                    /* tesi valide in claim[] */
-    Statement claim[MAX_CLAIMS];
-} SequenceStatement;
-
-/* Un enunciato sulla derivata di una funzione: "la derivata di ordine n di
- * function, rispetto a variable, è formula". L'ordine è una lettera, quella
- * su cui si fa induzione, e allora function non la contiene e formula di
- * solito sì; oppure è un numero. Senza formula è una richiesta: "calcola la
- * derivata di function" (27k). Gli alberi stanno nell'arena. */
-typedef struct {
-    int variable;     /* la lettera x rispetto a cui si deriva */
-    int order;        /* la lettera n dell'ordine di derivazione, o 0 se è un numero */
-    long long times;  /* l'ordine, quando è un numero: almeno 1 */
-    Node *function;   /* la funzione da derivare */
-    Node *formula;    /* ciò che l'enunciato dice della derivata; NULL in una richiesta */
-} DerivativeStatement;
-
-/* Che cosa un enunciato su un limite dice del limite (vedi LimitStatement):
- *   LIMIT_ASKED     niente, è una richiesta: "\lim_{x \to a} f";
- *   LIMIT_VALUE     che vale il numero `value`;
- *   LIMIT_PLUS      che vale +\infty;   LIMIT_MINUS  che vale -\infty;
- *   LIMIT_UNSIGNED  che vale \infty senza segno: |f| tende a +\infty;
- *   LIMIT_NONE      che non esiste: "\nexists \lim_{x \to a} f". */
-typedef enum { LIMIT_ASKED, LIMIT_VALUE, LIMIT_PLUS, LIMIT_MINUS, LIMIT_UNSIGNED, LIMIT_NONE } LimitClaim;
-
-/* Un enunciato su un limite: "il limite di function per variable che tende
- * al punto è ...". Il punto è un'espressione senza la variabile, oppure
- * +\infty o -\infty; il limite può essere da un lato solo. Gli alberi stanno
- * nell'arena; che il punto non contenga la variabile lo controlla il motore
- * (capitolo 29). */
-typedef struct {
-    int variable;         /* la lettera x che tende al punto */
-    int sequence;         /* 1 se la lettera è n: un indice naturale, e il punto è +\infty */
-    int infinity;         /* 0 per un punto finito, +1 per +\infty, -1 per -\infty */
-    Node *point;          /* il punto finito, o NULL */
-    int side;             /* +1 da destra (a^{+}), -1 da sinistra (a^{-}), 0 da tutte e due */
-    Node *function;       /* la funzione di cui si fa il limite */
-    LimitClaim claim;     /* che cosa l'enunciato ne dice */
-    Node *value;          /* il valore, per LIMIT_VALUE; altrimenti NULL */
-    const char *from, *to;  /* il testo "\lim_{...} f" nell'enunciato: [from, to) */
-} LimitStatement;
-
-/* Un enunciato su un integrale (9j): "l'integrale di integrand in
- * d variable è answer". Senza estremi è un integrale indefinito, e answer è
- * una primitiva F, scritta con la sua costante (F + c) che il lettore toglie;
- * con gli estremi è un integrale definito, e answer è un numero. Senza il
- * segno di uguale è una richiesta: answer è NULL, e la risposta la cerca il
- * motore (capitolo 30). Un estremo può essere +\infty o -\infty, e allora il
- * suo albero è NULL; un integrale definito può dire anche di valere
- * +\infty o -\infty, o di convergere (\in \mathbb{R}) o no (\notin
- * \mathbb{R}). Gli alberi stanno nell'arena. */
-typedef struct {
-    int variable;         /* la lettera x del differenziale dx */
-    Node *integrand;      /* la funzione integranda, senza il dx */
-    int definite;         /* 1 se ci sono gli estremi */
-    Node *lower, *upper;  /* gli estremi finiti; NULL se l'integrale è indefinito, o l'estremo infinito */
-    int lower_infinite, upper_infinite;  /* +1 per +\infty, -1 per -\infty, 0 per un estremo finito */
-    Node *answer;         /* F senza la costante, oppure il valore; NULL per una richiesta */
-    int answer_infinite;  /* +1 se l'enunciato dice "= +\infty", -1 se "= -\infty", altrimenti 0 */
-    int membership;       /* +1 per "\in \mathbb{R}" (converge), -1 per "\notin \mathbb{R}", altrimenti 0 */
-    int constant;         /* la lettera della costante di F, se c'è; altrimenti 0 */
-} IntegralStatement;
 
 /* =============================================================================
  * 9. PARSING: DAL LATEX ALL'ALBERO
@@ -454,33 +260,18 @@ typedef struct {
  * bisogno di propagare un codice.
  */
 
-/* Tipi di token. \left( e ( producono entrambi T_OPEN: per il valore assoluto
- * invece \left| e \right| restano distinti, perché una sbarra da sola non
- * dice se apre o chiude. */
-typedef enum { T_END, T_NUM, T_LETTER, T_COMMAND, T_OPEN, T_CLOSE, T_ABS_OPEN, T_ABS_CLOSE, T_CHAR } TokenKind;
-
-/* Il token corrente: l'unità che il parser guarda per decidere. */
-typedef struct {
-    TokenKind kind;
-    long long value;    /* T_NUM */
-    int digits;         /* T_NUM: numero di cifre */
-    int ch;             /* T_LETTER, T_CHAR: il carattere */
-    char name[24];      /* T_COMMAND: il nome senza barra */
-    const char *start;  /* dove inizia nel testo */
-} Token;
-
 /* Stato del parser, valido durante una chiamata a parse_statement() o
  * parse_expression(). */
-static const char *cursor;        /* prossimo carattere da leggere */
-static Token token;               /* token corrente */
-static const char *consumed;      /* dove finisce l'ultimo token già superato */
-static const char *syntax_error;  /* primo errore, o NULL */
+const char *cursor;        /* prossimo carattere da leggere */
+Token token;               /* token corrente */
+const char *consumed;      /* dove finisce l'ultimo token già superato */
+const char *syntax_error;  /* primo errore, o NULL */
 static const char *syntax_where;  /* dove cominciava il token del primo errore: tra
                                      due tentativi di lettura falliti, quello andato
                                      più avanti ha l'errore più preciso (17p) */
 
 /* Annota message come errore di sintassi (se è il primo) e ferma il parsing. */
-static void syntax(const char *message) {
+void syntax(const char *message) {
     if (!syntax_error) { syntax_error = message; syntax_where = token.start; }
     cursor = "";
     token.kind = T_END;
@@ -526,7 +317,7 @@ static int lex_differential(void) {
 
 /* Legge il prossimo token in `token`. I comandi di sola presentazione
  * (spazi come \, e \!, \displaystyle) vengono saltati. */
-static void next_token(void) {
+void next_token(void) {
     static const char *const ignored[] = {"displaystyle", "textstyle", "quad", "qquad", "limits"};
 
     /* Ogni discesa ricorsiva passa di qui a ogni livello: è il solo punto
@@ -617,31 +408,21 @@ static void next_token(void) {
 }
 
 /* Ritorna 1 se il token corrente è il carattere c. */
-static int is_char(int c) { return token.kind == T_CHAR && token.ch == c; }
+int is_char(int c) { return token.kind == T_CHAR && token.ch == c; }
 
 /* Ritorna 1 se il token corrente è il comando \name. */
-static int is_command(const char *name) { return token.kind == T_COMMAND && strcmp(token.name, name) == 0; }
+int is_command(const char *name) { return token.kind == T_COMMAND && strcmp(token.name, name) == 0; }
 
 /* Consuma il carattere c, o segnala che manca. */
 static void expect_char(int c, const char *message) {
     if (is_char(c)) next_token(); else syntax(message);
 }
 
-/* Lo stato del lettore di token. Rimetterlo com'era fa riprendere la lettura
- * da un punto precedente: serve dove un solo token non basta a decidere quale
- * regola della grammatica applicare (17c e 17d, e in 17r). I nodi creati nel
- * tentativo abbandonato restano nell'arena, inutilizzati. */
-typedef struct {
-    const char *cursor;
-    Token token;
-    const char *syntax_error;
-} ParserState;
-
 /* Ritorna lo stato attuale del lettore. */
-static ParserState parser_save(void) { return (ParserState){cursor, token, syntax_error}; }
+ParserState parser_save(void) { return (ParserState){cursor, token, syntax_error}; }
 
 /* Riporta il lettore allo stato state, ottenuto da parser_save(). */
-static void parser_restore(ParserState state) {
+void parser_restore(ParserState state) {
     cursor = state.cursor;
     token = state.token;
     syntax_error = state.syntax_error;
@@ -660,7 +441,7 @@ static int operation_name(void) {
 /* Ritorna un nuovo nodo di tipo kind con figli a e b; gli altri campi sono a
  * zero. Se l'arena è piena ritorna un nodo di riserva, così il parser non deve
  * controllare ogni allocazione: l'errore è già in `failure`. */
-static Node *node_new(NodeKind kind, Node *a, Node *b) {
+Node *node_new(NodeKind kind, Node *a, Node *b) {
     static Node spare;
     Node *node = arena_alloc(sizeof(Node));
     if (!node) node = &spare;
@@ -672,14 +453,14 @@ static Node *node_new(NodeKind kind, Node *a, Node *b) {
 }
 
 /* Ritorna il nodo dell'intero value. */
-static Node *node_num(long long value) {
+Node *node_num(long long value) {
     Node *node = node_new(N_NUM, NULL, NULL);
     node->value = value;
     return node;
 }
 
 /* Ritorna il nodo della funzione fn applicata ad a (e b, se serve). */
-static Node *node_call(Function fn, Node *a, Node *b) {
+Node *node_call(Function fn, Node *a, Node *b) {
     Node *node = node_new(N_CALL, a, b);
     node->op = fn;
     return node;
@@ -701,7 +482,7 @@ static int is_function(Function *fn) {
 }
 
 /* Prototipi in avanti inevitabili: la grammatica è ricorsiva. */
-static Node *parse_expr(void);
+Node *parse_expr(void);
 static Node *parse_term(void);
 static Node *parse_factor(void);
 static Node *parse_primary(void);
@@ -852,7 +633,7 @@ static Node *parse_defined_function(void) {
  * (1/x) x^2 = x, e il programma "dimostrerebbe" che la derivata di x^2 è x.
  * È successo, con un \displaystyle davanti che questa funzione non saltava:
  * vedi tests/derivatives/false_nth_derivatives.tex. */
-static int starts_with_derivative(const char *text) {
+int starts_with_derivative(const char *text) {
     static const char *const fraction[] = {"\\frac", "\\dfrac", "\\tfrac"};
     static const char *const style[] = {"\\displaystyle", "\\textstyle"};
     for (int skipped = 1; skipped;) {
@@ -1205,7 +986,7 @@ static Node *parse_sum(void) {
  * stato chiamato da dentro una parentesi, una graffa o un argomento rimette
  * alla fine il conto di chi sta fuori, per il quale tutto questo è un fattore
  * solo. */
-static Node *parse_expr(void) {
+Node *parse_expr(void) {
     int outside = joins;
     joins = 0;
     Node *node = parse_sum();
@@ -1226,7 +1007,7 @@ static Node *parse_expr(void) {
 
 /* Analizza text come una sola espressione e ne ritorna l'albero. In caso di
  * errore syntax_error è diverso da NULL. */
-static Node *parse_expression(const char *text) {
+Node *parse_expression(const char *text) {
     syntax_error = NULL;
     cursor = text;
     next_token();
@@ -1254,7 +1035,7 @@ static void parse_comparison(Statement *statement) {
 
 /* Analizza text come enunciato e lo mette in *statement. Ritorna 1 se riesce;
  * altrimenti ritorna 0 e syntax_error dice perché. */
-static int parse_statement(const char *text, Statement *statement) {
+int parse_statement(const char *text, Statement *statement) {
     syntax_error = NULL;
     cursor = text;
     next_token();
@@ -1279,7 +1060,7 @@ static int parse_statement(const char *text, Statement *statement) {
  *
  * Ritorna 1 se text ha una di queste forme; altrimenti ritorna 0 e
  * syntax_error dice perché. */
-static int parse_derivative_statement(const char *text, DerivativeStatement *out) {
+int parse_derivative_statement(const char *text, DerivativeStatement *out) {
     memset(out, 0, sizeof *out);
     syntax_error = NULL;
     cursor = text;
@@ -1325,7 +1106,7 @@ static const char *skip_layout(const char *text) {
 
 /* Ritorna 1 se text comincia, dopo spazi e comandi di presentazione, con
  * \lim oppure con \nexists \lim: allora è un enunciato su un limite. */
-static int starts_with_limit(const char *text) {
+int starts_with_limit(const char *text) {
     text = skip_layout(text);
     if (strncmp(text, "\\nexists", 8) == 0 && !isalpha((unsigned char)text[8])) text = skip_layout(text + 8);
     return strncmp(text, "\\lim", 4) == 0 && !isalpha((unsigned char)text[4]);
@@ -1333,7 +1114,7 @@ static int starts_with_limit(const char *text) {
 
 /* Se il testo [from, to) è, a meno di spazi, "+\infty" ritorna 1, se è
  * "-\infty" ritorna -1, se è "\infty" senza segno ritorna 2; altrimenti 0. */
-static int infinity_text(const char *from, const char *to) {
+int infinity_text(const char *from, const char *to) {
     int sign = 2;
     while (from < to && isspace((unsigned char)*from)) from++;
     while (to > from && isspace((unsigned char)to[-1])) to--;
@@ -1380,7 +1161,7 @@ static int side_suffix(const char *point, const char **end) {
  *
  * Ritorna 1 se text ha questa forma; altrimenti ritorna 0 e syntax_error
  * dice perché. */
-static int parse_limit_statement(const char *text, LimitStatement *out) {
+int parse_limit_statement(const char *text, LimitStatement *out) {
     static char point_text[MAX_FORMULA];
     const char *shape = "un limite si scrive \\lim_{x \\to a} f, con a un numero, +\\infty o -\\infty, oppure a^{+} o a^{-}";
     memset(out, 0, sizeof *out);
@@ -1510,7 +1291,7 @@ static int is_reals_text(const char *text) {
 
 /* Ritorna 1 se target è un fattore di tutto tree: ci si arriva scendendo per
  * prodotti, numeratori di frazioni e segni meno. */
-static int node_is_factor(const Node *tree, const Node *target) {
+int node_is_factor(const Node *tree, const Node *target) {
     if (tree == target) return 1;
     if (tree->kind == N_MUL) return node_is_factor(tree->a, target) || node_is_factor(tree->b, target);
     return (tree->kind == N_DIV || tree->kind == N_NEG) && node_is_factor(tree->a, target);
@@ -1535,7 +1316,7 @@ static int is_integration_constant(const Node *node) {
 }
 
 /* Ritorna 1 se text comincia con \int, dopo eventuali \displaystyle. */
-static int starts_with_integral(const char *text) {
+int starts_with_integral(const char *text) {
     syntax_error = NULL;
     cursor = text;
     next_token();
@@ -1547,7 +1328,7 @@ static int starts_with_integral(const char *text) {
 /* Analizza text come enunciato su un integrale (vedi IntegralStatement e le
  * convenzioni di 9j) e lo mette in *out. Ritorna 1 se riesce; altrimenti
  * ritorna 0 e syntax_error dice perché. */
-static int parse_integral_statement(const char *text, IntegralStatement *out) {
+int parse_integral_statement(const char *text, IntegralStatement *out) {
     const char *misplaced = "il differenziale dx deve moltiplicare tutta la funzione integranda, una volta sola";
     memset(out, 0, sizeof *out);
     syntax_error = NULL;
@@ -1657,7 +1438,7 @@ static int parse_integral_statement(const char *text, IntegralStatement *out) {
  *
  * La virgola separa le ipotesi; \, è uno spazio e non conta. Ritorna 1 se
  * riesce; altrimenti ritorna 0 e syntax_error dice perché. */
-static int parse_sequence_statement(const char *text, SequenceStatement *out) {
+int parse_sequence_statement(const char *text, SequenceStatement *out) {
     memset(out, 0, sizeof *out);
     syntax_error = NULL;
     cursor = text;
@@ -1745,62 +1526,17 @@ static int parse_sequence_statement(const char *text, SequenceStatement *out) {
  *   - insiemi di coppie: il prodotto cartesiano A \times B.
  */
 
-/* Tipi di nodo di un enunciato sugli insiemi.
- *
- * Warning: se aggiungi un tipo prima di SET_APPLY, aggiungi il ramo che lo
- * costruisce nel parser di questo capitolo, il suo tipo in set_check(), e il
- * suo case in member() o set_holds() (capitolo 15), in concrete() o
- * concrete_holds() e in put_set() (capitolo 16), e in parts_unfold() (17r).
- * SET_APPLY e SET_PAIR_IN sono della notazione dei libri (17r): li ha solo
- * l'enunciato com'è scritto, parts_unfold() li toglie, e i capitoli 15 e 16
- * li vedono solo in concrete() e concrete_holds(), per il controllo dello
- * svolgimento. */
-typedef enum {
-    SET_VAR,         /* una lettera: var è il suo indice */
-    SET_EMPTY,       /* l'insieme vuoto */
-    SET_ONLY_EMPTY,  /* la collezione il cui unico elemento è l'insieme vuoto */
-    SET_POWER,       /* insieme delle parti di a */
-    SET_UNION, SET_INTER, SET_DIFF, SET_SYMDIFF,  /* a op b */
-    SET_PRODUCT,     /* a per b */
-    SET_EQ, SET_SUBSET, SET_NEQ,                  /* relazioni tra a e b */
-    SET_AND, SET_OR, SET_IMPLIES, SET_IFF,        /* connettivi tra a e b */
-    SET_NOT,         /* non a */
-    SET_EXISTS,      /* esiste un insieme, di indice var, tale che a */
-    SET_APPLY,       /* 17r: l'applicazione di posto var in part_rules[]
-                        applicata all'insieme a */
-    SET_PAIR_IN      /* 17r: la coppia di insiemi (a, b) sta nella relazione
-                        di posto var in part_rules[] */
-} SetKind;
-
-/* Il tipo di ciò che un nodo denota. TY_ANY è l'insieme vuoto, che può stare
- * al posto di un oggetto di qualunque tipo; TY_ERROR segnala operandi di tipo
- * sbagliato. */
-typedef enum { TY_ERROR, TY_ANY, TY_SET, TY_FAMILY, TY_PAIRS, TY_FORMULA } SetType;
-
-/* Un nodo dell'albero di un enunciato sugli insiemi. I nodi vivono nell'arena.
- * support e supports valgono solo per le relazioni e li riempie
- * relation_supports() (capitolo 15). */
-typedef struct SetNode SetNode;
-struct SetNode {
-    SetKind kind;
-    SetType type;       /* riempito da set_check() */
-    int var;            /* SET_VAR, SET_EXISTS: indice in set_var_name */
-    SetNode *a, *b;     /* operandi; NULL se non usati */
-    unsigned *support;  /* configurazioni minime in cui la relazione fallisce */
-    int supports;       /* quante sono */
-};
-
 /* Le lettere usate come insiemi nell'enunciato in corso, in ordine di
  * comparsa: la lettera di indice i è set_var_name[i]. Al più MAX_SET_VARS,
  * tranne mentre si legge un enunciato di 17r (parts_world): lì le lettere
  * delle regole e quelle dei quantificatori di parti diverse della tesi sono
  * di più, e prima del capitolo 15 lo svolgimento le riduce (parts_reindex()). */
-static int set_var_name[MAX_SET_LETTERS];
-static int set_var_count;
+int set_var_name[MAX_SET_LETTERS];
+int set_var_count;
 
 /* 1 mentre si legge un enunciato su relazioni e applicazioni tra le parti di
  * un insieme (17r). */
-static int parts_world;
+int parts_world;
 
 /* Ritorna l'indice della lettera name, registrandola se è nuova. */
 static int set_var_index(int name) {
@@ -1815,28 +1551,9 @@ static int set_var_index(int name) {
     return set_var_count++;
 }
 
-/* 17r. Una relazione tra le parti di un insieme, G = \{(X, Y) \in
- * \mathcal{P}(S)^{2} \mid c\}, o un'applicazione di \mathcal{P}(S) in sé con
- * la sua regola, \forall X \in \mathcal{P}(S)\ (f(X) = e). È un nome per la
- * condizione c, o per l'espressione e, nelle lettere param[]: (A, B) \in G
- * vuol dire c con A e B al posto di X e Y, f(A) vuol dire e con A al posto
- * di X. Vedi la testa di 17r per le convenzioni.
- *
- * Invariante: rule non contiene quantificatori, quindi nessuna lettera degli
- * argomenti può esserne catturata; contiene solo le lettere param[] e quelle
- * libere dell'enunciato. */
-typedef struct {
-    int name;      /* la lettera G o f */
-    int arity;     /* 2 per una relazione, 1 per un'applicazione */
-    int param[2];  /* le lettere della regola: indici in set_var_name */
-    int base;      /* l'insieme S, di cui sono parti gli argomenti */
-    SetNode *rule; /* la condizione o l'espressione; NULL per un'applicazione
-                      dichiarata di cui non si è ancora letta la regola */
-} PartRule;
-
 /* Le relazioni e le applicazioni tra parti dell'enunciato in corso. */
-static PartRule part_rules[MAX_PART_RULES];
-static int part_rule_count;
+PartRule part_rules[MAX_PART_RULES];
+int part_rule_count;
 
 /* Ritorna il posto in part_rules[] della relazione o dell'applicazione di
  * nome name, o -1. */
@@ -1850,7 +1567,7 @@ static int part_rule_find(int name) {
  * condizione sempre vera, \emptyset \subseteq \emptyset, che lo svolgimento
  * toglie dalle congiunzioni (parts_unfold()). Si riconosce dall'indirizzo. */
 static SetNode parts_declared_empty = {SET_EMPTY, TY_ANY, 0, NULL, NULL, NULL, 0};
-static SetNode parts_declared = {SET_SUBSET, TY_ANY, 0, &parts_declared_empty, &parts_declared_empty, NULL, 0};
+SetNode parts_declared = {SET_SUBSET, TY_ANY, 0, &parts_declared_empty, &parts_declared_empty, NULL, 0};
 
 /* Ritorna un nuovo nodo di tipo kind con operandi a e b. Come node_new(), se
  * l'arena è piena ritorna un nodo di riserva. */
@@ -1865,7 +1582,7 @@ static SetNode *set_node(SetKind kind, SetNode *a, SetNode *b) {
     return node;
 }
 
-static SetNode *set_formula(void);
+SetNode *set_formula(void);
 static SetNode *set_union(void);
 
 /* primary: vedi la grammatica in testa al capitolo. */
@@ -2187,7 +1904,7 @@ static SetNode *set_implication(void) {
 }
 
 /* formula := implication { \iff implication } */
-static SetNode *set_formula(void) {
+SetNode *set_formula(void) {
     SetNode *node = set_implication();
     while (is_command("iff") || is_command("Leftrightarrow") || is_command("Longleftrightarrow")) {
         next_token();
@@ -2198,7 +1915,7 @@ static SetNode *set_formula(void) {
 
 /* Ritorna il tipo comune a due oggetti, o TY_ERROR se sono di tipo diverso.
  * L'insieme vuoto prende il tipo dell'altro. */
-static SetType set_join(SetType x, SetType y) {
+SetType set_join(SetType x, SetType y) {
     if (x == TY_ANY) return y;
     if (y == TY_ANY) return x;
     return x == y ? x : TY_ERROR;
@@ -2207,7 +1924,7 @@ static SetType set_join(SetType x, SetType y) {
 /* Calcola il tipo di ogni nodo del sotto-albero, lo annota in type e ritorna
  * quello della radice: TY_ERROR se un operatore riceve operandi sbagliati, per
  * esempio l'unione di un insieme con una collezione di insiemi. */
-static SetType set_check(SetNode *n) {
+SetType set_check(SetNode *n) {
     SetType a = n->a ? set_check(n->a) : TY_ANY, b = n->b ? set_check(n->b) : TY_ANY;
     SetType both = set_join(a, b);
     int collection = both == TY_ANY || both == TY_SET || both == TY_FAMILY || both == TY_PAIRS;
@@ -2278,7 +1995,7 @@ static SetType set_check(SetNode *n) {
 
 /* Mentre si svolge: l'insieme che va al posto di ogni lettera, o NULL dove
  * la lettera resta com'è. */
-static SetNode *parts_to[MAX_SET_LETTERS];
+SetNode *parts_to[MAX_SET_LETTERS];
 
 /* Ritorna una copia dell'albero n, nodo per nodo. */
 static SetNode *set_copy(const SetNode *n) {
@@ -2296,7 +2013,7 @@ static SetNode *set_copy(const SetNode *n) {
  * Ogni nodo dell'albero svolto è nuovo, anche quando un argomento compare
  * due volte: parts_reindex() riscrive le lettere sul posto, e un nodo
  * condiviso verrebbe riscritto due volte. */
-static SetNode *parts_unfold(const SetNode *n) {
+SetNode *parts_unfold(const SetNode *n) {
     if (n == &parts_declared) return &parts_declared;
     if (n->kind == SET_VAR && parts_to[n->var]) return set_copy(parts_to[n->var]);
     SetNode *a = n->a ? parts_unfold(n->a) : NULL, *b = n->b ? parts_unfold(n->b) : NULL;
@@ -2328,7 +2045,7 @@ static SetNode *parts_unfold(const SetNode *n) {
 /* 17r. Ritorna 1 se nell'albero svolto è rimasta una dichiarazione: stava
  * dove non è una congiunzione delle ipotesi, per esempio sotto \lnot, e lì
  * \emptyset \subseteq \emptyset direbbe qualcosa che l'enunciato non dice. */
-static int parts_declaration_left(const SetNode *n) {
+int parts_declaration_left(const SetNode *n) {
     if (!n) return 0;
     return n == &parts_declared || parts_declaration_left(n->a) || parts_declaration_left(n->b);
 }
@@ -2390,7 +2107,7 @@ static void reindex_apply(SetNode *n, int frees, int *used) {
  * maiuscola che le libere non usano. Se gli indici sono più di
  * MAX_SET_VARS lo annota con syntax(). Mette in free_map[] l'indice nuovo
  * di ogni lettera libera, -1 per le altre: serve al controllo. */
-static void parts_reindex(SetNode *root, int *free_map) {
+void parts_reindex(SetNode *root, int *free_map) {
     int bound[MAX_SET_LETTERS] = {0}, frees = 0, used = 0, name[MAX_SET_LETTERS];
     for (int i = 0; i < MAX_SET_LETTERS; i++) reindex_free[i] = -1;
     reindex_find_free(root, bound, &frees);
@@ -2540,7 +2257,7 @@ static void parts_reindex(SetNode *root, int *free_map) {
  * soluzioni che quella regola non vede. Fa eccezione un enunciato sui reali
  * senza relazioni d'ordine che parla di appartenenza, come a b^{-1} \in
  * \mathbb{Q}: lo trattano le regole del capitolo 18, che per le variabili
- * reali rinunciano a ciò che vale solo per le razionali (18y in main.c).
+ * reali rinunciano a ciò che vale solo per le razionali (18y nel motore).
  *
  * Dopo il parsing, formula_check() controlla ciò che la grammatica non dice:
  * che ogni lettera sia quantificata, e una volta sola; che le espressioni
@@ -2555,7 +2272,7 @@ static void parts_reindex(SetNode *root, int *free_map) {
  */
 
 /* Ritorna 1 se il numero value appartiene a set. */
-static int numbers_contain(const NumberSet *set, Frac value) {
+int numbers_contain(const NumberSet *set, Frac value) {
     if (set->integers && value.den != 1) return 0;
     if (set->bounded) {
         int side = frac_cmp(value, frac_int(set->low));
@@ -2569,7 +2286,7 @@ static int numbers_contain(const NumberSet *set, Frac value) {
 /* Ritorna 1 se a e b sono lo stesso insieme. Per i punti tolti si conta
  * sull'invariante di NumberSet: a parità di numero, basta che quelli di a
  * manchino anche in b. */
-static int numbers_equal(const NumberSet *a, const NumberSet *b) {
+int numbers_equal(const NumberSet *a, const NumberSet *b) {
     if (a->integers != b->integers || a->reals != b->reals || a->bounded != b->bounded || a->holes != b->holes) return 0;
     if (a->bounded && (a->low != b->low || a->strict != b->strict)) return 0;
     for (int i = 0; i < a->holes; i++)
@@ -2585,7 +2302,7 @@ static int numbers_equal(const NumberSet *a, const NumberSet *b) {
  * Si guarda una proprietà alla volta: b può chiedere numeri interi, o
  * razionali; può avere un estremo inferiore, che a deve allora rispettare; e
  * i punti che b esclude non devono stare in a. */
-static int numbers_subset(const NumberSet *a, const NumberSet *b) {
+int numbers_subset(const NumberSet *a, const NumberSet *b) {
     if ((b->integers && !a->integers) || (a->reals && !b->reals)) return 0;
     if (b->bounded && (!a->bounded || a->low < b->low || (a->low == b->low && b->strict && !a->strict))) return 0;
     for (int i = 0; i < b->holes; i++)
@@ -2604,7 +2321,7 @@ static int numbers_subset(const NumberSet *a, const NumberSet *b) {
  * candidato si tiene solo ciò che appartiene a set; tra gli interi conta solo
  * q = 1. Gli insiemi sono infiniti, quindi `wanted` elementi si trovano
  * sempre. */
-static void numbers_sample(const NumberSet *set, Frac *out, int wanted) {
+void numbers_sample(const NumberSet *set, Frac *out, int wanted) {
     int count = 0;
     for (long long h = 0; count < wanted; h++) {
         long long widest = (h > 1 && !set->integers) ? h : 1;
@@ -2622,88 +2339,11 @@ static void numbers_sample(const NumberSet *set, Frac *out, int wanted) {
     }
 }
 
-/* Tipi di nodo di un enunciato con quantificatori.
- *
- * Warning: se aggiungi un tipo, aggiungi il ramo che lo costruisce nel parser
- * di questo capitolo, il suo case in formula_check(), in junction() o in
- * establish() (capitolo 18) e in sample_holds() (capitolo 19). La tabella
- * dei segni (18p) prende per un confronto ogni nodo che non sia un
- * connettivo: un tipo nuovo che non lo è va fermato prima, in
- * decide_quantified(), come F_IN e F_DIVIDES. */
-typedef enum {
-    F_EQUAL, F_DISTINCT,              /* left = right, left diverso da right */
-    F_LESS, F_LESS_EQ,                /* left < right, left <= right: solo con la
-                                         tabella dei segni (18p) */
-    F_AND, F_OR, F_IMPLIES, F_IFF,    /* connettivi tra a e b */
-    F_NOT,                            /* non a */
-    F_FORALL, F_EXISTS,               /* per ogni / esiste variable in numbers: a */
-    F_SOLVE,                          /* \{variable \in numbers \mid a\}: non è una
-                                         condizione ma una domanda, "per quali
-                                         valori vale a?", e sta solo in cima a
-                                         un enunciato, o sotto il "per ogni" di
-                                         un parametro (17h) */
-    F_MAP,                            /* dichiarazione: di un'applicazione, di
-                                         un'operazione o di una relazione data
-                                         da una regola */
-    F_IN,                             /* left appartiene a numbers (17k) */
-    F_DIVIDES                         /* left divide right (17n) */
-} FormulaKind;
-
-/* Un nodo dell'albero di un enunciato con quantificatori: una condizione, cioè
- * qualcosa che può essere vero o falso. I campi non usati dal tipo sono NULL o
- * zero. I nodi vivono nell'arena.
- *
- * I campi da has_witness a quotient sono i soli scritti dopo il parsing: li
- * riempie la dimostrazione (capitolo 18), perché la verifica indipendente
- * (capitolo 19) possa ricontrollare ciò che ha scelto. Quando un "per ogni"
- * è dimostrato per casi sul resto (regola 18o), il valore scelto per un
- * "esiste" al suo
- * interno cambia da un caso all'altro: per questo i valori sono MAX_CASES, e
- * fuori da una dimostrazione per casi si usa il primo. */
-typedef struct Formula Formula;
-struct Formula {
-    FormulaKind kind;
-    Node *left, *right;       /* i confronti (da F_EQUAL a F_LESS_EQ): i due membri.
-                                 F_IN: left è l'espressione, right è NULL.
-                                 F_DIVIDES: left è il divisore, right ciò che
-                                 divide */
-    int swapped;              /* F_LESS, F_LESS_EQ: 1 se nell'enunciato c'era > o
-                                 \ge, e quindi left è il membro scritto a destra.
-                                 Serve solo a chi deve mostrare i membri com'erano
-                                 scritti (il grafico, 18q). F_IN, F_DIVIDES: 1
-                                 se c'era \notin o \nmid, e la condizione è la
-                                 negazione */
-    Formula *a, *b;           /* le condizioni componenti */
-    int variable;             /* F_FORALL, F_EXISTS, F_SOLVE: la lettera legata */
-    NumberSet numbers;        /* F_FORALL, F_EXISTS, F_SOLVE: l'insieme su cui varia.
-                                 F_IN: l'insieme a cui left appartiene */
-    const char *start, *end;  /* com'è scritto nell'enunciato: [start, end) */
-    unsigned has_witness;     /* il bit r dice se witness[r] è stato scelto */
-    Rat witness[MAX_CASES];   /* il valore scelto per variable nel caso r: un
-                                 numero, o un'espressione nelle variabili più
-                                 esterne */
-    int modulus;              /* F_FORALL dimostrato per casi sul resto: il
-                                 modulo m; altrimenti 0 */
-    int quotient;             /* e la lettera t di variable = m t + r */
-    int pair;                 /* 17t-2. F_FORALL, F_EXISTS: se variable è la
-                                 prima componente di una coppia, la lettera
-                                 della coppia (la seconda componente è la
-                                 variabile del nodo a); altrimenti 0 */
-    int complex;              /* 17t-4: con pair, 1 se la coppia è un numero
-                                 complesso, parte reale e coefficiente di i */
-};
-
-/* Una variabile quantificata e l'insieme su cui varia. */
-typedef struct {
-    int name;                  /* la lettera */
-    const NumberSet *numbers;  /* l'insieme: sta nel nodo del quantificatore */
-} Bound;
-
 /* Ritorna un nuovo nodo di tipo kind con componenti a e b, il cui testo va da
  * start alla fine dell'ultimo token già letto: va quindi chiamata dopo aver
  * letto tutto il pezzo di enunciato che il nodo rappresenta. Come node_new(),
  * se l'arena è piena ritorna un nodo di riserva. */
-static Formula *formula_node(FormulaKind kind, Formula *a, Formula *b, const char *start) {
+Formula *formula_node(FormulaKind kind, Formula *a, Formula *b, const char *start) {
     static Formula spare;
     Formula *node = arena_alloc(sizeof(Formula));
     if (!node) node = &spare;
@@ -2716,12 +2356,12 @@ static Formula *formula_node(FormulaKind kind, Formula *a, Formula *b, const cha
     return node;
 }
 
-/* Il valore di un'espressione: è definita in main.c (capitolo 11), dopo
+/* Il valore di un'espressione: è definita nel motore (capitolo 11), dopo
  * questo file. È l'unica cosa del motore che il lettore usa, per sapere quale
  * numero è un punto tolto con \setminus, che può essere scritto come
  * \frac{1}{2}: riscrivere qui un secondo calcolatore di costanti sarebbe una
  * duplicazione. */
-static Rat eval(const Node *node);
+Rat eval(const Node *node);
 
 /* Ritorna 1 se il token corrente è l'apice di un quadrato cartesiano, ^2 o
  * ^{2}: non fa parte dell'insieme numerico, e lo legge parse_pairs(). Il
@@ -2821,7 +2461,7 @@ static NumberSet parse_numbers(void) {
 }
 
 /* Prototipi in avanti inevitabili: la grammatica è ricorsiva. */
-static Formula *logic_formula(void);
+Formula *logic_formula(void);
 static Formula *logic_unary(void);
 
 /* Le variabili quantificate visibili in un punto dell'enunciato, dalla più
@@ -2830,7 +2470,7 @@ static Formula *logic_unary(void);
  * dove varia una lettera), e poi a formula_check(). */
 static Bound *scope;
 static size_t scope_capacity;
-static int scope_count;
+int scope_count;
 
 /* Aggiunge un legame alla pila dinamica; 0 e failure se manca memoria.
  * Il NumberSet resta posseduto dal nodo o dalla lettura del quantificatore,
@@ -2877,7 +2517,7 @@ typedef struct {
 
 /* Gli insiemi di coppie dichiarati dall'enunciato in corso. */
 static PairSet pair_sets[MAX_PAIR_SETS];
-static int pair_set_count;
+int pair_set_count;
 
 /* 17t-4. Un insieme di numeri complessi dichiarato dall'enunciato, A =
  * \{a + ib \mid a, b \in S\}: per il lettore è l'insieme delle coppie
@@ -2913,7 +2553,7 @@ static char letter_taken[128];
  * finite annota l'errore e ritorna una lettera qualsiasi. Mancano dall'elenco
  * e, che senza quantificatore è il numero di Nepero, e le lettere che in
  * stampa si confondono con delle cifre. */
-static int fresh_letter(void) {
+int fresh_letter(void) {
     for (const char *c = "abcdfghjkmnpqrstuvwxyzABCDFGHJKLMNPQRSTUVWXYZ"; *c; c++)
         if (!letter_taken[(int)*c]) { letter_taken[(int)*c] = 1; return *c; }
     syntax("le lettere non bastano per svolgere le definizioni dell'enunciato");
@@ -3021,8 +2661,8 @@ static int imposes_membership(const Formula *f, int negated, int letter) {
  * caratteri sono stati scritti in tutto per l'enunciato in corso: il secondo
  * numero ha un tetto, MAX_UNFOLDED, perché una definizione dentro l'altra
  * moltiplica la lunghezza a ogni livello. */
-static char draft[4 * MAX_FORMULA];
-static size_t draft_length;
+char draft[4 * MAX_FORMULA];
+size_t draft_length;
 static size_t unfolded;
 
 /* Aggiunge alla bozza i caratteri [from, to). Se non c'è posto annota
@@ -3076,7 +2716,7 @@ static void detour_end(Detour detour) {
  * (Z, y) e la regola \exists k \in \mathbb{Z}\ (Z + k = y), l'appartenenza
  * (N, 0) \in R diventava \exists k \in \mathbb{N}\ (N + k = 0): un altro
  * enunciato, e ne usciva dimostrato un falso. I due casi sono nei test. */
-static void draft_rewrite(const char *start, const char *end, const int *from, const char *const *to, int count) {
+void draft_rewrite(const char *start, const char *end, const int *from, const char *const *to, int count) {
     size_t length = (size_t)(end - start);
     char *copy = arena_alloc(length + 1);
     if (!copy) return;
@@ -3103,7 +2743,7 @@ static void draft_rewrite(const char *start, const char *end, const int *from, c
 /* Legge come formula il testo della bozza, che è la definizione svolta di un
  * pezzo di enunciato, e ne ritorna l'albero. Il testo viene copiato
  * nell'arena, dove i nodi lo citano; poi il lettore riprende da dov'era. */
-static Formula *unfold(void) {
+Formula *unfold(void) {
     char *text = arena_alloc(draft_length + 1);
     unfolded += draft_length;
     if (unfolded > MAX_UNFOLDED) syntax("enunciato troppo lungo, una volta svolte le definizioni");
@@ -3550,7 +3190,7 @@ static Formula *logic_pair_set(int name, const char *start) {
 
 /* Ritorna 1 se l'espressione node è fatta solo di numeri e operazioni: è un
  * numero scritto per esteso, come -\frac{1}{2}. */
-static int node_is_numeral(const Node *node) {
+int node_is_numeral(const Node *node) {
     if (!node) return 1;
     if (node->kind == N_NUM) return 1;
     if (node->kind != N_NEG && node->kind != N_ADD && node->kind != N_SUB && node->kind != N_MUL && node->kind != N_DIV) return 0;
@@ -3605,7 +3245,7 @@ static int member_is_plain(const Node *argument, const NumberSet *numbers, int *
  * delle from[i] prende il nome della variabile to[i]: è il modo di
  * rinominare una lettera legata. Gli alberi to[i] non vengono copiati: gli
  * alberi non si modificano mai. */
-static Node *node_substitute(const Node *node, const int *from, const Node *const *to, int count) {
+Node *node_substitute(const Node *node, const int *from, const Node *const *to, int count) {
     if (!node) return NULL;
     for (int i = 0; i < count && node->kind == N_VAR; i++)
         if (node->name == from[i]) return (Node *)to[i];
@@ -3625,7 +3265,7 @@ static Node *node_substitute(const Node *node, const int *from, const Node *cons
  * resto della formula (il testo da cui viene, l'insieme di un
  * quantificatore) passa alla copia com'è. Serve anche al motore, per
  * mettere un numero al posto di un parametro (18t). */
-static Formula *formula_substitute(const Formula *f, const int *from, const Node *const *to, int count) {
+Formula *formula_substitute(const Formula *f, const int *from, const Node *const *to, int count) {
     if (!f) return NULL;
     Formula *a = formula_substitute(f->a, from, to, count), *b = formula_substitute(f->b, from, to, count);
     Formula *copy = formula_node(f->kind, a, b, f->start);
@@ -3804,18 +3444,6 @@ static Formula *logic_member(const char *start) {
     return negative ? formula_node(F_NOT, atom, NULL, start) : atom;
 }
 
-/* 17t-2. Una lettera che sta per una coppia di numeri, e le sue componenti.
- * Si riconosce dal quantificatore: bound è l'insieme della sua variabile in
- * scope[], che per una coppia resta vuoto (start NULL), e identifica il
- * quantificatore finché è in vista. Le componenti sono lettere nuove. */
-typedef struct {
-    int letter;              /* la lettera della coppia */
-    const NumberSet *bound;  /* l'insieme della sua variabile in scope[] */
-    int part[2];             /* le lettere delle due componenti */
-    NumberSet numbers[2];    /* i loro insiemi */
-    int complex;             /* 17t-4: 1 se la coppia è un numero complesso */
-} PairVariable;
-
 /* Le lettere che stanno per una coppia, dei quantificatori in vista: le
  * aggiunge chi legge un quantificatore su un insieme di coppie, o chi legge
  * un'appartenenza a una relazione tra coppie, e le toglie il quantificatore
@@ -3826,8 +3454,8 @@ static int pair_variable_count;
 /* Tutte le coppie dell'enunciato in corso, anche quelle uscite di vista:
  * servono al motore per scrivere un controesempio come x = (0, 1) invece che
  * con le lettere delle componenti (describe_choices()). */
-static PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
-static int pairs_seen_count;
+PairVariable pairs_seen[2 * MAX_PAIR_VARIABLES];
+int pairs_seen_count;
 
 /* 17t-2. Ritorna la coppia di lettera letter del quantificatore il cui
  * insieme è bound, o NULL. */
@@ -3878,12 +3506,12 @@ static const PairVariable *pair_in_scope(int letter) {
 /* Come si sono lette le lettere di coppie dell'enunciato in corso, da
  * riportare accanto al verdetto: "y = (a, b)", "z = c + id". La scrive
  * pairs_note_write(). */
-static char pairs_note[200];
+char pairs_note[200];
 
 /* Scrive in pairs_note le coppie dell'enunciato appena letto, da
  * pairs_seen[]; la lascia vuota se non ce ne sono. Va chiamata prima di
  * leggere un altro enunciato, che svuota pairs_seen[]. */
-static void pairs_note_write(void) {
+void pairs_note_write(void) {
     size_t used = 0;
     pairs_note[0] = 0;
     for (int i = 0; i < pairs_seen_count; i++) {
@@ -4716,7 +4344,7 @@ static Formula *logic_implication(void) {
 }
 
 /* formula := implication { \iff implication } */
-static Formula *logic_formula(void) {
+Formula *logic_formula(void) {
     const char *start = token.start;
     Formula *node = logic_implication();
     while (is_command("iff") || is_command("Leftrightarrow") || is_command("Longleftrightarrow")) {
@@ -4740,7 +4368,7 @@ static Formula *logic_formula(void) {
  * esercizi "risolvi al variare di a": l'albero è il quantificatore con la
  * richiesta come condizione. Di quantificatori ce ne può stare uno solo, e
  * senza parentesi attorno alla richiesta. */
-static Formula *logic_statement(void) {
+Formula *logic_statement(void) {
     const char *start = token.start;
     unfolding_reset(start);
 
@@ -4784,7 +4412,7 @@ static Formula *logic_statement(void) {
 /* Il maggior numero di quantificatori uno dentro l'altro incontrato da
  * formula_check() da quando è stato azzerato. Serve alla verifica sul
  * campione (capitolo 19) per decidere quanti valori provare. */
-static int quantifier_depth;
+int quantifier_depth;
 
 /* Controlla che nell'espressione node ogni lettera abbia un significato;
  * altrimenti annota il motivo con fail().
@@ -4873,7 +4501,7 @@ static void term_check(const Node *node) {
  * cui "definito" vuol dire soltanto "nessun divisore è zero". Per un
  * logaritmo o una radice non basta: lì serve anche il segno di ciò su cui
  * operano, e quelle regole non lo controllano. */
-static int term_is_rational(const Node *node) {
+int term_is_rational(const Node *node) {
     if (!node) return 1;
     switch (node->kind) {
     case N_NUM:
@@ -4902,7 +4530,7 @@ static int term_is_rational(const Node *node) {
  * regole del capitolo 18 una variabile è un atomo, e l'atomo è identificato
  * dalla lettera: due variabili diverse con la stessa lettera, visibili
  * insieme, diventerebbero la stessa. */
-static void formula_check(const Formula *f) {
+void formula_check(const Formula *f) {
     switch (f->kind) {
     case F_EQUAL: case F_DISTINCT: case F_LESS: case F_LESS_EQ:
         term_check(f->left);
@@ -4979,12 +4607,12 @@ static void formula_check(const Formula *f) {
 /* I parametri dichiarati dalle ipotesi dell'enunciato in corso, con
  * l'insieme in cui variano (che sta nel nodo dell'ipotesi). Chi legge un
  * enunciato deve azzerare il contatore, come map_count. */
-static Bound statement_parameters[MAX_PARAMETERS];
-static int statement_parameter_count;
+Bound statement_parameters[MAX_PARAMETERS];
+int statement_parameter_count;
 
 /* Mette in scope, e solo lì, i parametri dell'enunciato: sono le lettere
  * visibili prima di ogni quantificatore. */
-static void scope_parameters(void) {
+void scope_parameters(void) {
     scope_count = 0;
     for (int i = 0; i < statement_parameter_count; i++) if (!scope_push(statement_parameters[i])) break;
 }
@@ -5002,7 +4630,7 @@ static Formula *condition_new(FormulaKind kind) {
 /* Ritorna una copia di tree in cui il nodo target è sostituito da by. Si
  * copia solo il cammino dalla radice a target: il resto è condiviso, perché
  * gli alberi non si modificano mai. */
-static Node *node_replaced(Node *tree, const Node *target, Node *by) {
+Node *node_replaced(Node *tree, const Node *target, Node *by) {
     if (!tree) return NULL;
     if (tree == target) return by;
     Node *a = node_replaced(tree->a, target, by), *b = node_replaced(tree->b, target, by), *c = node_replaced(tree->c, target, by);
@@ -5145,14 +4773,14 @@ static int parameter_read(const Formula *f) {
  * parametro, non sta in quel testo, e non cambia. */
 /* Che cosa parameters_unshadowed() ha rinominato, da riportare accanto al
  * verdetto: "la k legata si chiama a". Vuoto se nulla. */
-static char unshadowed_note[200];
+char unshadowed_note[200];
 
 /* Rinomina, in ogni quantificatore di f e dei suoi pezzi, le lettere legate
  * che hanno il nome di un parametro, come descritto sopra: il quantificatore
  * si riscrive con una lettera nuova e si rilegge, e *f prende il posto del
  * vecchio. Annota ogni cambio in unshadowed_note; un errore di lettura resta
  * in syntax_error. */
-static void parameters_unshadowed(Formula *f) {
+void parameters_unshadowed(Formula *f) {
     if (!f || syntax_error) return;
     if ((f->kind == F_FORALL || f->kind == F_EXISTS || f->kind == F_SOLVE) && f->start && f->end) {
         int from[MAX_PARAMETERS], hidden = 0;
@@ -5453,7 +5081,7 @@ static void definitions_read(const Formula *f) {
  * dove A è il dominio di f, e A \times B quello dell'operazione \ast.
  * Completa ogni applicazione con la sua regola; un'ipotesi di altro tipo
  * viene annotata con fail(). */
-static void read_definitions(const Formula *f) {
+void read_definitions(const Formula *f) {
     parameters_read(f);
     if (!failure) definitions_read(f);
 }
@@ -5466,7 +5094,7 @@ static void read_definitions(const Formula *f) {
  * vuol dire nulla, prenderebbe un significato diverso in ogni punto in cui
  * la relazione è usata: quello della variabile con lo stesso nome che lì si
  * trova in vista. Va chiamata dopo la lettura dell'enunciato. */
-static void pair_sets_check(void) {
+void pair_sets_check(void) {
     for (int i = 0; i < pair_set_count && !failure; i++) {
         const PairSet *set = &pair_sets[i];
         scope_count = 0;
@@ -5563,49 +5191,20 @@ static void pair_sets_check(void) {
  * svolge in quelli di questo paragrafo.
  */
 
-/* Il "tipo" di ciò che vale vero o falso: il valore di una parte o di una
- * relazione applicata ai suoi argomenti. Non è un insieme dell'enunciato:
- * ha un tag distinto da ogni indice di insieme rappresentabile. */
-#define TRUTH INT_MAX
-
 /* Le lettere greche che possono fare da nome di un'applicazione. Il nome
  * interno di quella di posto i è GREEK_NAMES + i. */
-static const char *const greek_letters[] = {"alpha", "beta", "gamma", "delta", "iota", "kappa", "lambda", "mu", "nu", "pi", "rho",
+const char *const greek_letters[] = {"alpha", "beta", "gamma", "delta", "iota", "kappa", "lambda", "mu", "nu", "pi", "rho",
                                              "sigma", "tau", "phi", "varphi", "chi", "psi", "omega", "eta", "theta", "xi", "zeta"};
-
-/* Un simbolo di cui l'enunciato parla senza darne una regola: un elemento
- * con un nome, un'applicazione, un'operazione, una parte di un insieme o una
- * relazione. Anche gli elementi a cui la dimostrazione dà un nome (capitolo
- * 28) sono simboli, aggiunti in coda.
- *
- * Invariante: due simboli diversi non hanno lo stesso nome e lo stesso
- * pedice. */
-typedef struct {
-    int name;       /* Lettera o codice positivo di operazione, greco, relazione
-                       o numero; -1 meno l'indice di insieme per una struttura. */
-    int index;      /* 0 senza pedice, ZERO_INDEX per zero, positivo per un numero,
-                       LETTER_INDEX meno la lettera per un pedice letterale */
-    int arity;      /* quanti argomenti: 0 per un elemento, 1 o 2 */
-    int domain[2];  /* l'insieme di ogni argomento: un posto in sort_data[] */
-    int range;      /* l'insieme del valore, o TRUTH per parti e relazioni */
-    int family;     /* 1 per una famiglia di parti X_{i} (17p): una relazione
-                       tra un insieme e quello degli indici, che si scrive
-                       x \in X_{i} e non (x, i) \in X */
-    int paired;     /* 17p: un'applicazione f a valori in un prodotto,
-                       f \colon S \to T \times V, sono due applicazioni, le
-                       sue componenti f_{1} e f_{2}: 1 o 2 per quelle, 0 per
-                       ogni altro simbolo */
-} Symbol;
 
 /* I simboli dell'enunciato in corso, e i suoi insiemi: l'insieme di posto i
  * è la lettera sort_data[i].name, con il pedice sort_data[i].index (17w: S_{12}, positivo
  * e rappresentabile in int; 0 se non c'è). I simboli e i loro ruoli hanno vettori posseduti
  * dinamici: i contatori sono il solo prefisso valido, le capacita contano
  * celle e possono crescere senza un tetto compilato alle dichiarazioni. */
-static Symbol *symbols;
+Symbol *symbols;
 static size_t symbol_capacity;
-static int symbol_count;
-static int sort_count;
+int symbol_count;
+int sort_count;
 
 /* 17v. LE PARTI, LE APPLICAZIONI E GLI ORDINI COME OGGETTI
  *
@@ -5624,7 +5223,7 @@ static int sort_count;
  * l'applicazione, f(x). Il capitolo 28 ragiona su di loro come su ogni altro
  * insieme; ciò che li distingue, le leggi delle parti (due parti con gli
  * stessi elementi sono la stessa, ogni condizione dà una parte), sta in 28n
- * di main.c, e i loro modelli finiti sono le parti e le applicazioni vere
+ * del motore, e i loro modelli finiti sono le parti e le applicazioni vere
  * (28m). Le convenzioni di lettura, che sono ciò che questo paragrafo
  * decide:
  *
@@ -5669,150 +5268,19 @@ static int sort_count;
  * svolge nelle condizioni di 17o, e 28h ricontrolla lo svolgimento sui
  * modelli finiti. */
 
-/* 17v. Che cosa è l'insieme di posto i. Quasi sempre un insieme qualsiasi,
- * con il nome di una lettera; ma può essere anche l'insieme delle parti di
- * un altro, \mathcal{P}(S), o l'insieme delle applicazioni tra due, T^{S},
- * presi come insiemi di oggetti (vedi la testa di 17v). Un insieme di questi
- * due tipi non ha una lettera (sort_data[i].name è 0) e ha un simbolo di
- * struttura, che dice che cosa sono i suoi elementi: l'appartenenza "t sta
- * nella parte X" o l'applicazione "f applicata a x".
- *
- * Warning: se aggiungi un tipo, aggiungi il suo nome in put_sort(),
- * put_model_element() e cert_sort(), la sua grandezza in model_sizes() e
- * le sue tabelle in model_structure() (28m), la sua voce in
- * cert_abstract_head(), e la sua lettura al verificatore (ck_derived_sort()
- * e ck_numbers_sort() in checker.c). */
-typedef enum {
-    SORT_PLAIN,   /* un insieme qualsiasi, di nome sort_data[i].name */
-    SORT_PARTS,   /* le parti di sort_data[i].base */
-    SORT_MAPS,    /* le applicazioni da sort_data[i].base a sort_data[i].target */
-    SORT_NUMBERS  /* i numeri scritti nell'enunciato, come elementi di una
-                     relazione data da un elenco di coppie: ognuno è un
-                     elemento con un nome (numeral_symbol()), tutti diversi,
-                     e non ce ne sono altri */
-} SortKind;
-/* Un insieme dell'enunciato, identificato dal suo indice nel vettore.
- * Le dipendenze base/target precedono sempre l'insieme derivato; nessun
- * nodo conserva indirizzi nel vettore che puo essere riallocato. */
-typedef struct {
-    int name;       /* Lettera maiuscola per SORT_PLAIN, zero per gli altri. */
-    int index;      /* Pedice numerico del nome, zero se assente. */
-    SortKind kind;  /* Insieme arbitrario, parti, mappe o numeri scritti. */
-    int base;       /* Dominio di una costruzione derivata, -1 se assente. */
-    int target;     /* Codominio delle mappe, -1 negli altri casi. */
-    int symbol;     /* Simbolo di appartenenza o valutazione, -1 se assente. */
-} SortData;
-static SortData *sort_data;      /* Vettore posseduto dal parser. */
+SortData *sort_data;      /* Vettore posseduto dal parser. */
 static size_t sort_capacity;    /* Celle allocate; sort_count e il prefisso valido. */
-/* 17u. Che cosa è il simbolo di posto i rispetto ai quantificatori su parti.
- * PART_FREE: un simbolo dichiarato, o un nome dato dalla dimostrazione.
- * PART_BOUND: la parte legata da un \forall X \subseteq S o da un \exists X
- * \subseteq S, il cui nome è in vista mentre si legge la condizione del
- * quantificatore. PART_HIDDEN: la stessa, dopo; il nome non vuol più dire
- * nulla, e la stessa lettera può legare un'altra parte. Una parte legata non
- * è dichiarata: non ha una tabella nei modelli né una voce symbol nel
- * certificato. */
-enum { PART_FREE, PART_BOUND, PART_HIDDEN };
-static int *symbol_bound;
+int *symbol_bound;
 static size_t symbol_bound_capacity;
-
-/* Un'espressione che indica un elemento: una variabile, oppure un simbolo
- * applicato ai suoi argomenti (nessuno, per un elemento con un nome). Per
- * una parte o una relazione applicata, il "valore" è vero o falso. I nodi
- * vivono nell'arena. */
-typedef struct Elem Elem;
-struct Elem {
-    int symbol;    /* il simbolo, posto in symbols[]; -1 per una variabile */
-    int slot;      /* variabile: il suo posto nel vettore slot_data */
-    Elem *arg[2];  /* gli argomenti; NULL dove non servono */
-};
-
-/* Tipi di nodo di un enunciato su insiemi qualsiasi.
- *
- * Warning: se aggiungi un tipo prima di S_MEMBER, aggiungi il ramo che lo
- * costruisce nel lettore di questo paragrafo e i suoi casi nel capitolo 28:
- * in model_holds(), in known_open(), in truth(), in put_sentence() e in
- * cert_sentence(), e la sua parola al lettore del verificatore (capitolo 11
- * di checker.c); e il suo caso in unfold_sentence() (17q) e in book_holds()
- * (28h). Un tipo senza componenti a e b, come S_EQUIPOTENT (17w), va anche
- * tra quelli che sentence_ground(), instance_rewrite() e instance_survey()
- * non attraversano. Un tipo da S_MEMBER in poi è invece della notazione dei
- * libri (17p): va in unfold_sentence(), che lo traduce nei primi, e in
- * book_holds(), e il capitolo 28 non lo vede mai. */
-typedef enum {
-    S_TRUE,                         /* una dichiarazione: non afferma nulla */
-    S_EQUAL,                        /* left = right */
-    S_HOLDS,                        /* left, una parte o una relazione
-                                       applicata, vale */
-    S_NOT,                          /* non a */
-    S_AND, S_OR, S_IMPLIES, S_IFF,  /* connettivi tra a e b */
-    S_FORALL, S_EXISTS,             /* per ogni / esiste un elemento, la
-                                       variabile di posto slot: a */
-    S_FORALL_PART, S_EXISTS_PART,   /* 17u: per ogni / esiste una parte, il
-                                       simbolo legato part: a */
-    S_EQUIPOTENT,                   /* 17w: i due lati, prodotti di insiemi
-                                       (side_slot[]), sono equipotenti */
-    S_MEMBER,                       /* 17p: gli elementi item[] stanno
-                                       nell'insieme set */
-    S_INCLUDED,                     /* 17p: set è contenuto in other, e se
-                                       proper non è uguale a other */
-    S_SAME,                         /* 17p: set e other sono lo stesso insieme */
-    S_UNIQUE,                       /* 17p: esiste un solo elemento, la
-                                       variabile di posto slot, tale che a */
-    S_COUNT                         /* 17x: l'insieme set ha almeno least
-                                       elementi e, se most >= 0, al più most */
-} SentenceKind;
-
-/* Un insieme di elementi o di coppie scritto come nei libri: è definito
- * nel paragrafo 17p, dove si legge. */
-typedef struct SetTerm SetTerm;
-
-/* Un nodo dell'albero di un enunciato su insiemi qualsiasi: una condizione.
- * I campi non usati dal tipo sono NULL o zero. I nodi vivono nell'arena. */
-typedef struct Sentence Sentence;
-struct Sentence {
-    SentenceKind kind;
-    Elem *left, *right;          /* S_EQUAL: i due membri. S_HOLDS: left */
-    Sentence *a, *b;             /* le condizioni componenti */
-    int slot;                    /* S_FORALL, S_EXISTS, S_UNIQUE: la
-                                    variabile legata */
-    const char *start, *end;     /* com'è scritto nell'enunciato: [start, end) */
-    const SetTerm *set, *other;  /* S_MEMBER: set. S_INCLUDED, S_SAME: i due
-                                    insiemi */
-    Elem *item[MAX_ARITY];       /* S_MEMBER: il membro, una componente per
-                                    posto */
-    int items;                   /* S_MEMBER: quante componenti */
-    int proper;                  /* S_INCLUDED: 1 per l'inclusione propria,
-                                    \subsetneq */
-    int part;                    /* S_FORALL_PART, S_EXISTS_PART (17u): la
-                                    parte legata, un posto in symbols[] */
-    int side_slot[2][2];         /* S_EQUIPOTENT (17w): per ogni lato, una
-                                    variabile per componente, nel suo insieme
-                                    (slot_data): le usano le identità di due
-                                    applicazioni inverse (28q) */
-    int sides[2];                /* S_EQUIPOTENT: le componenti di ogni lato,
-                                    1 o 2 */
-    int least, most;             /* S_COUNT (17x): quanti elementi ha almeno
-                                    l'insieme set (0 o più), e quanti al più;
-                                    most = -1 se non c'è un massimo */
-};
-
-/* Una variabile astratta, riconosciuta dal suo posto e non dal nome.
- * letter e index sono i codici della lettera e del pedice (zero se assente);
- * sort e l'insieme, -1 finche l'uso non lo determina; pair e il posto della
- * seconda componente se questa e la prima di una coppia, -1 altrimenti.
- * Il vettore globale possiede le celle; nessun nodo conserva indirizzi al
- * suo interno, perche una crescita puo spostarlo. */
-typedef struct { int letter, index, sort, pair; } SlotState;
 
 /* Metadati di tutte le variabili, comprese quelle generate svolgendo gli
  * insiemi e gli assiomi. count e il prefisso valido; capacity la memoria
  * posseduta. unfold_to e l'ambiente di sostituzione di 17q, cresce prima
  * di creare uno slot e contiene NULL dove la variabile resta invariata. */
-static SlotState *slot_data;
-static size_t slot_capacity, unfold_capacity;
-static int slot_count;
-static Elem **unfold_to;
+SlotState *slot_data;
+size_t slot_capacity, unfold_capacity;
+int slot_count;
+Elem **unfold_to;
 
 /* I posti delle variabili visibili, dalla piu esterna. Il vettore possiede
  * le celle; tornare indietro nella lettura ripristina il prefisso valido. */
@@ -5838,7 +5306,7 @@ static int map_quantifiers;
 
 /* 1 se l'enunciato in corso chiede un esempio: comincia con degli "esiste"
  * su insiemi, parti o applicazioni. */
-static int abstract_example;
+int abstract_example;
 
 /* Un nome letto dopo un quantificatore: letter e il codice della lettera
  * o del comando LaTeX; index e il codice del pedice, zero se assente. Il
@@ -5847,7 +5315,7 @@ typedef struct { int letter, index; } QuantifierName;
 
 /* Ritorna il posto del simbolo di nome name e pedice index, o -1. Una parte
  * legata il cui quantificatore è già stato letto non si trova più (17u). */
-static int symbol_find(int name, int index) {
+int symbol_find(int name, int index) {
     for (int i = 0; i < symbol_count; i++)
         if (symbols[i].name == name && symbols[i].index == index && symbol_bound[i] != PART_HIDDEN) return i;
     return -1;
@@ -5882,7 +5350,7 @@ static int pair_find(int letter) {
  * possiedono la memoria e possono spostarsi: i nodi conservano indici,
  * mai indirizzi di Symbol. Ritorna il nuovo indice, oppure -1 con errore
  * di risorse; una crescita fallita non pubblica una cella parziale. */
-static int symbol_append(Symbol symbol) {
+int symbol_append(Symbol symbol) {
     if (symbol_count == INT_MAX ||
         !work_reserve((void **)&symbols, &symbol_capacity, (size_t)symbol_count + 1, sizeof *symbols) ||
         !work_reserve((void **)&symbol_bound, &symbol_bound_capacity, (size_t)symbol_count + 1, sizeof *symbol_bound)) {
@@ -5905,7 +5373,7 @@ static void symbol_add(Symbol symbol) {
 /* 17v. I comandi con cui i libri scrivono una relazione tra gli elementi,
  * x \le y: il nome interno di quello di posto i è RELATION_NAMES + i.
  * \leq è lo stesso segno di \le. */
-static const char *const relation_commands[] = {"le", "preceq", "sqsubseteq"};
+const char *const relation_commands[] = {"le", "preceq", "sqsubseteq"};
 
 /* 17v. Legge il nome di una relazione scritta con un comando, \le, con il
  * pedice se c'è, \le_{S} o \le_{1}, e anche tra graffe come lo scrivono i
@@ -5973,7 +5441,7 @@ static int abstract_name_or_section(int *index, int *letter) {
 }
 
 /* Come abstract_name_or_section(), con il solo pedice numerico. */
-static int abstract_name(int *index) { return abstract_name_or_section(index, NULL); }
+int abstract_name(int *index) { return abstract_name_or_section(index, NULL); }
 
 /* Un nome che l'enunciato dà a un insieme, G = \{...\} (17p): ogni G scritto
  * dopo vuol dire term. starred dice se il nome ha l'asterisco, R^{*}, che lo
@@ -6034,7 +5502,7 @@ static int sort_index_find(int letter) {
 /* 17v. Ritorna il posto dell'insieme di tipo kind costruito su base (e
  * target, per le applicazioni; -1 per le parti), o -1 se l'enunciato non lo
  * ha ancora nominato. */
-static int sort_derived_find(SortKind kind, int base, int target) {
+int sort_derived_find(SortKind kind, int base, int target) {
     for (int i = 0; i < sort_count; i++)
         if (sort_data[i].kind == kind && sort_data[i].base == base && sort_data[i].target == target) return i;
     return -1;
@@ -6063,7 +5531,7 @@ static int sort_derived(SortKind kind, int base, int target) {
 
 /* 17v. Ritorna il posto dell'insieme di cui il simbolo symbol è il simbolo
  * di struttura, o -1 se non lo è di nessuno. */
-static int symbol_structure(int symbol) {
+int symbol_structure(int symbol) {
     int sort = symbol >= 0 && symbols[symbol].name<0 ? -1-symbols[symbol].name : -1;
     return sort >= 0 && sort < sort_count && sort_data[sort].symbol == symbol ? sort : -1;
 }
@@ -6098,7 +5566,7 @@ static int abstract_sort(void) {
 
 /* Ritorna un nuovo elemento: il simbolo symbol applicato ad a e b, oppure,
  * con symbol = -1, la variabile di posto slot. */
-static Elem *elem_new(int symbol, int slot, Elem *a, Elem *b) {
+Elem *elem_new(int symbol, int slot, Elem *a, Elem *b) {
     static Elem spare;
     Elem *e = arena_node(sizeof(Elem));
     if (failure == OUT_OF_MEMORY) syntax(OUT_OF_MEMORY);  /* la lettura finisce qui (sentence_new()) */
@@ -6121,7 +5589,7 @@ static Elem *elem_new(int symbol, int slot, Elem *a, Elem *b) {
  * l'enunciato non ne ha ancora nessuna. Chi ne chiedeva l'insieme senza
  * guardare l'errore (un elenco tra graffe) leggeva una cella che non c'è:
  * su un enunciato danneggiato, il primo di un file, il programma si fermava. */
-static int elem_sort(const Elem *e) {
+int elem_sort(const Elem *e) {
     if (e->symbol >= 0) return symbols[e->symbol].range;
     return e->slot >= 0 && e->slot < slot_count ? slot_data[e->slot].sort : -1;
 }
@@ -6135,7 +5603,7 @@ static void elem_expect(const Elem *e, int sort) {
 
 /* Ritorna un nuovo nodo di tipo kind con componenti a e b, il cui testo va
  * da start alla fine dell'ultimo token già letto. */
-static Sentence *sentence_new(SentenceKind kind, Sentence *a, Sentence *b, const char *start) {
+Sentence *sentence_new(SentenceKind kind, Sentence *a, Sentence *b, const char *start) {
     static Sentence spare;
     Sentence *s = arena_node(sizeof(Sentence));
 
@@ -6225,8 +5693,8 @@ static int describe_count, describe_allowed;
 /* 17v. Gli insiemi che l'enunciato scrive come parti, dove serve un
  * elemento di un insieme di parti: il capitolo 28 li usa per le sue
  * comprensioni (28n), perché sono le parti di cui l'enunciato parla. */
-static const SetTerm *part_template[MAX_TEMPLATES];
-static int part_template_count;
+const SetTerm *part_template[MAX_TEMPLATES];
+int part_template_count;
 
 static Elem *abstract_described(void);
 
@@ -6241,7 +5709,7 @@ typedef struct {
 } ReplaceFrame;
 static ReplaceFrame *replace_frame;
 
-static int slot_new(int letter, int index, int sort);
+int slot_new(int letter, int index, int sort);
 
 /* 17v. Ritorna il simbolo del numero value, scritto dove serve un elemento:
  * un elemento con un nome dell'insieme dei numeri dell'enunciato
@@ -6459,7 +5927,7 @@ static int builder_depth;
 /* Ritorna il posto di una variabile nuova, di lettera letter, pedice index
  * e insieme sort (-1 se lo imparerà dall'uso), senza metterla in vista; -1
  * dopo un errore di allocazione o di rappresentazione degli indici. */
-static int slot_new(int letter, int index, int sort) {
+int slot_new(int letter, int index, int sort) {
     if (slot_count == INT_MAX) {
         work_allocation_failed = 1; fail(OUT_OF_MEMORY); syntax(OUT_OF_MEMORY); return -1;
     }
@@ -6709,69 +6177,6 @@ static void reader_back(const ReaderMark *mark) {
  * che gli si attribuisce, li abbiano uguali. L'insieme vuoto prende i suoi
  * da ciò con cui è confrontato.
  */
-
-/* Tipi di termine d'insieme.
- *
- * Warning: se aggiungi un tipo, aggiungi il ramo che lo legge in
- * abstract_set_factor(), il suo svolgimento in unfold_member() (17q) e il
- * suo calcolo in book_member() (28h). */
-typedef enum {
-    ST_SYMBOL,      /* una parte o una relazione dichiarata: symbol */
-    ST_SECTION,     /* X_{i}: ciò che la famiglia symbol mette in relazione con
-                       l'indice item[0] */
-    ST_SORT,        /* un insieme qualsiasi, tutto: sort[0] */
-    ST_EMPTY,       /* l'insieme vuoto */
-    ST_LIST,        /* \{item[0], ..., item[items - 1]\} */
-    ST_BUILDER,     /* \{schema | condition\}: lo schema è item[], una variabile
-                       per componente; le variabili, senza ripetizioni, bound[] */
-    ST_IMAGE,       /* l'immagine di a attraverso l'applicazione symbol; con
-                       items = 1 (17v) l'applicazione è l'elemento item[0] di un
-                       insieme T^{S}, e symbol è il simbolo di struttura */
-    ST_PREIMAGE,    /* la controimmagine di a, allo stesso modo */
-    ST_UNION, ST_INTER, ST_DIFF, ST_SYMDIFF,  /* a op b */
-    ST_BIG_UNION,   /* l'unione degli a al variare dell'indice, la variabile
-                       bound[0]; se symbol >= 0 l'indice varia nella parte
-                       symbol, se b c'è (17v) nell'insieme b */
-    ST_BIG_INTER,   /* l'intersezione, allo stesso modo */
-    ST_PART,        /* 17v: l'elemento item[0] di un insieme \mathcal{P}(S),
-                       preso come la parte di S che è; symbol è l'appartenenza */
-    ST_POWERSET,    /* 17v: \mathcal{P}(a), le parti contenute in a, come
-                       elementi di \mathcal{P}(S); symbol è l'appartenenza */
-    ST_DESCRIBE,    /* 17v: l'insieme b, in cui la variabile bound[0], una
-                       parte, è la parte uguale all'insieme a: t vi sta se
-                       \forall Z\ (Z = a \implies t \in b). Lo crea un elenco
-                       di parti scritte come insiemi, \{\emptyset\} */
-    ST_REPLACE,     /* 17v: \{E \mid C\}, gli E al variare delle variabili
-                       bound[] che rendono vera condition. E è l'insieme a,
-                       e i membri sono parti; oppure, con items = 1, è
-                       l'elemento item[0] */
-    ST_TUPLES       /* 17v: un elenco di items membri di arity componenti,
-                       \{(1, 1), (1, 2)\}: la componente i del membro k è
-                       tuple[k * arity + i] */
-} SetTermKind;
-
-/* Un termine d'insieme (17p): un insieme di elementi o di coppie scritto
- * come nei libri. I suoi membri hanno `arity` componenti, la componente i
- * nell'insieme sort[i] (un posto in sort_data[]). arity è 0 solo per un
- * insieme vuoto che non è ancora stato confrontato con nulla. I campi non
- * usati dal tipo sono zero, symbol è -1. I nodi vivono nell'arena e non
- * cambiano dopo la lettura: un termine definito si usa dove serve senza
- * copiarlo. */
-struct SetTerm {
-    SetTermKind kind;
-    int arity;
-    int sort[MAX_ARITY];
-    int symbol;             /* vedi i tipi; -1 dove non serve */
-    SetTerm *a, *b;         /* gli operandi */
-    Elem *item[MAX_ARITY];  /* ST_LIST: gli elementi. ST_SECTION: l'indice.
-                               ST_BUILDER: lo schema */
-    int items;
-    int bound[MAX_ARITY];   /* ST_BUILDER: le variabili dello schema.
-                               ST_BIG_*: l'indice, in bound[0] */
-    int bounds;
-    Sentence *condition;    /* ST_BUILDER: la condizione */
-    Elem **tuple;           /* 17v, ST_TUPLES: i membri, nell'arena */
-};
 
 /* 17v. Ritorna 1 se t è un elenco \{a, b\} tra i cui elementi c'è la
  * variabile di posto slot (vedi sentence_forces()). */
@@ -7828,7 +7233,7 @@ static Sentence *range_member(int slot, int part, const SetTerm *range, const ch
  * dichiarazione. È un quantificatore su parti: un nodo S_FORALL_PART (o
  * S_EXISTS_PART) che lega la parte X, e il capitolo 28 lo usa come si usa
  * a mano, scegliendo per X delle parti costruite con ciò che ha davanti
- * (28i-28k di main.c).
+ * (28i-28k del motore).
  *
  * La parte legata è un simbolo, una parte di S come quelle dichiarate con
  * X \subseteq S: così x \in X, f(X), f^{-1}(X), X \cap Y si leggono e si
@@ -8097,8 +7502,8 @@ static Sentence *abstract_unique(const char *start) {
  * numero degli elementi di un insieme, e non ricava un'equipotenza da altre
  * con regole sulle cardinalità, che sarebbero proprio i teoremi da
  * dimostrare. Il lettore ne fa un nodo S_EQUIPOTENT, e il capitolo 28 lo usa
- * come un "esiste" su due applicazioni, una l'inversa dell'altra (28q di
- * main.c): da un'ipotesi A \sim B nascono una biiezione con un nome e la sua
+ * come un "esiste" su due applicazioni, una l'inversa dell'altra (28q del
+ * motore): da un'ipotesi A \sim B nascono una biiezione con un nome e la sua
  * inversa; una tesi A \sim B si dimostra costruendone una.
  *
  * I lati sono insiemi di cui il capitolo 28 conosce gli elementi:
@@ -8149,14 +7554,14 @@ static int equipotence_factor(void);
  * anche prove() (capitolo 20) quando il lettore si ferma prima, su
  * un'ipotesi che non sa leggere, come T \cap V = \emptyset tra i due insiemi
  * dell'unione. */
-static const char *const equipotence_exponent_reason =
+const char *const equipotence_exponent_reason =
     "le applicazioni da un prodotto o da un'unione, S^{T \\times V} o S^{T \\cup V}, non sono un insieme di oggetti del capitolo 28: "
     "un'applicazione di due argomenti, o definita su un'unione di due insiemi, non è elemento di un insieme dell'enunciato";
 
 /* 17w. Ritorna 1 se formula ha un esponente tra graffe con dentro \times o
  * \cup, come S^{T \cup V}. Usa il lettore di token, e lascia il suo stato da
  * reimpostare. */
-static int equipotence_bad_exponent(const char *formula) {
+int equipotence_bad_exponent(const char *formula) {
     int found = 0, depth = 0, inside = 0;
     syntax_error = NULL;
     cursor = formula;
@@ -8276,7 +7681,7 @@ static Sentence *abstract_equipotence(const char *start) {
 /* 17x. Il motivo per un numero di elementi che non è confrontato con un
  * numero scritto. Lo usa anche prove_core() (capitolo 20), per l'enunciato
  * in cui il lettore si è fermato prima di arrivarci. */
-static const char count_reason[] =
+const char count_reason[] =
     "il numero di elementi di un insieme è trattato solo tra insiemi qualsiasi e confrontato con un numero scritto, come |S| = 3 o "
     "|S| \\le 2: contare con una lettera chiede l'induzione sul numero degli elementi, che il capitolo 28 non fa, e dire infinito un "
     "insieme chiede, per le sue parti numerabili, l'assioma della scelta";
@@ -8284,7 +7689,7 @@ static const char count_reason[] =
 /* 17x. Quanti numeri di elementi il lettore ha incontrato nell'enunciato in
  * corso, anche senza riuscire a leggerli: lo azzera abstract_statement().
  * Se è zero e l'enunciato ne scrive, il lettore si è fermato prima. */
-static int count_met;
+int count_met;
 
 /* 17x. Legge '|' setterm '|' confronto intero, con il token corrente sulla
  * sbarra aperta, e ritorna il nodo S_COUNT, negato per \neq, < e >. start è
@@ -8544,7 +7949,7 @@ static int declared_inside(int letter,int index) {
 /* statement: legge l'enunciato su insiemi qualsiasi che comincia al token
  * corrente e ne ritorna l'albero, lasciando in symbols[] e negli altri
  * elenchi ciò che dichiara. Gli errori sono annotati con syntax(). */
-static Sentence *abstract_statement(void) {
+Sentence *abstract_statement(void) {
     QuantifierName *names = NULL;
     size_t name_capacity = 0;
     SlotSet nonempty=SLOT_EMPTY; /* Indici degli insiemi esplicitamente non vuoti. */
@@ -8773,11 +8178,11 @@ static Sentence *abstract_statement(void) {
 /* Quante copie della condizione di un insieme si stanno svolgendo una
  * dentro l'altra. Fuori da ogni copia (0) un quantificatore tiene il suo
  * posto. */
-static int unfold_copying;
+int unfold_copying;
 
 /* Ritorna il posto di una variabile nuova dell'insieme sort, con una lettera
  * che l'enunciato non usa. */
-static int unfold_slot(int sort) {
+int unfold_slot(int sort) {
     int index, letter = fresh_name(&index), slot = slot_new(letter, index, sort);
     return slot < 0 ? 0 : slot;
 }
@@ -8860,7 +8265,7 @@ static Elem *set_term_apply(const SetTerm *set, Elem *x) {
 /* Ritorna la condizione "il membro t[] sta nell'insieme set", svolta (vedi
  * la tabella in testa al paragrafo). t[] ha set->arity componenti, già
  * svolte; from dà il testo ai nodi nuovi. */
-static Sentence *unfold_member(Elem *const *t, const SetTerm *set, const Sentence *from) {
+Sentence *unfold_member(Elem *const *t, const SetTerm *set, const Sentence *from) {
     Sentence *s, *x, *y;
     if (failure) return unfold_node(S_TRUE, NULL, NULL, from);  /* vedi unfold_sentence() */
     switch (set->kind) {
@@ -9188,7 +8593,7 @@ static Sentence *unfold_sentence(const Sentence *s) {
 
 /* Ritorna 1 se in s c'è un nodo di 17p: solo allora lo svolgimento cambia
  * qualcosa, e va ricontrollato (28h). */
-static int sentence_has_book_notation(const Sentence *s) {
+int sentence_has_book_notation(const Sentence *s) {
     if (!s) return 0;
     if (s->kind >= S_MEMBER) return 1;
     return sentence_has_book_notation(s->a) || sentence_has_book_notation(s->b);
@@ -9197,7 +8602,7 @@ static int sentence_has_book_notation(const Sentence *s) {
 /* Ritorna l'enunciato root svolto (vedi la testa del paragrafo). Le variabili
  * nuove si aggiungono a quelle dell'enunciato; un errore, come troppe
  * variabili o lettere finite, è annotato con syntax(). */
-static Sentence *abstract_unfold(const Sentence *root) {
+Sentence *abstract_unfold(const Sentence *root) {
     if (unfold_capacity) memset(unfold_to, 0, unfold_capacity * sizeof *unfold_to);
     unfold_copying = 0;
     return unfold_sentence(root);
@@ -9210,7 +8615,7 @@ static Sentence *abstract_unfold(const Sentence *root) {
  * Gli enunciati dell'algebra lineare su matrici scritte per esteso, con
  * elementi numerici: "il prodotto di queste due matrici è quest'altra", "il
  * determinante vale -2", "il rango è 2", "l'inversa è questa". Li decide il
- * capitolo 32 di main.c, con un conto esatto sui razionali; qui c'è solo
+ * capitolo 32 del motore, con un conto esatto sui razionali; qui c'è solo
  * com'è scritto l'enunciato.
  *
  *     matrici     := [ definizione { ',' definizione } \implies ] msum [ relazione msum ]
@@ -9274,76 +8679,20 @@ static Sentence *abstract_unfold(const Sentence *root) {
  *
  * Qui c'è solo come si trovano quei fattori (matrix_starts_here()); che cosa
  * valgono, e come l'enunciato si riscrive con il loro valore, è il
- * paragrafo 32g di main.c.
+ * paragrafo 32g del motore.
  *
  * I SISTEMI LINEARI hanno una grammatica loro, che usa questa: è il
  * paragrafo 31s, in fondo al capitolo.
  *
- * Warning: uses_matrices(), nel capitolo 20 di main.c, manda qui un
+ * Warning: uses_matrices(), nel capitolo 20 del motore, manda qui un
  * enunciato quando vi trova uno di questi ambienti. Se ne aggiungi uno a
  * matrix_environments[], lì non serve altro: guarda la stessa tabella.
  */
 
-/* Tipi di nodo di un'espressione tra matrici. Tra parentesi i campi usati.
- *
- * Warning: se aggiungi un tipo, aggiungi il suo caso in matrix_eval() e in
- * matrix_cert_node() (capitolo 32 di main.c), e la sua parola nel capitolo
- * 17 di checker.c. */
-typedef enum {
-    M_SCALAR,     /* un numero: scalar, la sua espressione */
-    M_TABLE,      /* una matrice scritta: rows, cols, entry */
-    M_IDENTITY,   /* l'identità: rows, la dimensione; 0 se è scritta senza pedice */
-    M_NEG,        /* -a */
-    M_ADD,        /* a + b */
-    M_SUB,        /* a - b */
-    M_MUL,        /* a b */
-    M_POWER,      /* a elevata all'intero power, anche negativo o zero */
-    M_TRANSPOSE,  /* la trasposta di a */
-    M_DET,        /* il determinante di a */
-    M_RANK,       /* il rango di a */
-    M_TRACE       /* la traccia di a */
-} MatrixKind;
-
-/* Un nodo dell'albero di un'espressione tra matrici: una sua
- * sotto-espressione, che vale una matrice oppure un numero. Quale delle due
- * lo stabilisce il motore calcolandola: l'albero registra solo com'è
- * scritta. I nodi stanno nell'arena; i campi che il tipo non usa sono zero.
- *
- * Un nome definito dall'enunciato non ha un nodo suo: dove compare c'è
- * l'albero della sua definizione, lo stesso nodo ogni volta. L'albero è
- * quindi un grafo senza cicli, e chi lo visita può passare più volte dallo
- * stesso nodo. */
-typedef struct MatrixNode MatrixNode;
-struct MatrixNode {
-    MatrixKind kind;
-    MatrixNode *a, *b;  /* gli operandi */
-    Node *scalar;       /* M_SCALAR: l'espressione del numero (capitolo 8) */
-    int rows, cols;     /* M_TABLE: righe e colonne, almeno 1. M_IDENTITY: rows è la
-                           dimensione; se vale 0 la mette il motore, quando il
-                           contesto la fissa (32d) */
-    Node **entry;       /* M_TABLE: le rows * cols espressioni degli elementi, per righe */
-    long long power;    /* M_POWER: l'esponente */
-};
-
-/* Come sono messi in relazione i due membri di un enunciato sulle matrici;
- * MATRIX_ASKED se il secondo membro non c'è, ed è una richiesta. */
-typedef enum { MATRIX_ASKED, MATRIX_EQ, MATRIX_NEQ, MATRIX_LT, MATRIX_LE, MATRIX_GT, MATRIX_GE } MatrixRelation;
-
-/* Un enunciato sulle matrici: i due membri e la loro relazione, con i nomi
- * già sostituiti dalle definizioni. In una richiesta right è NULL. Le
- * definizioni restano anche da sole, nell'ordine in cui sono scritte: il
- * motore controlla che ognuna abbia un valore, anche se nessuno la usa. */
-typedef struct {
-    MatrixNode *left, *right;
-    MatrixRelation relation;
-    int definitions;             /* definizioni valide in definition[] */
-    MatrixNode *definition[26];  /* gli alberi delle matrici con un nome: al più una per lettera */
-} MatrixStatement;
-
 /* Gli ambienti LaTeX che scrivono una tabella di numeri. determinant dice se
  * l'ambiente ne è il determinante (le due sbarre); columns se dopo il nome
  * vuole la descrizione delle colonne, che si salta. */
-static const struct { const char *name; int determinant, columns; } matrix_environments[] = {
+const struct matrix_environments matrix_environments[] = {
     {"pmatrix", 0, 0}, {"bmatrix", 0, 0}, {"matrix", 0, 0}, {"array", 0, 1}, {"vmatrix", 1, 0},
 };
 
@@ -9353,7 +8702,7 @@ static MatrixNode *matrix_named[26];
 
 /* Ritorna un nodo nuovo di tipo kind con operandi a e b, e gli altri campi a
  * zero. Con l'arena piena ritorna un nodo di riserva, come node_new(). */
-static MatrixNode *matrix_node(MatrixKind kind, MatrixNode *a, MatrixNode *b) {
+MatrixNode *matrix_node(MatrixKind kind, MatrixNode *a, MatrixNode *b) {
     static MatrixNode spare;
     MatrixNode *node = arena_alloc(sizeof *node);
     if (!node) node = &spare;
@@ -9385,7 +8734,7 @@ static int matrix_word(char *word, size_t size) {
 }
 
 static MatrixNode *matrix_sum(void);
-static MatrixNode *matrix_factor(void);
+MatrixNode *matrix_factor(void);
 
 /* tabella := \begin '{' ambiente '}' riga { '\\' riga } ['\\'] \end '{' ambiente '}'
  *
@@ -9439,7 +8788,7 @@ static MatrixNode *matrix_table(void) {
  * per esteso, \operatorname{rank} o \mathrm{tr}, lo supera, mette in *kind
  * il tipo del suo nodo e ritorna 1. Altrimenti non tocca nulla e ritorna 0.
  * I nomi del rango sono quelli dei libri italiani e inglesi. */
-static int matrix_function(MatrixKind *kind) {
+int matrix_function(MatrixKind *kind) {
     static const struct { const char *word; MatrixKind kind; } names[] = {
         {"rank", M_RANK}, {"rk", M_RANK}, {"rg", M_RANK}, {"tr", M_TRACE}, {"det", M_DET},
     };
@@ -9535,7 +8884,7 @@ static MatrixNode *matrix_exponent(MatrixNode *base) {
  *
  * Un numero letto dal capitolo 9 arriva qui con i suoi esponenti già letti
  * da parse_factor(): un '^' può seguire solo una matrice o una parentesi. */
-static MatrixNode *matrix_factor(void) {
+MatrixNode *matrix_factor(void) {
     MatrixNode *node = matrix_primary();
     while (is_char('^') && !syntax_error) node = matrix_exponent(node);
     return node;
@@ -9578,7 +8927,7 @@ static MatrixNode *matrix_sum(void) {
 /* Comincia a leggere text con il lettore di questo capitolo: nessuna matrice
  * ha ancora un nome, e il token corrente è il primo. Se text non si può
  * leggere syntax_error dice perché. */
-static void matrix_start(const char *text) {
+void matrix_start(const char *text) {
     memset(matrix_named, 0, sizeof matrix_named);
     syntax_error = NULL;
     cursor = text;
@@ -9601,7 +8950,7 @@ static void matrix_start(const char *text) {
  * espressione, separate da virgole. Le aggiunge a out, e lascia come token
  * corrente il primo dopo \implies. Il nome vale da dopo la sua definizione,
  * così nessuna può nominare sé stessa o una che la segue. */
-static void matrix_definitions(MatrixStatement *out) {
+void matrix_definitions(MatrixStatement *out) {
     for (int defining = 1; defining && !syntax_error;) {
         if (token.kind != T_LETTER || !isupper(token.ch)) { syntax("prima di \\implies servono definizioni di matrici: A = ..., B = ..."); break; }
         int name = token.ch;
@@ -9621,9 +8970,9 @@ static void matrix_definitions(MatrixStatement *out) {
 /* Ritorna 1 se il token corrente comincia un fattore di questo capitolo che
  * non è un numero del capitolo 9: una tabella, \det, il rango o la traccia.
  * Non sposta nulla. Serve a chi cerca questi fattori dentro un enunciato di
- * un altro linguaggio, per mettere al loro posto il loro valore (32g di
- * main.c): un \begin{cases} non è uno di loro. */
-static int matrix_starts_here(void) {
+ * un altro linguaggio, per mettere al loro posto il loro valore (32g del
+ * motore): un \begin{cases} non è uno di loro. */
+int matrix_starts_here(void) {
     ParserState here = parser_save();
     const char *here_consumed = consumed;
     MatrixKind kind;
@@ -9639,7 +8988,7 @@ static int matrix_starts_here(void) {
 /* Analizza text come enunciato sulle matrici (vedi la grammatica in testa
  * al capitolo) e lo mette in *out. Ritorna 1 se riesce; altrimenti ritorna
  * 0 e syntax_error dice perché. */
-static int parse_matrix_statement(const char *text, MatrixStatement *out) {
+int parse_matrix_statement(const char *text, MatrixStatement *out) {
     memset(out, 0, sizeof *out);
     matrix_start(text);
     if (strstr(text, "\\implies")) matrix_definitions(out);
@@ -9672,7 +9021,7 @@ static int parse_matrix_statement(const char *text, MatrixStatement *out) {
  *     \{(x, y) \in \mathbb{R}^{2} \mid \begin{cases} 2x + 3y = 5 \\ 2x - 4y = 5 \end{cases}\}
  *     \{x \in \mathbb{R}^{3} \mid A x = B\}
  *
- * Li decide il capitolo 33 di main.c; qui c'è solo com'è scritto l'enunciato.
+ * Li decide il capitolo 33 del motore; qui c'è solo com'è scritto l'enunciato.
  *
  *     sistema    := [ definizione { ',' definizione } \implies ] fatto
  *     fatto      := soluzioni [ ('=' | \neq | \ne) scritto ]
@@ -9726,70 +9075,12 @@ static int parse_matrix_statement(const char *text, MatrixStatement *out) {
  *
  * Qui c'è solo come si leggono quei fatti (linear_fact(), e linear_unknowns()
  * per riconoscerne l'inizio); come diventano una condizione sulla lettera è
- * il paragrafo 33h di main.c.
+ * il paragrafo 33h del motore.
  *
- * Warning: uses_linear_systems(), nel capitolo 33 di main.c, manda qui un
+ * Warning: uses_linear_systems(), nel capitolo 33 del motore, manda qui un
  * enunciato quando vi trova \{, le incognite, \in e \mathbb{R} con un
  * esponente: è linear_unknowns() fino all'esponente. Se cambi come comincia
  * un insieme di soluzioni, guarda che la riconosca ancora. */
-
-#define MAX_UNKNOWNS 12          /* incognite di un sistema; parametri e addendi di un insieme scritto */
-#define MAX_SYSTEM_EQUATIONS 16  /* equazioni di un sistema */
-
-/* Una lettera di un sistema: un'incognita, o un parametro di un insieme
- * scritto. È una minuscola, con il suo pedice numerico se ne ha uno: index
- * vale -1 per x, 1 per x_{1}. */
-typedef struct {
-    int name;
-    long long index;
-} LinearLetter;
-
-/* Un addendo di un vettore scritto: una tupla, moltiplicata per un numero se
- * factor non è NULL, e sottratta invece che sommata se negative vale 1. */
-typedef struct {
-    Node *factor;
-    int negative;
-    Node **entry;  /* le componenti della tupla: quante dice VectorSum.size; nell'arena */
-} VectorTerm;
-
-/* Un vettore di \mathbb{R}^{size} scritto come somma di tuple: un punto, o
- * l'elemento generico di un insieme scritto, e allora nelle sue espressioni
- * compaiono i parametri dell'insieme. */
-typedef struct {
-    int size;   /* le componenti di ogni tupla, almeno 2 */
-    int terms;  /* addendi validi in term[] */
-    VectorTerm term[MAX_UNKNOWNS + 1];
-} VectorSum;
-
-/* Come un enunciato parla dell'insieme delle soluzioni di un sistema;
- * LINEAR_ASKED se non dice nulla: è una richiesta. */
-typedef enum { LINEAR_ASKED, LINEAR_EQ, LINEAR_NEQ, LINEAR_IN, LINEAR_NOTIN } LinearRelation;
-
-/* Un enunciato sull'insieme delle soluzioni di un sistema lineare: il
- * sistema, e che cosa se ne dice.
- *
- * Il sistema ha due scritture. Con vector a 0 le incognite sono lettere, e
- * le equazioni sono coppie di espressioni del capitolo 9. Con vector a 1
- * l'incognita è una sola, unknown[0], ed è un vettore: l'unica equazione è
- * tra due espressioni del capitolo 31, matrix_left e matrix_right. In tutti
- * e due i casi dimension è l'esponente di \mathbb{R}: il numero delle
- * incognite, o delle componenti del vettore. */
-typedef struct {
-    int dimension;
-    int vector;
-    int unknowns;                         /* lettere valide in unknown[]: dimension, oppure 1 */
-    LinearLetter unknown[MAX_UNKNOWNS];
-    int equations;                        /* con vector a 0: le equazioni valide in left[] e right[] */
-    Node *left[MAX_SYSTEM_EQUATIONS], *right[MAX_SYSTEM_EQUATIONS];
-    MatrixNode *matrix_left, *matrix_right;
-    LinearRelation relation;
-    int empty;                            /* LINEAR_EQ, LINEAR_NEQ: 1 se l'insieme scritto è \emptyset */
-    VectorSum stated;                     /* LINEAR_EQ, LINEAR_NEQ senza empty: l'elemento generico dell'insieme
-                                             scritto; LINEAR_IN, LINEAR_NOTIN: il vettore di cui si parla */
-    int parameters;                       /* i parametri dell'insieme scritto, validi in parameter[] */
-    LinearLetter parameter[MAX_UNKNOWNS];
-    const char *set_start, *set_end;      /* dov'è scritto l'insieme delle soluzioni: [set_start, set_end) */
-} LinearStatement;
 
 /* lettera := minuscola [ '_' group ]. La mette in *out; annota un errore se
  * il token corrente non è una minuscola o il pedice non è un numero. */
@@ -9810,7 +9101,7 @@ static void linear_letter(LinearLetter *out) {
 static int linear_same(LinearLetter a, LinearLetter b) { return a.name == b.name && a.index == b.index; }
 
 /* Legge \mathbb{R}, dal token corrente; annota un errore se non c'è. */
-static void linear_reals(void) {
+void linear_reals(void) {
     int reals = is_command("mathbb");
     next_token();
     reals = reals && is_char('{');
@@ -9824,7 +9115,7 @@ static void linear_reals(void) {
 /* Legge l'inizio di un insieme di soluzioni, dal token \{ fino all'esponente
  * di \mathbb{R} compreso: \{ incognite \in \mathbb{R}^{n}. Mette in st le
  * incognite, la dimensione e la forma del sistema. */
-static void linear_unknowns(LinearStatement *st) {
+void linear_unknowns(LinearStatement *st) {
     expect_char(ESCAPED + '{', "un insieme di soluzioni comincia con \\{");
     st->vector = token.kind != T_OPEN;
     if (st->vector) {
@@ -9976,7 +9267,7 @@ static void linear_written(LinearStatement *st) {
 
 /* fatto: vedi la grammatica in testa al paragrafo. Lo legge dal token
  * corrente in *st, e lascia come token corrente il primo dopo di lui. */
-static void linear_fact(LinearStatement *st) {
+void linear_fact(LinearStatement *st) {
     memset(st, 0, sizeof *st);
     if (!is_char(ESCAPED + '{')) {
         /* Un vettore, e la sua appartenenza. */
@@ -10002,7 +9293,7 @@ static void linear_fact(LinearStatement *st) {
  * danno un nome a delle matrici, come nel resto del capitolo, e i loro alberi
  * vanno in *names. Ritorna 1 se riesce; altrimenti ritorna 0 e syntax_error
  * dice perché. */
-static int parse_linear_statement(const char *text, LinearStatement *st, MatrixStatement *names) {
+int parse_linear_statement(const char *text, LinearStatement *st, MatrixStatement *names) {
     memset(names, 0, sizeof *names);
     memset(st, 0, sizeof *st);
     matrix_start(text);
@@ -10059,7 +9350,7 @@ static int parse_linear_statement(const char *text, LinearStatement *st, MatrixS
 
 /* Legge tutto il file path in un blocco terminato da '\0', da liberare con
  * free(). Ritorna NULL se il file non si può leggere. */
-static char *read_file(const char *path) {
+char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
     if (!file) return NULL;
     size_t size = 0, capacity = 1 << 16;
@@ -10261,18 +9552,6 @@ static int read_conditions(const char *from, const char *to, int *variable, long
     return found;
 }
 
-/* Un enunciato letto da un \item: la formula e ciò che il testo dice su dove
- * parte l'induzione. formula e presa in prestito dal deposito del lettore,
- * fino alla successiva read_item; chi la conserva deve copiarla. */
-typedef struct {
-    const char *formula;        /* formula LaTeX terminata da '\0', presa in prestito */
-    int variable;               /* variabile di induzione */
-    int has_base;               /* 1 se il testo indica il caso base */
-    int conditional;            /* 1 se il testo pone una condizione non letta */
-    int remark;                 /* 1 se un inciso tra parentesi è stato letto come commento */
-    long long base;             /* il caso base, se has_base */
-} Item;
-
 /* Copia riusabile dell'item corrente, indipendente dall'arena che prove()
  * azzera. Cresce con il testo: un limite delle formule numeriche interne
  * non deve diventare un tetto alle dichiarazioni degli insiemi. */
@@ -10283,7 +9562,7 @@ static size_t item_formula_capacity;
  * e *end l'inizio e la fine del suo testo, porta *position alla fine e ritorna
  * 1; altrimenti ritorna 0. Il testo finisce al \item successivo o alla
  * chiusura dell'elenco. */
-static int next_item(const char **position, const char **item, const char **end) {
+int next_item(const char **position, const char **item, const char **end) {
     const char *limit = *position + strlen(*position);
     const char *p = tex_find(*position, limit, "\\item");
     if (!p) return 0;
@@ -10421,7 +9700,7 @@ static const char *read_sequence_item(const char *item, const char *end, Item *o
  * Ritorna NULL se riesce; altrimenti ritorna il motivo, in italiano, per cui
  * il testo non è un enunciato utilizzabile. Il testo di out e valido fino
  * alla chiamata successiva, anche se nel frattempo prove azzera l'arena. */
-static const char *read_item(const char *item, const char *end, Item *out) {
+const char *read_item(const char *item, const char *end, Item *out) {
     out->formula=NULL;
     /* Prima della formula sono ammessi spazi e commenti: un \item seguito
      * da una nota sulla fonte resta lo stesso enunciato. */
@@ -10498,7 +9777,7 @@ static const char *read_item(const char *item, const char *end, Item *out) {
  * nullo e l'hessiana vi è definita positiva (le condizioni del secondo
  * ordine). L'ultimo chiede i punti critici, quelli in cui il gradiente è
  * nullo. Qui c'è solo la lettura: che cosa vale una derivata lo stabilisce il
- * capitolo 35 di main.c, e i punti critici li trova il capitolo 36.
+ * capitolo 35 del motore, e i punti critici li trova il capitolo 36.
  *
  * La grammatica:
  *
@@ -10592,92 +9871,6 @@ static const char *read_item(const char *item, const char *end, Item *out) {
  * scritta due volte è un operando solo: f_{xx}(1, 1) da sola e dentro
  * \det H_{f}(1, 1) si calcola, e si certifica, una volta.
  */
-
-#define MAX_FUNCTIONS 4            /* funzioni dichiarate da un enunciato */
-#define MAX_FUNCTION_VARIABLES 4   /* variabili di una funzione dichiarata */
-#define MAX_PARTIAL_ORDER 4        /* ordine di una derivata parziale */
-#define MAX_OPERANDS 32            /* derivate e funzioni scritte in un enunciato */
-#define MAX_PARTIAL_CLAIMS 20      /* tesi, una per componente: il gradiente e l'hessiana di una funzione di 4 variabili */
-
-/* Il nome interno, fuori dai caratteri e dagli altri nomi interni (capitolo
- * 1 di main.c), della variabile che tiene il posto dell'operando numero 0;
- * gli altri seguono. */
-#define VAR_OPERAND 6400
-
-/* Una funzione dichiarata dall'enunciato: "f(x, y) = x^{2} y". Serve a dare
- * un nome all'espressione di cui l'enunciato scrive le derivate, e a dire
- * quali sono le sue variabili e in che ordine: l'ordine delle componenti del
- * gradiente e delle coordinate di un punto. Le altre lettere di body sono
- * parametri. Invariante: le lettere di variable[] sono tutte diverse, e
- * nessuna è il nome di una funzione dichiarata o la lettera e. */
-typedef struct {
-    int name;                              /* la lettera f */
-    int variables;                         /* quante variabili ha: da 1 a MAX_FUNCTION_VARIABLES */
-    int variable[MAX_FUNCTION_VARIABLES];  /* le loro lettere, nell'ordine in cui sono scritte */
-    Node *body;                            /* l'espressione che la definisce, nell'arena */
-} DeclaredFunction;
-
-/* Un operando: una derivata parziale scritta nell'enunciato, o una funzione
- * dichiarata usata in un'espressione (una derivata di ordine 0), se serve
- * calcolata in un punto. Invariante: con function = -1 non c'è un punto, e
- * nessuna lettera di by[] è la lettera e. */
-typedef struct {
-    int function;                         /* la funzione dichiarata, come indice in PartialStatement.function[]; -1 se la funzione è body */
-    Node *body;                           /* con function = -1 l'espressione scritta dopo il segno; altrimenti NULL */
-    int order;                            /* quante volte si deriva: da 0 a MAX_PARTIAL_ORDER */
-    int by[MAX_PARTIAL_ORDER];            /* le lettere rispetto a cui si deriva, nell'ordine in cui si deriva */
-    int at;                               /* 1 se la derivata è calcolata in un punto */
-    Node *point[MAX_FUNCTION_VARIABLES];  /* con at = 1 le coordinate, una per variabile della funzione, nel suo ordine */
-} PartialOperand;
-
-/* Che cosa chiede un enunciato senza il segno di uguale: nulla (è
- * un'affermazione), il valore di un'espressione, un gradiente, un'hessiana,
- * oppure i punti critici di una funzione. Per le prime tre richieste dice in
- * che forma va scritta la risposta; l'ultima è del capitolo 36 di main.c. */
-typedef enum { ASKED_NOTHING, ASKED_VALUE, ASKED_GRADIENT, ASKED_HESSIAN, ASKED_CRITICAL } PartialRequest;
-
-/* Come sono messi in relazione i due membri di una tesi. Non è la Relation
- * del capitolo 8, che non ha il "diverso". */
-typedef enum { CLAIM_EQ, CLAIM_NEQ, CLAIM_LT, CLAIM_LE, CLAIM_GT, CLAIM_GE } ClaimRelation;
-
-/* Le scritture della definitezza di un'hessiana che un enunciato può
- * contenere, come bit di PartialStatement.definite: quelle con il segno
- * stretto (\succ, \prec), svolte nei minori principali di testa, e quelle
- * con il segno largo (\succeq, \preceq), svolte in tutti i minori principali
- * (34s). */
-#define DEFINITE_STRICT 1
-#define DEFINITE_WEAK 2
-
-/* Una tesi di un enunciato sulle funzioni di più variabili: due espressioni,
- * in cui gli operandi compaiono come variabili (VAR_OPERAND + indice), e la
- * loro relazione, com'è scritta (a > b resta a > b: la dimostrazione la
- * riporta così). In una richiesta rhs è NULL e relation non conta. */
-typedef struct {
-    Node *lhs, *rhs;
-    ClaimRelation relation;
-} PartialClaim;
-
-/* Un enunciato sulle funzioni di più variabili, com'è scritto: le funzioni
- * dichiarate, gli operandi, e le tesi. Un gradiente o un'hessiana sono già
- * svolti: una tesi per componente, riga per riga. In una richiesta le tesi
- * hanno solo il primo membro (rhs è NULL), e sono le componenti di ciò che
- * si chiede: per i punti critici, quelle del gradiente. Gli alberi stanno
- * nell'arena. */
-typedef struct {
-    int functions;                          /* funzioni valide in function[] */
-    DeclaredFunction function[MAX_FUNCTIONS];
-    int operands;                           /* operandi validi in operand[] */
-    PartialOperand operand[MAX_OPERANDS];
-    int claims;                             /* tesi valide in claim[] */
-    PartialClaim claim[MAX_PARTIAL_CLAIMS];
-    PartialRequest request;                 /* ASKED_NOTHING, o la forma della risposta chiesta */
-    int columns;                            /* in una richiesta: le colonne della risposta (le righe sono claims / columns) */
-    const char *asked_from, *asked_to;      /* in una richiesta: il testo di ciò che si chiede, [from, to) nell'enunciato */
-    int critical;                           /* ASKED_CRITICAL: la funzione di cui si chiedono i punti critici, come indice in function[] */
-    int determinant;                        /* 1 se l'enunciato scrive un determinante: la dimostrazione dice allora che cosa se ne conclude (35g) */
-    int definite;                           /* le scritture della definitezza lette (34s): DEFINITE_STRICT, DEFINITE_WEAK, la loro somma, o 0.
-                                               Il verdetto e la dimostrazione dicono allora che cosa abbreviavano */
-} PartialStatement;
 
 /* L'enunciato che parse_partial_statement() sta leggendo, o NULL: solo
  * mentre non è NULL parse_partial_piece() riconosce derivate parziali e
@@ -10928,7 +10121,7 @@ static Node *partial_minor(Node *const *entry, int n, int row, unsigned used) {
  * quattro tesi per una funzione di quattro variabili. Qui la scrittura
  * breve è un'abbreviazione di quelle tesi: il lettore le scrive al suo
  * posto, e il motore, la dimostrazione e il certificato vedono solo
- * confronti tra numeri (35g di main.c).
+ * confronti tra numeri (35g del motore).
  *
  * Le definizioni. Una matrice simmetrica A di lato n è definita positiva se
  * x^T A x > 0 per ogni vettore x diverso da zero, semidefinita positiva se
@@ -11089,9 +10282,9 @@ static Node *parse_partial_piece(void) {
 
 /* Ritorna 1 se text comincia con la definizione di una funzione, lettera
  * '(' lettera { ',' lettera } ')' '=': con \implies più avanti, è ciò che
- * dice al capitolo 20 di main.c che l'enunciato è di questo capitolo. Usa il
+ * dice al capitolo 20 del motore che l'enunciato è di questo capitolo. Usa il
  * lettore di token, e lascia il suo stato da reimpostare. */
-static int starts_with_definition(const char *text) {
+int starts_with_definition(const char *text) {
     syntax_error = NULL;
     cursor = text;
     next_token();
@@ -11339,7 +10532,7 @@ static void parse_critical(PartialStatement *out) {
 /* Analizza text come enunciato sulle funzioni di più variabili (vedi
  * PartialStatement e la grammatica in testa al capitolo) e lo mette in *out.
  * Ritorna 1 se riesce; altrimenti ritorna 0 e syntax_error dice perché. */
-static int parse_partial_statement(const char *text, PartialStatement *out) {
+int parse_partial_statement(const char *text, PartialStatement *out) {
     memset(out, 0, sizeof *out);
     int defined = starts_with_definition(text);
     syntax_error = NULL;
@@ -11389,7 +10582,7 @@ static int parse_partial_statement(const char *text, PartialStatement *out) {
  * dice 81 uguaglianze insieme, una per ogni valore di j, k, m, n da 1 a 3,
  * ognuna con una somma su i che non è scritta. Questo capitolo legge quelle
  * identità e stabilisce che cosa dicono: quali indici sono liberi, quali
- * sommati, e in quante dimensioni. Il conto lo fa il capitolo 38 di main.c.
+ * sommati, e in quante dimensioni. Il conto lo fa il capitolo 38 del motore.
  *
  * La grammatica, dalla precedenza più bassa alla più alta:
  *
@@ -11509,127 +10702,23 @@ static int parse_partial_statement(const char *text, PartialStatement *out) {
  * di tensori.
  */
 
-/* Un insieme di lettere usate come indici: il bit di posto index_slot(c)
- * dice se la lettera c ne fa parte. Le lettere latine sono 52. */
-typedef unsigned long long IndexSet;
-#define INDEX_LETTERS 52
-
 /* Ritorna il posto della lettera latina letter tra le INDEX_LETTERS: prima
  * le minuscole, poi le maiuscole. */
-static int index_slot(int letter) { return islower(letter) ? letter - 'a' : 26 + letter - 'A'; }
+int index_slot(int letter) { return islower(letter) ? letter - 'a' : 26 + letter - 'A'; }
 
 /* Ritorna la lettera di posto slot: l'inversa di index_slot(). */
-static int index_letter(int slot) { return slot < 26 ? 'a' + slot : 'A' + slot - 26; }
+int index_letter(int slot) { return slot < 26 ? 'a' + slot : 'A' + slot - 26; }
 
 /* Ritorna il posto della prima lettera dell'insieme set, che non è vuoto. */
-static int index_first_slot(IndexSet set) {
+int index_first_slot(IndexSet set) {
     int slot = 0;
     while (!(set >> slot & 1)) slot++;
     return slot;
 }
 
-/* Tipi di nodo di un'espressione con gli indici.
- *
- * Warning: se aggiungi un tipo, aggiungi il suo caso in index_scan() (37c)
- * e, in main.c, in index_value() (38c) e in index_cert() (38e); se è un
- * simbolo con gli indici, anche in index_is_leaf(), in index_leaf() (38a),
- * in index_positions() e in index_unfold() (capitolo 39). Il verificatore ha la
- * sua notazione e il suo lettore (capitolo 19 di checker.c): un tipo nuovo
- * va aggiunto anche lì, con la sua giustificazione. */
-typedef enum {
-    IX_NUM,      /* un numero razionale: number */
-    IX_DELTA,    /* la delta di Kronecker: due indici */
-    IX_EPSILON,  /* il simbolo di Levi-Civita: rank indici */
-    IX_TENSOR,   /* una componente del tensore name: rank indici, anche zero */
-    IX_METRIC,   /* la metrica dichiarata, com'è scritta (capitolo 39): due
-                    indici, in basso, in alto o uno e uno */
-    IX_LOWER,    /* la metrica con i due indici in basso, dopo lo svolgimento
-                    (39c): c_i se i due indici coincidono, 0 altrimenti */
-    IX_UPPER,    /* la sua inversa, con i due indici in alto: 1/c_i o 0 */
-    IX_NEG,      /* -a */
-    IX_ADD,      /* a + b */
-    IX_SUB,      /* a - b */
-    IX_MUL       /* a b */
-} IndexKind;
-
-/* Un nodo dell'albero di un'espressione con gli indici: una sotto-espressione
- * dell'identità. Sta nell'arena, come i suoi vettori.
- *
- * index[] e upper[] descrivono gli indici di un simbolo, nell'ordine in cui
- * sono scritti: una lettera vale il suo carattere (per una lettera greca,
- * quello della latina che la rappresenta, 37f), un numero vale sé stesso, e
- * i due casi non si confondono perché un numero è una cifra o al più 10 e
- * ogni lettera vale almeno 'A'. Mentre si legge il numero è la cifra
- * scritta; a enunciato finito è il valore da 1 a d (37d). I tre insiemi li
- * calcola index_scan() (37c). Gli ultimi tre campi
- * sono annotazioni lasciate dal motore (38b in main.c): il lettore li lascia
- * a zero. */
-typedef struct IndexNode IndexNode;
-struct IndexNode {
-    IndexKind kind;
-    IndexNode *a, *b;      /* i figli: IX_NEG ha solo a, le foglie nessuno */
-    Frac number;           /* IX_NUM: il valore */
-    int name;              /* IX_TENSOR: la lettera che lo nomina */
-    int rank;              /* simboli: quanti indici */
-    int *index;            /* simboli: gli indici */
-    unsigned char *upper;  /* simboli: 1 per un indice scritto in alto */
-    IndexSet free;         /* le lettere libere: compaiono una volta sola */
-    IndexSet bound;        /* le lettere sommate nel nodo o più in basso */
-    IndexSet here;         /* le lettere sommate proprio in questo nodo */
-    IndexSet up;           /* con una metrica (39b): le lettere libere scritte in alto */
-    IndexNode **factor;    /* motore: i fattori del prodotto che comincia qui */
-    int factors;           /* motore: quanti sono */
-    IndexSet sum;          /* motore: le lettere sommate in quel prodotto */
-};
-
-/* Un'identità con gli indici, letta e controllata: i due membri, la
- * dimensione, gli indici liberi (gli stessi nei due membri) e, per ogni
- * lettera, il rango del tensore che nomina: rank[index_slot(c)] è il numero
- * dei suoi indici, o -1 se c non è il nome di un tensore. Con delle ipotesi
- * porta anche ciò che il capitolo 39 ha letto e svolto.
- *
- * Negli alberi i valori degli indici vanno sempre da 1 a dimension; origin
- * è il numero da cui cominciano nell'enunciato, 0 o 1 (37d): un valore v
- * degli alberi vi è scritto v + origin - 1. label[index_slot(c)] è come
- * l'enunciato scrive l'indice che gli alberi chiamano c: la lettera stessa,
- * o il comando della lettera greca che c rappresenta (37f). */
-typedef struct {
-    IndexNode *left, *right;
-    int dimension;
-    int origin;
-    IndexSet free;
-    int rank[INDEX_LETTERS];
-    char label[INDEX_LETTERS][12];
-
-    /* 39d. Le componenti dei tensori che un'ipotesi dà con una tabella o
-     * con un elenco: given[index_slot(c)] è NULL se c non è uno di loro,
-     * altrimenti punta ai suoi dimension elevato a rank elementi, nell'arena,
-     * con il primo indice che varia per ultimo (per righe, in una tabella).
-     * Ogni elemento è un albero senza lettere tra gli indici e senza tensori
-     * dati: un polinomio nelle componenti dei tensori qualsiasi. */
-    IndexNode **given[INDEX_LETTERS];
-
-    /* Solo con una metrica dichiarata (capitolo 39); altrimenti metric è
-     * NULL e gli altri campi non contano. left e right sono allora
-     * l'identità svolta, senza più indici in alto e in basso, e
-     * written_left e written_right quella scritta. */
-    IndexNode *written_left, *written_right;
-    const Frac *metric;         /* i dimension numeri c_i della diagonale di g_{ij}, tutti diversi da zero;
-                                   se metric_top non è NULL dice solo che una metrica c'è */
-    IndexNode **metric_top;     /* 39f. Se un elemento della diagonale è una funzione delle coordinate: per ogni
-                                   elemento di g_{ij} l'albero del numeratore e, in metric_bottom, quello del
-                                   denominatore, fatti di numeri e di lettere senza indici; altrimenti NULL */
-    IndexNode **metric_bottom;
-    Frac epsilon;               /* quanto vale \varepsilon con gli indici 1, 2, ..., d in ordine, se un'ipotesi
-                                   lo dichiara: c'è sempre quando \varepsilon compare nell'identità */
-    int epsilon_upper;          /* 1 se quel valore è dichiarato con gli indici in alto */
-    const unsigned char *reference[INDEX_LETTERS];  /* per ogni lettera di tensore, dove stanno i suoi
-                                                       indici nella prima occorrenza (1 = in alto), o NULL */
-} IndexStatement;
-
 /* Ciò che il lettore annota mentre legge un'identità, per i controlli di
  * 37a, 37b, 37d e 37e, che riguardano l'enunciato intero. */
-static IndexNode *index_first[INDEX_LETTERS];  /* la prima occorrenza del tensore di ogni lettera, o NULL */
+IndexNode *index_first[INDEX_LETTERS];  /* la prima occorrenza del tensore di ogni lettera, o NULL */
 static const IndexNode *index_first_epsilon;   /* la prima occorrenza di \varepsilon, o NULL */
 static IndexSet index_names;                   /* le lettere che nominano un tensore */
 static IndexSet index_used;                    /* le lettere usate come indici */
@@ -11756,7 +10845,7 @@ static IndexNode *index_new(IndexKind kind, IndexNode *a, IndexNode *b) {
 
 /* Ritorna 1 se node è un simbolo con gli indici: una foglia che non è un
  * numero. */
-static int index_is_leaf(const IndexNode *node) {
+int index_is_leaf(const IndexNode *node) {
     return node->kind == IX_DELTA || node->kind == IX_EPSILON || node->kind == IX_TENSOR || node->kind == IX_METRIC ||
            node->kind == IX_LOWER || node->kind == IX_UPPER;
 }
@@ -12397,7 +11486,7 @@ static int index_statement_body(int dimension, IndexStatement *out) {
 
 /* Legge l'identità con gli indici scritta in formula, senza ipotesi, e la
  * mette in *out (vedi index_statement_body()). */
-static int parse_index_statement(const char *formula, IndexStatement *out) {
+int parse_index_statement(const char *formula, IndexStatement *out) {
     index_begin(formula);
     return index_statement_body(0, out);
 }
@@ -12410,7 +11499,7 @@ static int parse_index_statement(const char *formula, IndexStatement *out) {
  * sta l'indice del tensore nell'enunciato (37e spiega perché in un
  * enunciato non si può). Il risultato va in *out, e in index_first[]
  * restano le componenti com'erano scritte. */
-static int parse_index_values(const char *text, int dimension, int origin, IndexStatement *out) {
+int parse_index_values(const char *text, int dimension, int origin, IndexStatement *out) {
     index_begin(text);
     index_engine_text = 1;
     index_range(origin);
@@ -12498,7 +11587,7 @@ static int parse_index_values(const char *text, int dimension, int origin, Index
  *        ricontrolla. Che dica la stessa cosa di quella scritta non lo vede
  *        il verificatore: lo ricontrolla il motore, che in ogni punto calcola
  *        anche l'identità com'è scritta, moltiplicando ogni componente per
- *        il c_i o l'1/c_i di ogni indice spostato (38d in main.c).
+ *        il c_i o l'1/c_i di ogni indice spostato (38d nel motore).
  *
  *   39d. Le componenti date. La seconda e la terza forma danno un tensore
  *        per componenti: con due indici una tabella, con uno un elenco. Dove
@@ -13096,7 +12185,7 @@ static IndexNode *index_unfold(const IndexNode *node, const IndexStatement *s) {
  * failure.
  *
  * I nodi stanno nell'arena, che chi chiama ha già preparato. */
-static int parse_index_hypotheses(const char *formula, IndexStatement *out) {
+int parse_index_hypotheses(const char *formula, IndexStatement *out) {
     index_begin(formula);
     index_metric = NULL;
     index_metric_top = index_metric_bottom = NULL;

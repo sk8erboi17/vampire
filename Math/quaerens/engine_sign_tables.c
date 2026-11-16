@@ -1,3 +1,17 @@
+/* MODULO engine_sign_tables: la tabella dei segni: punti esatti, segni, righe,
+ * soluzioni, grafici, un parametro (capitoli 18.8-18.19).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in engine_sign_tables.h,
+ * e il resto è static. */
+#include "engine_sign_tables.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_intervals.h"
+#include "engine_quantifiers.h"
+
 /* =============================================================================
  * 18.8 LA TABELLA DEI SEGNI (18p): NUMERI E POLINOMI ESATTI, I PUNTI
  * ============================================================================
@@ -129,15 +143,8 @@
  * allora solo se il verificatore accetta.
  */
 
-/* Un razionale con numeratore e denominatore a 128 bit: i punti in cui si
- * dimezza un intervallo hanno denominatori che crescono in fretta.
- * Invariante: den > 0 e la frazione è ridotta. */
-typedef struct {
-    __int128 num, den;  /* il numeratore, con il segno, e il denominatore */
-} Wide;
-
 /* Il messaggio quando un conto della tabella esce dai 128 bit. */
-static const char *const SIGN_LIMIT = "numeri troppo grandi per la tabella dei segni";
+const char *const SIGN_LIMIT = "numeri troppo grandi per la tabella dei segni";
 
 /* Ritorna num/den ridotta, con den diverso da zero. */
 static Wide wide_make(__int128 num, __int128 den) {
@@ -213,14 +220,6 @@ static Wide wide_between(Wide a, Wide b) {
     }
     return wide_mid(a, b);
 }
-
-/* Un polinomio in una variabile a coefficienti interi:
- * c[0] + c[1] x + ... + c[degree] x^degree. Invariante: c[degree] non è
- * zero; il polinomio nullo ha degree -1. */
-typedef struct {
-    int degree;
-    __int128 c[MAX_UNI + 1];
-} Uni;
 
 /* Ristabilisce l'invariante dopo un conto che può aver annullato i
  * coefficienti più alti. */
@@ -299,7 +298,7 @@ static Uni uni_gcd(Uni a, Uni b) {
  * b non è nullo e i suoi coefficienti non hanno divisori comuni: allora, per
  * il lemma di Gauss, se divide a il quoziente ha coefficienti interi, e la
  * divisione si fa tra interi. */
-static int uni_divide(const Uni *a, const Uni *b, Uni *q) {
+int uni_divide(const Uni *a, const Uni *b, Uni *q) {
     Uni r = *a;
     q->degree = a->degree - b->degree;
     if (a->degree < 0) { q->degree = -1; return 1; }
@@ -329,7 +328,7 @@ static int uni_divide(const Uni *a, const Uni *b, Uni *q) {
  * solo troppo vicino a zero per questi numeri: è zero esattamente quando
  * d t - n divide p, e la divisione è un conto tra interi; altrimenti non si
  * risponde. */
-static int uni_sign_at(const Uni *p, Wide x) {
+int uni_sign_at(const Uni *p, Wide x) {
     __int128 value = 0, power = 1, term;
     int exact = 1, side = 0;
     for (int i = p->degree; i >= 0 && exact; i--)
@@ -350,7 +349,7 @@ static int uni_sign_at(const Uni *p, Wide x) {
  * polinomio a coefficienti interi che ha gli stessi segni di p x^*shift.
  * Ritorna 0 se p non ha questa forma: un altro atomo, un esponente non
  * intero, un coefficiente complesso, un grado oltre MAX_UNI. */
-static int uni_from_poly(Poly p, int x, Uni *out, int *shift) {
+int uni_from_poly(Poly p, int x, Uni *out, int *shift) {
     __int128 scale = 1;
     long long low = 0;
     for (int i = 0; i < p.count; i++) {
@@ -414,13 +413,13 @@ static int sign_polys;
  * positivo. Ogni radice di un polinomio di sign_poly[] è radice di uno e un
  * solo elemento. Dopo sign_points() gli elementi di grado almeno 2 non hanno
  * più radici razionali. */
-static Uni sign_base[2 * MAX_CRITICAL];
-static int sign_bases;
+Uni sign_base[2 * MAX_CRITICAL];
+int sign_bases;
 
 /* Aggiunge al testo text, di size byte, un pezzo con la sintassi di printf.
  * Se non ci sta annota un errore: un testo troncato non si può presentare
  * come risultato. */
-static void text_add(char *text, size_t size, const char *format, ...) {
+void text_add(char *text, size_t size, const char *format, ...) {
     size_t used = strlen(text);
     va_list args;
     va_start(args, format);
@@ -437,7 +436,7 @@ static void wide_latex(Wide v, char *text, size_t size) {
 
 /* Scrive nella dimostrazione il razionale v, in LaTeX come wide_latex(): due
  * numeri di 64 bit e la frazione stanno comodamente in text. */
-static void put_wide(Wide v) {
+void put_wide(Wide v) {
     char text[96] = "";
     wide_latex(v, text, sizeof text);
     proof_add("%s", text);
@@ -450,7 +449,7 @@ static void wide_text(Wide v, char *text, size_t size) {
 }
 
 /* Aggiunge a text, di size byte, il polinomio p nella lettera name, in LaTeX. */
-static void uni_latex(const Uni *p, int name, char *text, size_t size) {
+void uni_latex(const Uni *p, int name, char *text, size_t size) {
     if (p->degree < 0) text_add(text, size, "0");
     for (int i = p->degree, first = 1; i >= 0; i--) {
         __int128 c = p->c[i], magnitude = c < 0 ? -c : c;
@@ -464,7 +463,7 @@ static void uni_latex(const Uni *p, int name, char *text, size_t size) {
 }
 
 /* Scrive nella dimostrazione il polinomio p nella lettera name. */
-static void put_uni(const Uni *p, int name) {
+void put_uni(const Uni *p, int name) {
     char text[512] = "";
     uni_latex(p, name, text, sizeof text);
     proof_add("%s", text);
@@ -492,7 +491,7 @@ static __int128 square_out(__int128 *inside) {
  * D = b^2 - 4ac, e quella con il segno meno, portato il denominatore a
  * essere positivo, è la più piccola. Da sqrt(D) si portano fuori i
  * quadrati: sqrt(12) = 2 sqrt(3). */
-static int quadratic_latex(const Uni *q, int smaller, char *text, size_t size) {
+int quadratic_latex(const Uni *q, int smaller, char *text, size_t size) {
     __int128 limit = (__int128)1 << 30, a = q->c[2], b = q->c[1], c = q->c[0];
     if (q->degree != 2 || a >= limit || a <= -limit || b >= limit || b <= -limit || c >= limit || c <= -limit) return 0;
 
@@ -511,20 +510,6 @@ static int quadratic_latex(const Uni *q, int smaller, char *text, size_t size) {
     return 1;
 }
 
-/* Un punto in cui può cambiare la verità dell'enunciato. Se exact è 1 il
- * punto è il razionale low (uguale a high). Altrimenti, se element non è
- * negativo, è la sola radice di sign_base[element] tra low e high, che non
- * sono radici, ed è irrazionale. Altrimenti è il numero kappa[kappa], che
- * non è radice di nessun polinomio (un logaritmo, per esempio): di lui si
- * sa solo che sta tra low e high. */
-typedef struct {
-    int exact;       /* 1 se il punto è il razionale low */
-    Wide low, high;  /* l'intervallo chiuso che contiene il punto */
-    int element;     /* il posto in sign_base[] del polinomio di cui è la sola
-                        radice tra low e high; -1 per un punto esatto o kappa */
-    int kappa;       /* il posto in kappa[]; -1 se il punto è una radice */
-} Critical;
-
 /* Un numero reale che non è radice di un polinomio a coefficienti razionali,
  * e che entra nella tabella come punto: log_2 3, e^2. Lo si conosce con un
  * intervallo che lo contiene (capitolo 24) e con il testo che lo scrive. */
@@ -539,7 +524,7 @@ typedef struct {
 
 /* I numeri così dell'enunciato in corso: li aggiunge sign_column_kappa(). */
 static Kappa kappa[MAX_KAPPAS];
-static int kappas;
+int kappas;
 
 /* I due tipi di spazio (18p-8). */
 typedef enum {
@@ -582,7 +567,7 @@ typedef struct {
 /* Gli spazi dell'enunciato in corso: li crea space_collect(), con
  * space_exp() e space_log(). */
 static Space space[MAX_SPACES];
-static int spaces;
+int spaces;
 
 /* Lo stato della tabella che serve agli agganci di eval(): space_live è 1
  * mentre si prepara un confronto (solo allora potenze e logaritmi diventano
@@ -595,8 +580,8 @@ static int sign_name, sign_x;
 
 /* I punti dell'enunciato in corso. Dopo sign_points() sono in ordine
  * crescente e i loro intervalli chiusi [low, high] non si toccano. */
-static Critical sign_point[MAX_POINTS];
-static int sign_points_count;
+Critical sign_point[MAX_POINTS];
+int sign_points_count;
 
 /* Che cos'è ogni colonna, oltre al suo polinomio. sign_space[i] dice in
  * quale lettera è il polinomio: -1 nella variabile dell'enunciato,
@@ -792,7 +777,7 @@ static int divisors_of(long long value, long long *list, int room) {
  *
  * Con valori oltre KRONECKER_LIMIT, o con più di KRONECKER_DIVISORS divisori,
  * non cerca: non è un errore, le radici avranno un nome. */
-static int uni_quadratic_factor(const Uni *p, Uni *factor, Uni *rest) {
+int uni_quadratic_factor(const Uni *p, Uni *factor, Uni *rest) {
     long long at[3] = {0, 0, 0}, list[3][KRONECKER_DIVISORS];
     int count[3];
 
@@ -1095,7 +1080,7 @@ static int log_base(const Node *node, Frac *value, int *euler, Frac *factor) {
 }
 
 /* Il più piccolo multiplo comune di due interi positivi. */
-static long long lcm_small(long long a, long long b) { return a / (long long)gcd128(a, b) * b; }
+long long lcm_small(long long a, long long b) { return a / (long long)gcd128(a, b) * b; }
 
 /* Registra gli spazi che servono all'espressione node: uno per ogni primo
  * della base di una potenza con la variabile all'esponente, uno per ogni
@@ -1188,7 +1173,7 @@ static void formula_spaces(const Formula *f) {
  * dove e_p è l'esponente di p nella scomposizione di b. Le divisioni di
  * questo conto non pongono condizioni: una potenza di un numero positivo non
  * è mai zero. */
-static int exp_letters(const Node *node, Rat *out) {
+int exp_letters(const Node *node, Rat *out) {
     Frac base, alpha, beta;
     int euler, done = 1, listed = conditions_on;
     long long prime, times;
@@ -1224,7 +1209,7 @@ static int exp_letters(const Node *node, Rat *out) {
  * sono positive: la radice n-esima di c g^(n a) è la radice di c per g^a,
  * senza valori assoluti e senza condizioni. È così che \sqrt[3]{11^{9x}}
  * diventa 11^{3x}. Un numero senza lettere resta alla regola di sempre. */
-static int exp_root(Rat r, long long index, Rat *out) {
+int exp_root(Rat r, long long index, Rat *out) {
     int letters = 0;
     if (!space_live || spaces == 0 || failure || index > 40 || r.num.count != 1 || r.den.count != 1) return 0;
     const Term *top = &r.num.term[0], *bottom = &r.den.term[0];
@@ -1300,7 +1285,7 @@ static void alias_collect(const Node *node, const Formula *f) {
  * fattore che porta dalla base ridotta a quella scritta (log_base()), e
  * ritorna 1. Annota in space_seen che il confronto in corso contiene quel
  * logaritmo: l'argomento dovrà essere positivo. */
-static int log_letter(const Node *node, Rat *out) {
+int log_letter(const Node *node, Rat *out) {
     Frac base, factor;
     int euler;
     if (!space_live || !node_uses_letter(node->a, sign_name) || !log_base(node, &base, &euler, &factor)) return 0;
@@ -1361,7 +1346,7 @@ static int log_letter(const Node *node, Rat *out) {
  * t; trig_scale è g; trig_bad dice che una funzione ha un argomento non
  * trattato. trig_root[] sono i nodi di radice di 2 e di radice di 3, che
  * servono a scrivere seni e coseni dei multipli di 15 gradi. */
-static int trig_on, trig_live, trig_at_pi, trig_bad;
+int trig_on, trig_live, trig_at_pi, trig_bad;
 static int trig_x, trig_letter;
 static Frac trig_scale;
 static Node *trig_root[2];
@@ -1644,7 +1629,7 @@ static void trig_multiple(long long n, Rat *cosine, Rat *sine) {
 /* 18p-11. Vedi la dichiarazione prima di eval_call(). L'argomento del nodo
  * deve valere n u + b pi con n intero, dove u = g x è l'angolo
  * dell'enunciato. */
-static int trig_value(const Node *node, Rat argument, Rat *out) {
+int trig_value(const Node *node, Rat argument, Rat *out) {
     Frac slope, turn;
     if (!trig_live || !trig_affine(argument, &slope, &turn)) return 0;
     Frac multiple = frac_div(slope, trig_scale);
@@ -1795,7 +1780,7 @@ static int sign_atoms;
  * (27f), hanno sempre lo stesso segno dell'argomento, e sono un valore
  * assoluto solo, con una sola scelta del segno (eval_call() li riconosce
  * allo stesso modo). */
-static void abs_collect(const Node *node) {
+void abs_collect(const Node *node) {
     if (!node || failure) return;
     abs_collect(node->a);
     abs_collect(node->b);
@@ -2437,7 +2422,7 @@ static const SignNode *sign_build(Rat e, int level, int x) {
  * sign_compare(), che a sua volta legge i segni delle foglie negli spazi
  * attraverso space_row(). sign_compare() sta nel capitolo 18.11, con i
  * confronti preparati. */
-static int sign_compare(const Formula *f, const int *sign, int *defined);
+int sign_compare(const Formula *f, const int *sign, int *defined);
 
 /* Ritorna in quale tratto del suo spazio sta la lettera dello spazio s,
  * nella riga della tabella in cui i polinomi hanno i segni di sign[]: con k
@@ -3231,7 +3216,7 @@ static int family_truth(const Formula *f, const int *sign) {
  * Prima la scelta dei segni dei valori assoluti, da quelli più interni: uno
  * ha il segno cambiato dove il suo argomento è negativo. Poi il segno della
  * differenza in quella scelta. */
-static int sign_compare(const Formula *f, const int *sign, int *defined) {
+int sign_compare(const Formula *f, const int *sign, int *defined) {
     const SignAtom *atom = NULL;
     unsigned pattern = 0;
     for (int i = 0; i < sign_atoms; i++)
@@ -3251,7 +3236,7 @@ static int sign_compare(const Formula *f, const int *sign, int *defined) {
 
 /* Ritorna 1 se l'enunciato f, senza quantificatori, è vero dove i polinomi
  * di sign_poly[] hanno i segni di sign[] (-1, 0 o 1), altrimenti 0. */
-static int sign_truth(const Formula *f, const int *sign) {
+int sign_truth(const Formula *f, const int *sign) {
     if (family_owner(f)) return family_truth(f, sign);
     switch (f->kind) {
     case F_AND:     return sign_truth(f->a, sign) && sign_truth(f->b, sign);
@@ -3335,7 +3320,7 @@ static int number_bounds(Poly p, int bits, Wide *low, Wide *high) {
  * radici di interi è esatto. La precisione cresce fino a 40 cifre binarie;
  * se non basta, la risposta è "non so". È un conto diverso da quello della
  * tabella dei segni, che non approssima mai: per questo vale come controllo. */
-static int number_sign(Rat r, int *side) {
+int number_sign(Rat r, int *side) {
     Num value;
 
     /* Un numeratore senza termini è zero, qualunque cosa ci sia sotto: è
@@ -3652,30 +3637,11 @@ static int table_agrees(const Formula *body, int name, Wide at, const Critical *
  * rilette dal testo prima di essere consegnate (solution_reread()).
  */
 
-/* Una riga della tabella dei segni (18p-2): un punto, oppure l'intervallo tra
- * due punti consecutivi. La riga 2 i è l'intervallo prima del punto i, la
- * riga 2 i + 1 il punto i; l'ultima è l'intervallo dopo l'ultimo punto. */
-typedef struct {
-    Wide sample;             /* il valore della variabile in cui si calcolano i
-                                segni: il punto, o un razionale dell'intervallo;
-                                per una radice irrazionale il punto medio
-                                dell'intervallo che la isola (18p-5) */
-    int sign[MAX_CRITICAL];  /* il segno (-1, 0, 1) di ogni polinomio di sign_poly[] */
-    int inside;              /* 1 se la riga sta nell'insieme su cui varia la variabile */
-    int rational;            /* 1 se sample è proprio il valore della riga: è 0
-                                solo nelle radici irrazionali */
-    int must;                /* 1 se la riga va confermata perché l'enunciato si
-                                possa decidere: le righe con un valore razionale,
-                                e in un enunciato periodico gli intervalli */
-    int confirmed;           /* 1 se il conto con i numeri in sample ha dato la
-                                stessa verità della tabella */
-} SignRow;
-
 /* Le righe della tabella appena riempita da sign_table(): valgono fino alla
  * tabella successiva, e le leggono la dimostrazione, le soluzioni, il
  * grafico, il certificato e lo studio di funzione (capitolo 27). */
-static SignRow sign_row[2 * MAX_POINTS + 1];
-static int sign_rows;
+SignRow sign_row[2 * MAX_POINTS + 1];
+int sign_rows;
 
 /* Mette in out[], che ha 8 posti, altri valori della riga row, che è un
  * intervallo, oltre a quello scelto in sign_row[row].sample; ritorna quanti.
@@ -3856,13 +3822,13 @@ static void put_row(int row, int name) {
 /* Le soluzioni trovate da sign_solution(), come condizione in LaTeX, e ciò
  * che va detto per leggerle: se hanno estremi irrazionali, e che cosa
  * indicano i nomi r_{k}. Valgono fino alla tabella successiva. */
-static char solution_text[1024], solution_note[512];
+char solution_text[1024], solution_note[512];
 
 /* Ritorna 1 se il punto numero k della tabella, una radice irrazionale, è il
  * primo dei punti che sono radici del suo elemento della base: per un
  * elemento di secondo grado, la più piccola delle due radici, perché i punti
  * sono in ordine. */
-static int point_is_first_root(int k) {
+int point_is_first_root(int k) {
     for (int i = 0; i < k; i++)
         if (!sign_point[i].exact && sign_point[i].element == sign_point[k].element) return 0;
     return 1;
@@ -3898,23 +3864,13 @@ static void point_latex(int k, int name, char *text, size_t size) {
     text_add(solution_note, sizeof solution_note, " tra %s e %s", low, high);
 }
 
-/* Un pezzo dell'insieme in cui una condizione vale: righe consecutive della
- * tabella in cui è vera, cioè un punto solo oppure un intervallo. */
-typedef struct {
-    int first, last;              /* la prima e l'ultima riga */
-    int low, high;                /* i punti che lo delimitano; -1 se da quella
-                                     parte non ha limite. Per un punto solo
-                                     sono lo stesso punto */
-    int low_closed, high_closed;  /* 1 se l'estremo fa parte del pezzo */
-} Piece;
-
 /* Cerca il primo pezzo, dalla riga from in poi, in cui vale la condizione f
  * secondo le righe di sign_row[]. Ritorna 0 se non ce ne sono più.
  *
  * Un pezzo che comincia su una riga dispari, cioè su un punto, comprende
  * quel punto; se comincia su un intervallo, il punto che lo precede resta
  * fuori. Lo stesso alla fine. */
-static int sign_piece(const Formula *f, int from, Piece *piece) {
+int sign_piece(const Formula *f, int from, Piece *piece) {
     int first = from;
     while (first < sign_rows && !(sign_row[first].inside && sign_truth(f, sign_row[first].sign))) first++;
     if (first >= sign_rows) return 0;
@@ -3967,7 +3923,7 @@ static int sign_solution(const Formula *f, int name) {
  * dopo la condizione. In ogni caso syntax_error resta NULL. È il primo passo
  * di ogni controllo di ciò che si consegna (18p, 18t-f): il controllo
  * guarda ciò che il testo dice, non ciò che il motore pensava di scrivere. */
-static Formula *condition_reread(const char *text) {
+Formula *condition_reread(const char *text) {
     syntax_error = NULL;
     cursor = text;
     next_token();
@@ -4487,8 +4443,8 @@ static Range angle_range(Angle a) {
  * l'enunciato successivo (prove()); chi scrive il documento lo legge prima.
  * figures_wanted dice se i grafici servono: finché nessuno li mette in un
  * documento non vengono costruiti. */
-static PlFigure *figure;
-static int figures_wanted;
+PlFigure *figure;
+int figures_wanted;
 
 /* Ritorna il valore, in virgola mobile, dell'espressione node quando la
  * variabile name vale x: il punto medio dell'intervallo che lo contiene
@@ -4537,7 +4493,7 @@ static double point_approx(int k) {
 /* Mette in list[], che ha MAX_PANELS + 1 posti, i confronti della
  * condizione f nell'ordine in cui sono scritti, e ne aggiorna il numero
  * *count; oltre MAX_PANELS + 1 smette di contare. */
-static void comparisons_collect(const Formula *f, const Formula **list, int *count) {
+void comparisons_collect(const Formula *f, const Formula **list, int *count) {
     if (!f || *count > MAX_PANELS) return;
     if (f->kind == F_EQUAL || f->kind == F_DISTINCT || f->kind == F_LESS || f->kind == F_LESS_EQ) { list[(*count)++] = f; return; }
     comparisons_collect(f->a, list, count);
@@ -4784,7 +4740,7 @@ static void sign_figure(const Formula *f, int name) {
 /* Ritorna 1 se nell'enunciato f compare una relazione d'ordine o un
  * quantificatore sui numeri reali, o se f chiede un insieme di soluzioni:
  * ciò che solo la tabella dei segni tratta. */
-static int formula_needs_signs(const Formula *f) {
+int formula_needs_signs(const Formula *f) {
     if (!f) return 0;
     if (f->kind == F_LESS || f->kind == F_LESS_EQ || f->kind == F_SOLVE) return 1;
     if ((f->kind == F_FORALL || f->kind == F_EXISTS) && f->numbers.reals) return 1;
@@ -4823,7 +4779,7 @@ static void sign_reset(int name) {
 /* Ritorna l'enunciato f senza le negazioni che lo precedono, e mette in
  * *negated 1 se erano in numero dispari: allora f afferma il contrario di
  * ciò che resta. */
-static const Formula *without_negations(const Formula *f, int *negated) {
+const Formula *without_negations(const Formula *f, int *negated) {
     *negated = 0;
     while (f->kind == F_NOT) { f = f->a; *negated = !*negated; }
     return f;
@@ -4977,7 +4933,7 @@ static void table_solutions(const Formula *body, int name, size_t opening, Verdi
  * oppure essere l'insieme delle soluzioni di una condizione così, nei reali.
  * Riempie *verdict, con la dimostrazione scritta e il controesempio o le
  * soluzioni. */
-static void decide_by_signs(const Formula *thesis, Verdict *verdict) {
+void decide_by_signs(const Formula *thesis, Verdict *verdict) {
     static char where[160];
     int negated;
     const Formula *q = without_negations(thesis, &negated);
@@ -5226,7 +5182,7 @@ static void decide_by_signs(const Formula *thesis, Verdict *verdict) {
 /* Ritorna 1 se l'espressione node si scrive nella notazione delle tabelle
  * dei segni di checker.c: interi, la variabile name, + - * /, il meno,
  * potenze con un intero scritto all'esponente e valori assoluti. */
-static int sign_node_plain(const Node *node, int name) {
+int sign_node_plain(const Node *node, int name) {
     switch (node->kind) {
     case N_NUM: return 1;
     case N_VAR: return node->name == name;
@@ -5414,7 +5370,7 @@ static const char *sign_certificate(const Formula *thesis, const Verdict *verdic
 /* 18p-15. Fa ricontrollare a checker.c il verdetto *verdict che
  * decide_by_signs() ha dato su thesis, e lo aggiorna con la risposta: vedi
  * "Le risposte" in testa a 18p-15. */
-static void sign_certify(const Formula *thesis, Verdict *verdict) {
+void sign_certify(const Formula *thesis, Verdict *verdict) {
     static char problem[512];
     if (verdict->outcome != PROVED && verdict->outcome != REFUTED && verdict->outcome != SOLVED) return;
     const char *why = sign_certificate(thesis, verdict), *text = certificate_text;
@@ -6281,7 +6237,7 @@ static Candidate param_candidate[MAX_CANDIDATES];
 static int param_candidates;
 
 /* Ritorna p moltiplicato per l'intero k. */
-static Uni uni_scaled(const Uni *p, __int128 k) {
+Uni uni_scaled(const Uni *p, __int128 k) {
     Uni out = *p;
     for (int i = 0; i <= out.degree; i++)
         if (__builtin_mul_overflow(out.c[i], k, &out.c[i])) fail(SIGN_LIMIT);
@@ -7175,7 +7131,7 @@ static int formula_has_real_letter(const Formula *f) {
  * forma, e leggerebbe la richiesta come una condizione sempre falsa. Qui
  * riceve la risposta giusta: se l'insieme non è \mathbb{R}, che non è
  * trattata. */
-static int has_parameter(const Formula *thesis) {
+int has_parameter(const Formula *thesis) {
     while (thesis->kind == F_NOT) thesis = thesis->a;
     if (thesis->kind == F_FORALL && thesis->a->kind == F_SOLVE) return 1;
     return (thesis->kind == F_FORALL || thesis->kind == F_EXISTS || thesis->kind == F_SOLVE) && thesis->numbers.reals && formula_has_real_letter(thesis->a);
@@ -7363,10 +7319,9 @@ static void param_decide(const Formula *thesis, Verdict *verdict) {
  * Mentre lavora, i grafici sono spenti: ogni cella passa da
  * decide_by_signs(), che altrimenti ne costruirebbe uno per volta, e il
  * disegno di una cella non è il disegno dell'enunciato. */
-static void decide_with_parameter(const Formula *thesis, Verdict *verdict) {
+void decide_with_parameter(const Formula *thesis, Verdict *verdict) {
     int wanted = figures_wanted;
     figures_wanted = 0;
     param_decide(thesis, verdict);
     figures_wanted = wanted;
 }
-

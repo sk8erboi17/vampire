@@ -1,3 +1,20 @@
+/* MODULO engine_quantifiers_verdict: enunciati con quantificatori: verifica
+ * indipendente e verdetto (capitolo 19).
+ *
+ * Un'unità di compilazione a sé. Dei moduli che usa vede solo le interfacce
+ * incluse qui sotto; ciò che gli altri usano di lui è in
+ * engine_quantifiers_verdict.h, e il resto è static. */
+#include "engine_quantifiers_verdict.h"
+#include "engine_foundations.h"
+#include "parser.h"
+#include "engine_evaluation.h"
+#include "engine_induction.h"
+#include "engine_quantifiers.h"
+#include "engine_sign_tables.h"
+#include "engine_explanation.h"
+#include "engine_sequences.h"
+#include "engine_derivatives.h"
+
 /* =============================================================================
  * 19. QUANTIFICATORI: VERIFICA INDIPENDENTE E VERDETTO
  * ============================================================================
@@ -489,7 +506,7 @@ static int sample_holds(const Formula *f, int negated) {
 /* Dimentica ciò che una dimostrazione ha annotato nei nodi di f: i valori
  * scelti e i casi sul resto. Va chiamata prima di riusare la memoria in cui
  * quei valori stanno. */
-static void forget_choices(Formula *f) {
+void forget_choices(Formula *f) {
     if (!f) return;
     f->has_witness = 0;
     f->modulus = 0;
@@ -1051,7 +1068,7 @@ static int formula_has_order(const Formula *f) {
 /* Prototipo in avanti inevitabile: le iterate di un'applicazione (17s) si
  * dimostrano come una successione definita per ricorrenza, con il metodo
  * del capitolo 26, che viene dopo (26c). */
-static Verdict decide_iterates(const Formula *thesis);
+Verdict decide_iterates(const Formula *thesis);
 
 /* Prototipi in avanti inevitabili: un enunciato con applicazioni tra reali si
  * decide svolgendo le definizioni (18v-8), e ciò che si ottiene è di nuovo un
@@ -1348,7 +1365,7 @@ static Verdict decide_quantified(const char *formula) {
  *
  * Svuota l'arena e la tabella degli atomi: i risultati di chiamate precedenti
  * non sono più validi. */
-static Verdict prove_quantified(const char *formula) {
+Verdict prove_quantified(const char *formula) {
     Verdict verdict = decide_quantified(formula);
 
     /* Le applicazioni dichiarate valgono solo per questo enunciato: il parser
@@ -1421,7 +1438,7 @@ static Verdict prove_quantified(const char *formula) {
  */
 
 /* Ritorna 1 se in node ogni divisione è per un numero, senza lettere. */
-static int divisions_by_numbers(const Node *node) {
+int divisions_by_numbers(const Node *node) {
     if (!node) return 1;
     if (node->kind == N_DIV && !node_is_numeral(node->b)) return 0;
     return divisions_by_numbers(node->a) && divisions_by_numbers(node->b) && divisions_by_numbers(node->c);
@@ -1834,4 +1851,3 @@ static Verdict decide_real_maps(const Formula *thesis) {
     verdict.note = reading[0] ? reading : NULL;
     return verdict;
 }
-
