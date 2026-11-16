@@ -40,8 +40,10 @@ public:
   bool failed() const { return _failed; }
   bool atEnd() { skip(); return _at == _text.size(); }
 
-  /** With lift: false if some quantifier that has to be used cannot be settled by a value. */
+  /** With lift: false if some quantifier that has to be used can be settled neither by a value nor by the checker's count. */
   bool settled() const { return _settled; }
+  /** With lift: how many quantifiers were left where they are, for the checker to settle by its complete count. */
+  unsigned counted() const { return _counted; }
   /** With lift: the quantifiers moved to the front, outermost first, and the letters they bind. */
   const std::vector<unsigned>& lifted() const { return _lifted; }
   const std::vector<std::string>& liftedLetters() const { return _liftedLetters; }
@@ -54,8 +56,13 @@ public:
    * that has to be shown of this condition for the whole statement to get
    * the one wanted of it. A "for all" to be shown false and a "there is"
    * to be shown true need one value each: those are lifted. The other two
-   * cases need a proof for every value, which no value gives: the
-   * statement is then not settled by values.
+   * cases need a proof for every value, which no value gives. The checker
+   * gives one by itself where, the outer values fixed, one integer
+   * variable is left and nothing is quantified inside (its complete count,
+   * 20e of checker.c): such a quantifier stays where it is. Being
+   * innermost, it has no lifted quantifier in its scope, so moving the
+   * others to the front still says the same. Anywhere else the statement
+   * is not settled by values.
    */
   std::string condition(unsigned depth, Want want = EITHER)
   {
@@ -68,13 +75,16 @@ public:
       unsigned number = _quantifiers++;
       std::string letter = this->letter();
       bool lifted = _lift && want == (universal ? FALSE : TRUE);
-      if (_lift && !lifted) _settled = false;
       std::string variable = lifted ? "W" + std::to_string(number) : "X" + letter;
       if (lifted) { _lifted.push_back(number); _liftedLetters.push_back(letter); }
       std::string guard = set(variable);
       _scope.push_back({letter, variable});
       std::string body = condition(depth + 1, want);
       _scope.pop_back();
+      if (_lift && !lifted) {
+        if (_kind == INTEGERS && _quantifiers == number + 1) _counted++;
+        else _settled = false;
+      }
       if (!guard.empty()) body = "(" + guard + (universal ? " => " : " & ") + body + ")";
       result = lifted ? body : std::string(universal ? "(![" : "(?[") + variable + ":" + sort() + "]: " + body + ")";
     } else if (head == "and" || head == "or" || head == "implies" || head == "iff") {
@@ -117,6 +127,7 @@ private:
   bool _lift;
   bool _failed = false;
   bool _settled = true;
+  unsigned _counted = 0;      // quantifiers left to the checker's count
   unsigned _fresh = 0;        // names for the factors of "divides"
   unsigned _quantifiers = 0;  // how many quantifiers were met: the next one's number
   std::vector<unsigned> _lifted;
@@ -305,6 +316,7 @@ NumberStatement::WitnessProblem NumberStatement::witnessProblem(bool denied) con
   problem.tptp = "tff(statement, conjecture, " + (variables.empty() ? matrix : "?[" + variables + "]: (" + matrix + ")") + ").\n";
   problem.quantifiers = reader.lifted();
   problem.letters = reader.liftedLetters();
+  problem.counted = reader.counted();
   return problem;
 }
 

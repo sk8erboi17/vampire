@@ -57,7 +57,11 @@
  * asked not only for a proof but for the values (question answering):
  * witnessProblem(). With the values, certificate() writes what the checker
  * rechecks. A "for all" that is true, or a "there is" that is false, cannot
- * be shown by values, and for those there is no witness problem.
+ * be shown by values. The checker settles one by itself in a single case:
+ * an innermost quantifier over one integer, once every other variable has
+ * a value, by trying every integer that can matter (its complete count).
+ * Such a quantifier is left where it is, and Vampire is asked for the
+ * values of the others; in every other case there is no witness problem.
  */
 
 #ifndef __Math_NumberStatement__
@@ -96,12 +100,15 @@ public:
     std::vector<unsigned> quantifiers; // for each variable of that conjecture, in order, the quantifier of the
                                        // statement it stands for, counted from 0 in the order they are written
     std::vector<std::string> letters;  // and the letter that quantifier binds, for a reader
+    unsigned counted = 0;              // quantifiers left in place for the checker to settle by its complete count
   };
 
   /**
    * The statement (or, with @b denied, its negation) as a problem that
    * values can settle, if it is one: every quantifier that has to be used
-   * is a "there is" to be made true or a "for all" to be made false.
+   * is a "there is" to be made true or a "for all" to be made false, or
+   * is an innermost quantifier over one integer, which the checker settles
+   * by itself once the others have their values.
    */
   WitnessProblem witnessProblem(bool denied) const;
 

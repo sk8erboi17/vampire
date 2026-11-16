@@ -74,6 +74,8 @@ public:
                                    // set), but Vampire can still look for a proof on the clauses of the independent
                                    // checker
     bool wantsExample = false;     // the statement asks for an example ("there are sets and symbols such that ...")
+    std::string numbers;           // a statement with quantifiers over numbers of one kind, as the engine writes it for
+                                   // whoever else is to settle it (Math/Engine.h, qr_numbers_item()); empty otherwise
   };
 
   /** @param text the whole input. The frontend keeps a copy. */

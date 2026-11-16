@@ -20,6 +20,9 @@ lines:
   - a statement on numbers whose negation Vampire's arithmetic proved is
     "FALSO", without a counterexample: the oracle knows whether the statement
     is true and must be able to object;
+  - a statement in one integer variable that the independent checker settled
+    by itself, with its complete count, is "DIMOSTRATO" or "FALSO" as the
+    count said, for the same reason;
   - "not a theorem" reported by Vampire without a model is "NON DIMOSTRATO":
     there is nothing the oracle could recompute, and a refutation that cannot
     be checked is not presented to it as one. The same for a request for an
@@ -55,6 +58,10 @@ def main():
                 line = "NON DIMOSTRATO: il programma non ha risposto"
             elif result.group(2) == "engine" and engine:
                 line = engine.group(1)
+            elif result.group(2) == "checker" and result.group(1) == "TheoremCertified":
+                line = "DIMOSTRATO dal conto completo del verificatore su una variabile intera; certificato verificato"
+            elif result.group(2) == "checker" and result.group(1) == "CounterexampleVerified":
+                line = "FALSO: lo stabilisce il conto completo del verificatore su una variabile intera; certificato verificato"
             elif result.group(1) == "TheoremUnverified":
                 line = "DIMOSTRATO da Vampire, per refutazione; senza certificato (la prova di Vampire non è ricontrollata dal verificatore indipendente)"
             elif result.group(1) == "TheoremCertified":

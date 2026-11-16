@@ -8,10 +8,15 @@ Statements about integers, rationals and reals. The mathematical engine goes
 first, with its rules for quantifiers and its sign tables. Where it has no
 answer, a statement whose variables are all of one kind is given to Vampire's
 arithmetic theories, as it is and as its negation; what Vampire proves there
-is found, not verified. The first is the engine's; the second it reads and
-has no method for, and Vampire, asked, does not prove it either. The last
-three are not given to Vampire: variables of two kinds, an exponent that is
-a letter, a set of another kind.
+is found, not verified, unless numbers settle it and the independent checker
+recomputes the statement on them. The first is the engine's, proved without
+a certificate. The second has one integer variable and the engine has no
+method for it: the checker settles it by itself, trying every integer that
+can matter. The fifth is false, and Vampire gives the numbers that show it;
+so is the sixth, where after the number that Vampire gives one integer
+variable is left, which the checker settles the same way. The last three are
+not given to Vampire: variables of two kinds, an exponent that is a letter,
+a set of another kind.
 \begin{enumerate}
 \item $\displaystyle \forall n \in \mathbb{N}\ \exists m \in \mathbb{N}\ (m = n + 1)$
 \item $\displaystyle \forall n \in \mathbb{N}\ (n^{2} \ge n)$

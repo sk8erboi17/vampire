@@ -188,33 +188,66 @@ TEST_FUN(a_statement_that_numbers_settle_is_asked_with_its_quantifiers_in_front)
   ASS(proof_check_certificate(statement.certificate(false, refuting, {"7", "8", "0", "1"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
 }
 
-TEST_FUN(a_statement_that_needs_a_proof_for_every_value_has_no_witness_problem)
+TEST_FUN(a_quantifier_that_no_value_settles_is_left_to_the_checker_only_as_the_innermost_over_integers)
 {
   qr_init();
 
-  /* "For every m there is x with ...": to refute it one m is not enough, the inner "there is" must fail for all x. */
+  /* "For every m there is x with ...": to refute it one m is not enough, the inner "there is" must fail for all x.
+   * Over the integers the checker settles that by its count, once m has a value: the inner quantifier stays, m is asked for. */
   NumberStatement alternating = NumberStatement::read(handedOver(
     "\\forall m \\in \\mathbb{Z}\\ \\exists x \\in \\mathbb{N}\\ (x - m \\in \\mathbb{N}_{0} \\land m - x \\in \\mathbb{N}_{0})"));
   ASS(alternating.ok());
-  ASS(alternating.witnessProblem(true).tptp.empty());
+  NumberStatement::WitnessProblem refutingIt = alternating.witnessProblem(true);
+  ASS(refutingIt.tptp.compare(0, 37, "tff(statement, conjecture, ?[W0:$int]") == 0);
+  ASS(refutingIt.tptp.find("?[X") != std::string::npos);
+  ASS(refutingIt.quantifiers.size() == 1 && refutingIt.quantifiers[0] == 0 && refutingIt.counted == 1);
+  const char* reason = "";
+  ASS(proof_check_certificate(alternating.certificate(true, refutingIt, {"0"}).c_str(), &reason) == PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(alternating.certificate(true, refutingIt, {"-4"}).c_str(), &reason) == PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(alternating.certificate(true, refutingIt, {"3"}).c_str(), &reason) != PROOF_CHECK_ACCEPTED);   // x = 3 is there
+  /* To prove it, the outer "for every m" would have to hold with a quantifier inside: nothing settles that. */
   ASS(alternating.witnessProblem(false).tptp.empty());
 
-  /* "There is x with x^2 = 49": to prove it one value is enough; to refute it, none is. */
+  /* One integer variable and nothing to ask anybody: the problem is the statement, and the count is the certificate. */
+  NumberStatement single = NumberStatement::read(handedOver("\\forall n \\in \\mathbb{N}\\ (n^{2} \\ge n)"));
+  ASS(single.ok());
+  NumberStatement::WitnessProblem provingIt = single.witnessProblem(false);
+  ASS(!provingIt.tptp.empty() && provingIt.quantifiers.empty() && provingIt.counted == 1);
+  ASS(proof_check_certificate(single.certificate(false, provingIt, {}).c_str(), &reason) == PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(single.certificate(true, single.witnessProblem(true), {}).c_str(), &reason) != PROOF_CHECK_ACCEPTED);
+
+  /* Among rationals there is no count: the same shapes have no witness problem. */
+  NumberStatement dense = NumberStatement::read(handedOver("\\forall m \\in \\mathbb{Q}\\ \\exists x \\in \\mathbb{Q}\\ (x = m \\land x \\neq m)"));
+  ASS(dense.ok());
+  ASS(dense.witnessProblem(true).tptp.empty());
+  ASS(dense.witnessProblem(false).tptp.empty());
+
+  /* "There is x with x^2 = 49": to prove it one value is enough. To refute it no value is: over the integers
+   * that is left to the checker's count, which here says the opposite. */
   NumberStatement existential = NumberStatement::read(handedOver("\\exists x \\in \\mathbb{N}\\ (x^{2} = 49)"));
   ASS(existential.ok());
   NumberStatement::WitnessProblem proving = existential.witnessProblem(false);
   ASS(proving.tptp.compare(0, 36, "tff(statement, conjecture, ?[W0:$int") == 0);
-  ASS(existential.witnessProblem(true).tptp.empty());
+  NumberStatement::WitnessProblem refuting = existential.witnessProblem(true);
+  ASS(!refuting.tptp.empty() && refuting.quantifiers.empty() && refuting.counted == 1);
   const char* why = "";
+  ASS(proof_check_certificate(existential.certificate(true, refuting, {}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
   ASS(proof_check_certificate(existential.certificate(false, proving, {"7"}).c_str(), &why) == PROOF_CHECK_ACCEPTED);
   ASS(proof_check_certificate(existential.certificate(false, proving, {"6"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
   ASS(proof_check_certificate(existential.certificate(false, proving, {"-7"}).c_str(), &why) != PROOF_CHECK_ACCEPTED);   // not in N
 
-  /* Under an "if and only if" a quantifier counts both ways: no witness problem. */
-  NumberStatement both = NumberStatement::read("numbers int \n(iff (exists (var 1) (set) (= (var 1) 0)) (= 0 0))\n");
+  /* Under an "if and only if" a quantifier counts both ways, and no value settles it: among rationals there is
+   * no witness problem; among integers it is left to the checker's count, which settles the whole statement. */
+  NumberStatement both = NumberStatement::read("numbers rat \n(iff (exists (var 1) (set) (= (var 1) 0)) (= 0 0))\n");
   ASS(both.ok());
   ASS(both.witnessProblem(false).tptp.empty());
   ASS(both.witnessProblem(true).tptp.empty());
+  NumberStatement whole = NumberStatement::read("numbers int \n(iff (exists (var 1) (set) (= (var 1) 0)) (= 0 0))\n");
+  ASS(whole.ok());
+  NumberStatement::WitnessProblem holding = whole.witnessProblem(false);
+  ASS(!holding.tptp.empty() && holding.quantifiers.empty() && holding.counted == 1);
+  ASS(proof_check_certificate(whole.certificate(false, holding, {}).c_str(), &why) == PROOF_CHECK_ACCEPTED);
+  ASS(proof_check_certificate(whole.certificate(true, whole.witnessProblem(true), {}).c_str(), &why) != PROOF_CHECK_ACCEPTED);
 }
 
 TEST_FUN(an_answer_of_vampire_is_a_witness_only_if_it_is_a_number)

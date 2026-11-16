@@ -60,6 +60,16 @@ LaTeX::Statement LaTeX::read(const Item& item)
   const char* begin = item.text.c_str();
   const char* end = begin + item.text.size();
   Statement statement;
+
+  /* A statement with quantifiers over numbers, as the engine writes it for
+   * the independent checker's count and for Vampire's arithmetic. It is
+   * asked for here, before the engine decides: asking afterwards would
+   * make the engine forget what it keeps of its verdict for the document.
+   * The engine only reads; nothing is decided by this. */
+  if (item.text.find("\\mathbb") != std::string::npos) {
+    QrVerdict handed = qr_numbers_item(begin, end);
+    if (handed.logic) statement.numbers = handed.logic;
+  }
   statement.verdict = qr_decide_item(begin, end, /* delegate_logic */ 1);
   if (statement.verdict.outcome != QR_LOGIC) return statement;
 

@@ -212,6 +212,7 @@ struct LogicOutcome {
                             // did not (0 is a refutation without a step: the checker's clauses hold the empty one)
   std::string notRechecked; // if it did not, and the theorem is certified another way: where the recheck stopped
   bool byNumbers = false;   // a statement about numbers settled by numbers that the checker recomputed (askArithmetic())
+  bool byCount = false;     // a statement in one integer variable settled by the checker's complete count (countByChecker())
 };
 
 /**
@@ -597,6 +598,7 @@ struct ArithmeticAnswer {
   std::string sort;        // the sort of the problem: $int, $rat or $real
   bool certified = false;  // Vampire also gave numbers that settle the statement, and the independent
                            // checker recomputed the statement on them
+  bool counted = false;    // ... and settled by its complete count a quantifier over one integer that no number shows
   std::string certificate; // the certificate the checker accepted
   std::string numbers;     // those numbers, as LaTeX: "$x = 7$, $y = 8$"
 };
@@ -620,47 +622,97 @@ std::string letterLatex(const std::string& code)
 }
 
 /**
- * The values of an answer of Vampire, "% SZS answers Tuple [[7,8,0,1]|_] for ...",
- * in the output written to the file at @b path: one per variable of the
- * conjecture, as the checker writes numbers. Returns false if there is no
- * such line, or a value is not a number (it may be a term that Vampire did
- * not compute, or a variable when any value would do): then there are no
- * witnesses to give to the checker.
+ * The tuples of numbers that an answer of Vampire offers, in the output
+ * written to the file at @b path. The answer is one tuple,
+ * "% SZS answers Tuple [[7,8,0,1]|_] for ...", or several of which at least
+ * one is right, "[([101,1]|[102,2]|[101,sK1(102)])|_]"; each has one value
+ * per variable of the conjecture. Appended to @b tuples are those made of
+ * @b count numbers, as the checker writes numbers, each once: a value that
+ * is not a number (a term that Vampire did not compute, a variable when any
+ * value would do) leaves its tuple out. Which of them settles the statement
+ * is for the checker to say.
  */
-bool answeredValues(const std::string& path, std::vector<std::string>& values)
+void answeredTuples(const std::string& path, size_t count, std::vector<std::vector<std::string>>& tuples)
 {
   std::ifstream output(path);
   std::string line;
-  static const std::string MARK = "SZS answers Tuple [[";
+  static const std::string MARK = "SZS answers Tuple [";
   while (std::getline(output, line)) {
     size_t at = line.find(MARK);
     if (at == std::string::npos) continue;
     at += MARK.size();
-    size_t end = line.find("]|", at);
-    if (end == std::string::npos) end = line.find("]]", at);
-    if (end == std::string::npos) return false;
 
-    /* The elements, separated by the commas that are not inside a term. */
-    std::string element;
-    int depth = 0;
-    values.clear();
-    auto finish = [&]() {
-      std::string value;
-      bool number = NumberStatement::answerValue(element, value);
-      values.push_back(value);
-      element.clear();
-      return number;
-    };
-    for (size_t i = at; i < end; i++) {
-      char c = line[i];
-      if (c == '(') depth++;
-      if (c == ')') depth--;
-      if (c == ',' && depth == 0) { if (!finish()) return false; }
-      else element += c;
+    /* Every "[...]" from here on is one tuple: the terms inside have
+     * parentheses, never brackets. */
+    for (size_t open = line.find('[', at); open != std::string::npos; open = line.find('[', at)) {
+      size_t close = line.find(']', open);
+      if (close == std::string::npos) break;
+      std::vector<std::string> values;
+      std::string element;
+      bool numbers = true;
+      int depth = 0;
+      auto finish = [&]() {
+        std::string value;
+        numbers = NumberStatement::answerValue(element, value) && numbers;
+        values.push_back(value);
+        element.clear();
+      };
+      /* The elements, separated by the commas that are not inside a term. */
+      for (size_t i = open + 1; i < close; i++) {
+        char c = line[i];
+        if (c == '(') depth++;
+        if (c == ')') depth--;
+        if (c == ',' && depth == 0) finish();
+        else element += c;
+      }
+      finish();
+      if (numbers && values.size() == count && std::find(tuples.begin(), tuples.end(), values) == tuples.end()) tuples.push_back(values);
+      at = close + 1;
     }
-    return finish();
+    return;
   }
-  return false;
+}
+
+/** What the independent checker's count said of a statement in one integer variable (countByChecker()). */
+struct CountAnswer {
+  bool asked = false;       // the statement was one the count applies to
+  bool certified = false;   // the checker settled it ...
+  bool denied = false;      // ... as false, rather than as true
+  std::string certificate;  // the certificate it accepted
+};
+
+/**
+ * Asks the independent checker to settle by itself a statement with
+ * quantifiers over numbers that needs no number from anybody: one integer
+ * variable, a "for all" or a "there is", with nothing quantified inside.
+ * The checker tries every integer that can matter, which is a finite and
+ * complete count (20e of Math/quaerens/checker.c), and accepts the
+ * certificate that says the statement holds, or the one that says it
+ * fails, or neither. Nothing is searched for here and nothing is believed:
+ * @b handedOver is the statement as the engine read it and wrote it in the
+ * notation of the certificates (Parse::LaTeX::Statement::numbers).
+ *
+ * This is how a theorem that holds "for every integer" gets a certificate:
+ * the engine's own, when it proved the statement without one, and those
+ * that neither the engine nor Vampire's arithmetic decides.
+ */
+void countByChecker(const std::string& handedOver, CountAnswer& answer)
+{
+  if (handedOver.empty()) return;
+  NumberStatement statement = NumberStatement::read(handedOver);
+  if (!statement.ok()) return;
+  for (bool denied : {false, true}) {
+    NumberStatement::WitnessProblem problem = statement.witnessProblem(denied);
+    if (problem.tptp.empty() || !problem.quantifiers.empty()) continue;   // numbers would have to be found first
+    answer.asked = true;
+    std::string certificate = statement.certificate(denied, problem, {});
+    const char* why = "";
+    if (proof_check_certificate(certificate.c_str(), &why) != PROOF_CHECK_ACCEPTED) continue;
+    answer.certified = true;
+    answer.denied = denied;
+    answer.certificate = certificate;
+    return;
+  }
 }
 
 /**
@@ -668,7 +720,8 @@ bool answeredValues(const std::string& path, std::vector<std::string>& values)
  * and could not decide, to Vampire's arithmetic theories.
  *
  * The engine hands the statement over if every variable in it ranges over
- * numbers of one kind (Engine.h, qr_numbers_item()); NumberStatement writes
+ * numbers of one kind (Engine.h, qr_numbers_item(); it is @b handedOver,
+ * read before the engine decided the statement); NumberStatement writes
  * it as a TPTP problem over $int, $rat or $real, and Vampire's own parser
  * reads it in a child process, which from there on is Vampire on that
  * problem with whatever options were given. Two such processes run
@@ -693,16 +746,28 @@ bool answeredValues(const std::string& path, std::vector<std::string>& values)
  * then, what was found is verified. Otherwise the caller must report it as
  * found, not verified (NumberStatement.hpp).
  *
+ * Where the numbers leave a quantifier over one integer for the checker to
+ * settle by its count, asking for them makes the problem harder, and the
+ * answer may be several tuples of which one is right. So the first search
+ * is the plain one, as if there were nothing to ask; if it finds a proof, a
+ * second search of the same side asks for the numbers, and the checker is
+ * given each tuple offered until it accepts one. That second search uses
+ * the saturation algorithm that does not discard clauses to meet the time
+ * limit (discount): with the default one the same problem is proved in a
+ * second with ten seconds allowed and not at all with five. If it finds
+ * nothing, what the first search found stands, not verified.
+ *
  * Returns false in a child process, with the problem loaded: the caller
  * must return at once so that the process goes on to prove it.
  */
-bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemName, Run& run, ArithmeticAnswer& answer)
+bool askArithmetic(const std::string& handedOver, const std::string& problemName, Run& run, ArithmeticAnswer& answer)
 {
+  /* How many of the tuples that an answer offers are given to the checker:
+   * an answer has a handful, and each costs one recomputation. */
+  static const size_t MAX_OFFERED_TUPLES = 16;
   Options& options = *env.options;
-  if (!options.mathNumbersTime()) return true;
-  QrVerdict handed = qr_numbers_item(item.text.c_str(), item.text.c_str() + item.text.size());
-  if (!handed.logic) return true;
-  NumberStatement statement = NumberStatement::read(handed.logic);
+  if (!options.mathNumbersTime() || handedOver.empty()) return true;
+  NumberStatement statement = NumberStatement::read(handedOver);
   if (!statement.ok()) return true;
   answer.asked = true;
   answer.sort = statement.sort();
@@ -720,17 +785,19 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
   Search searches[2] = {{false, base + "-0.answer", base + "-0.out", statement.witnessProblem(false)},
                         {true, base + "-1.answer", base + "-1.out", statement.witnessProblem(true)}};
 
-  /* Nothing buffered may cross the fork (see searchWithVampire()). */
-  std::cout.flush();
-  if (run.certificates.is_open()) run.certificates.flush();
-  fflush(nullptr);
-
-  for (Search& search : searches) {
+  /* Starts the search in a child process; with askNumbers, on the problem
+   * whose proof names the numbers. Returns false in the child, with the
+   * problem loaded. Nothing buffered may cross the fork (see
+   * searchWithVampire()). */
+  auto launch = [&](Search& search, bool askNumbers) {
+    std::cout.flush();
+    if (run.certificates.is_open()) run.certificates.flush();
+    fflush(nullptr);
     pid_t child = Lib::Sys::fork();
     if (child != 0) {
       search.process = child;
       search.running = true;
-      continue;
+      return true;
     }
     Lib::System::registerForSIGHUPOnParentDeath();
     int file = open(search.outputPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -742,10 +809,11 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     options.setTimeLimitInDeciseconds(total ? std::min(total, options.mathNumbersTime()) : options.mathNumbersTime());
     /* With numbers to ask for: the same problem, written so that a proof
      * names them, and the request for the answer. */
-    bool numbers = !search.witnesses.quantifiers.empty();
+    bool numbers = askNumbers;
     if (numbers) {
       try {
         options.set("question_answering", "plain");
+        if (search.witnesses.counted) options.set("saturation_algorithm", "discount");
       } catch (Lib::Exception&) {
         numbers = false;
       }
@@ -757,7 +825,9 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     settings.answerPath = search.answerPath;
     LogicProblem::installLoaded(settings);
     return false;
-  }
+  };
+  for (Search& search : searches)
+    if (!launch(search, !search.witnesses.quantifiers.empty() && !search.witnesses.counted)) return false;
 
   /* The first proof ends the other search. */
   Search* settled = nullptr;
@@ -784,18 +854,32 @@ bool askArithmetic(const Parse::LaTeX::Item& item, const std::string& problemNam
     /* The numbers Vampire gave, if the statement is one that numbers
      * settle: the checker recomputes it on them, and nothing else makes
      * the answer a verified one. */
-    std::vector<std::string> values;
+    std::vector<std::vector<std::string>> offered;
     const NumberStatement::WitnessProblem& witnesses = settled->witnesses;
-    if (!witnesses.tptp.empty() && (witnesses.quantifiers.empty() || answeredValues(settled->outputPath, values))
-        && values.size() == witnesses.quantifiers.size()) {
+    if (!witnesses.tptp.empty() && witnesses.quantifiers.empty()) {
+      offered.push_back({});   // nothing to exhibit: the checker's count settles the statement, or nothing does
+    } else if (!witnesses.tptp.empty() && !witnesses.counted) {
+      answeredTuples(settled->outputPath, witnesses.quantifiers.size(), offered);
+    } else if (!witnesses.tptp.empty()) {
+      /* The second search, for the numbers (see above this function). */
+      Search again = {settled->denied, base + "-2.answer", base + "-2.out", witnesses};
+      if (!launch(again, true)) return false;
+      Lib::Sys::waitForChildTermination(again.process);
+      VampireAnswer::read(again.answerPath, again.found);
+      if (again.found.kind == VampireAnswer::Kind::REFUTATION) answeredTuples(again.outputPath, witnesses.quantifiers.size(), offered);
+      std::remove(again.answerPath.c_str());
+      std::remove(again.outputPath.c_str());
+    }
+    for (size_t tried = 0; tried < offered.size() && tried < MAX_OFFERED_TUPLES && !answer.certified; tried++) {
+      const std::vector<std::string>& values = offered[tried];
       std::string certificate = statement.certificate(settled->denied, witnesses, values);
       const char* why = "";
-      if (proof_check_certificate(certificate.c_str(), &why) == PROOF_CHECK_ACCEPTED) {
-        answer.certified = true;
-        answer.certificate = certificate;
-        for (size_t i = 0; i < values.size(); i++)
-          answer.numbers += std::string(i ? ", " : "") + "$" + letterLatex(witnesses.letters[i]) + " = " + numberLatex(values[i]) + "$";
-      }
+      if (proof_check_certificate(certificate.c_str(), &why) != PROOF_CHECK_ACCEPTED) continue;
+      answer.certified = true;
+      answer.counted = witnesses.counted != 0;
+      answer.certificate = certificate;
+      for (size_t i = 0; i < values.size(); i++)
+        answer.numbers += std::string(i ? ", " : "") + "$" + letterLatex(witnesses.letters[i]) + " = " + numberLatex(values[i]) + "$";
     }
   }
   for (const Search& search : searches) {
@@ -1033,7 +1117,8 @@ void documentLogicItem(const Parse::LaTeX::Item& item, const LogicOutcome& outco
              + outcome.proof + "\\par}";
       else
         page = outcome.proof;
-      qr_document_external_item(begin, end, QR_PROVED, outcome.byNumbers ? "da Vampire, con i numeri ricalcolati dal verificatore"
+      qr_document_external_item(begin, end, QR_PROVED, outcome.byCount ? "con il conto completo del verificatore"
+                                                       : outcome.byNumbers ? "da Vampire, con i numeri ricalcolati dal verificatore"
                                                                            : "da Vampire, con la prova riscritta dal motore",
                                 nullptr, nullptr, page.c_str(), certificate);
       return;
@@ -1181,23 +1266,63 @@ std::optional<int> Driver::run()
        * certified proof that there is none). */
       Recheck onClauses;
       ArithmeticAnswer arithmetic;
+      CountAnswer count;
+      bool undecided = statement.verdict.outcome == QR_NOT_PROVED || statement.verdict.outcome == QR_UNSUPPORTED;
+      bool uncertified = (statement.verdict.outcome == QR_PROVED || statement.verdict.outcome == QR_REFUTED) && !statement.verdict.certified;
+      bool conditional = statement.verdict.conditional != 0;
+      /* Asking for the checker's clauses enters the engine again, and it
+       * forgets what it kept of this verdict for the document:
+       * restoreVerdict() decides the statement once more where the
+       * document needs the engine's page. */
+      auto restoreVerdict = [&]() {
+        if (statement.clausesOnly && run.document) qr_decide_item(item.text.c_str(), item.text.c_str() + item.text.size(), /* delegate_logic */ 0);
+      };
       if (statement.clausesOnly) {
         if (!refuteCheckerClauses(item, problemName, run, /* proved */ false, onClauses)) return std::nullopt;
-      } else if ((statement.verdict.outcome == QR_NOT_PROVED || statement.verdict.outcome == QR_UNSUPPORTED) && statement.notTranslated.empty()) {
+      } else if ((undecided || uncertified) && statement.notTranslated.empty()) {
+        /* A statement in one integer variable: the independent checker
+         * settles it by itself (countByChecker()). For a statement the
+         * engine decided without a certificate that is the certificate;
+         * for one it did not decide, it is the answer. A statement found
+         * false only where a condition nobody read may exclude it is not
+         * reported false (the caution of the engine, below). */
+        countByChecker(statement.numbers, count);
+        if (count.certified && count.denied && conditional) count.certified = false;
+      }
+      if (undecided && !count.certified && !statement.clausesOnly && statement.notTranslated.empty()) {
         /* Mathematics that the engine neither proved nor refuted, or read
          * and had no method for: if it is a statement with quantifiers
          * over numbers of one kind, Vampire's arithmetic theories are
          * asked (askArithmetic()). What the engine could not read is not
          * handed over, so nothing is asked of it. */
-        bool conditional = statement.verdict.conditional != 0;
-        if (!askArithmetic(item, problemName, run, arithmetic)) return std::nullopt;
+        if (!askArithmetic(statement.numbers, problemName, run, arithmetic)) return std::nullopt;
 
         /* The caution of the engine: after the formula there was a
          * condition nobody read, and the statement may be false only in
          * the cases it excludes. A proof holds whatever the condition. */
         if (arithmetic.found && arithmetic.denied && conditional) arithmetic.found = false;
       }
-      if (arithmetic.found) {
+      bool agrees = count.certified && uncertified && count.denied == (statement.verdict.outcome == QR_REFUTED);
+      if (count.certified && undecided) {
+        /* The checker's count is the answer. */
+        bool italian = run.language == Language::ITALIAN;
+        LogicOutcome outcome;
+        outcome.status = count.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED;
+        outcome.reason = italian
+          ? "Il motore matematico non aveva né una dimostrazione né una confutazione. L'enunciato ha una sola variabile intera: il verificatore indipendente lo ha stabilito da sé, provando tutti gli interi che contano."
+          : "The mathematical engine had neither a proof nor a refutation. The statement has one integer variable: the independent checker settled it by itself, trying every integer that can matter.";
+        outcome.certificate = count.certificate;
+        outcome.byCount = true;
+        outcome.proof = std::string(count.denied ? (italian ? "\\textbf{L'enunciato \\`e falso.} " : "\\textbf{The statement is false.} ")
+                                                 : (italian ? "\\textbf{Dimostrazione.} " : "\\textbf{Proof.} "))
+          + (italian ? "Una sola variabile intera: oltre il limite delle radici dei polinomi che vi compaiono ogni confronto ha un valore fisso, e ogni divisibilit\\`a si ripete con il suo periodo; il verificatore indipendente ha provato tutti gli interi fino a l\\`i."
+                     : "One integer variable: beyond the bound of the roots of the polynomials in it every comparison has a fixed value, and every divisibility repeats with its period; the independent checker tried every integer up to there.")
+          + (count.denied ? "" : " $\\Box$");
+        status = outcome.status;
+        decidedBy = "checker";
+        addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
+        reportLogic(outcome);
+      } else if (arithmetic.found) {
         bool italian = run.language == Language::ITALIAN;
         LogicOutcome outcome;
         outcome.status = arithmetic.certified ? (arithmetic.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED)
@@ -1210,9 +1335,13 @@ std::optional<int> Driver::run()
         if (arithmetic.certified) {
           /* With the numbers: the checker has recomputed the statement on them. */
           std::string with = arithmetic.numbers.empty() ? "" : (italian ? " (" : " (") + arithmetic.numbers + ")";
+          /* A quantifier over one integer that no number shows: the checker settled it by its complete count. */
+          std::string count = !arithmetic.counted ? ""
+            : italian ? ", e ha stabilito il quantificatore che resta, su un solo intero, provando tutti gli interi che contano"
+                      : ", and settled the quantifier that is left, over one integer, by trying every integer that can matter";
           outcome.reason += italian
-            ? ", con i numeri che lo mostrano" + with + ". Il verificatore indipendente ha ricalcolato l'enunciato su quei numeri."
-            : ", with the numbers that show it" + with + ". The independent checker recomputed the statement on those numbers.";
+            ? ", con i numeri che lo mostrano" + with + ". Il verificatore indipendente ha ricalcolato l'enunciato su quei numeri" + count + "."
+            : ", with the numbers that show it" + with + ". The independent checker recomputed the statement on those numbers" + count + ".";
           outcome.certificate = arithmetic.certificate;
           outcome.byNumbers = true;
           if (arithmetic.denied) outcome.detail = arithmetic.numbers;
@@ -1220,8 +1349,8 @@ std::optional<int> Driver::run()
               ? (italian ? "\\textbf{L'enunciato \\`e falso.} Un controesempio: " : "\\textbf{The statement is false.} A counterexample: ")
               : (italian ? "\\textbf{Dimostrazione.} Un esempio: " : "\\textbf{Proof.} An example: "))
             + (arithmetic.numbers.empty() ? (italian ? "il conto diretto" : "the direct computation") : arithmetic.numbers)
-            + (italian ? ". I numeri sono stati trovati dalle teorie aritmetiche di Vampire, e il verificatore indipendente ha ricalcolato l'enunciato su di essi."
-                       : ". The numbers were found by Vampire's arithmetic theories, and the independent checker recomputed the statement on them.")
+            + (italian ? ". I numeri sono stati trovati dalle teorie aritmetiche di Vampire, e il verificatore indipendente ha ricalcolato l'enunciato su di essi" + count + "."
+                       : ". The numbers were found by Vampire's arithmetic theories, and the independent checker recomputed the statement on them" + count + ".")
             + (arithmetic.denied ? "" : " $\\Box$");
         } else {
           outcome.reason += italian ? ". La prova non è ricontrollata dal verificatore indipendente."
@@ -1246,10 +1375,24 @@ std::optional<int> Driver::run()
         addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
         reportLogic(outcome);
       } else {
+        /* The engine's verdict stands. If the checker's count agrees with
+         * a verdict that had no certificate, that is its certificate; if
+         * it says the opposite, the engine was wrong, and nothing is
+         * claimed of the statement. */
+        if (agrees) status = count.denied ? Status::COUNTEREXAMPLE_VERIFIED : Status::THEOREM_CERTIFIED;
+        else if (count.certified && uncertified) status = Status::UNSOLVED;
         addCommentSignForSZS(std::cout) << "SZS status " << statusSZS(status) << " for " << problemName << std::endl;
         addCommentSignForSZS(std::cout) << "Verification status: " << statusName(status, run.language)
                                         << " [" << statusCode(status) << "]" << std::endl;
         if (!verdict.line.empty()) addCommentSignForSZS(std::cout) << "Engine verdict: " << verdict.line << std::endl;
+        if (agrees) {
+          addCommentSignForSZS(std::cout) << "The engine's verdict had no certificate. The statement has one integer variable, and the independent"
+                                             " checker settled it by itself the same way, trying every integer that can matter" << std::endl;
+          if (run.certificates.is_open()) run.certificates << count.certificate << "\n";
+        } else if (count.certified && uncertified) {
+          addCommentSignForSZS(std::cout) << "WARNING: the independent checker's count over the one integer variable of the statement says the opposite"
+                                             " of the engine's verdict; nothing is claimed of the statement" << std::endl;
+        }
         if (!statement.notTranslated.empty())
           addCommentSignForSZS(std::cout) << "Not given to Vampire as a first-order problem: " << statement.notTranslated << std::endl;
         if (statement.clausesOnly)
@@ -1258,6 +1401,7 @@ std::optional<int> Driver::run()
           addCommentSignForSZS(std::cout) << "Vampire's arithmetic theories, asked too (a problem over " << arithmetic.sort
                                           << "), proved neither the statement nor its negation" << std::endl;
         if (!verdict.certificate.empty() && run.certificates.is_open()) run.certificates << verdict.certificate << "\n";
+        restoreVerdict();
         if (run.document) qr_document_item(item.text.c_str(), item.text.c_str() + item.text.size());
       }
     }

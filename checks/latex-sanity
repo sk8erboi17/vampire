@@ -172,19 +172,29 @@ check_output_contains "% Result 12: CounterexampleVerified (engine)" --proof off
 # and says which of the two was proved. Variables of two kinds are not handed over
 check_output_contains "% Result 3: TheoremUnverified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved the statement" --proof off -t 10 latex/numbers.tex
-check_output_contains "% Result 6: CounterexampleUnverified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "as a problem over \$int, and Vampire proved its negation" --proof off -t 10 latex/numbers.tex
 
 # where numbers settle the statement Vampire is asked for them too, and the checker
 # recomputes the statement on them: statement 5 is false with x = 101, y = 102 (and the
 # two k of its hypotheses), a counterexample verified. Statement 6 is "for every m
-# there is x": no numbers refute it, and it stays not verified
+# there is x": m = 0 refutes it only because no positive x works, which no number
+# shows. The checker settles that by itself: one integer variable is left, and it
+# tries every integer that can matter. Vampire is asked for m in a second search
 check_output_contains "% Result 5: CounterexampleVerified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 6: CounterexampleVerified (vampire)" --proof off -t 10 latex/numbers.tex
+check_output_contains "and settled the quantifier that is left, over one integer, by trying every integer that can matter" --proof off -t 10 latex/numbers.tex
+
+# a statement in one integer variable needs nobody's numbers: the checker settles it
+# by itself, when the engine has no method for it (statement 2) and whatever time is
+# given to Vampire's arithmetic
+check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t 10 latex/numbers.tex
+check_output_contains "% Result 2: TheoremCertified (checker)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
+check_output_contains "statement (forall (var 110) (set ge 1) (lesseq (var 110) (pow (var 110) 2)))" --proof off -t 10 --math_certificates /dev/stdout latex/numbers.tex
 check_output_contains "% SZS answers Tuple [[" --proof off -t 10 latex/numbers.tex
 check_output_contains 'Counterexample (LaTeX): $x = ' --proof off -t 10 latex/numbers.tex
 check_output_contains "The independent checker recomputed the statement on those numbers" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 7: Unsolved (engine)" --proof off -t 10 latex/numbers.tex
-check_output_lacks "Certified" --proof off -t 10 latex/numbers.tex
+check_output_lacks "Certified (vampire)" --proof off -t 10 latex/numbers.tex
 check_output_contains "% Result 3: Unsolved (engine)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 check_output_lacks "(vampire)" --proof off -t 10 --math_numbers_time 0 latex/numbers.tex
 
